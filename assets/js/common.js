@@ -40,10 +40,11 @@ const ROLES = {
 
 /** 客户经理仅可访问数据补录相关路由 */
 const MANAGER_ALLOWED_ROUTES = ['#/branch-board', '#/manager-tasks', '#/supplement-fill'];
+const MANAGER_ONLY_ROUTES = MANAGER_ALLOWED_ROUTES;
 
 function isRouteAllowedForRole(routeBase, roleKey) {
-  if (roleKey !== 'manager') return true;
-  return MANAGER_ALLOWED_ROUTES.includes(routeBase);
+  if (roleKey === 'manager') return MANAGER_ALLOWED_ROUTES.includes(routeBase);
+  return !MANAGER_ONLY_ROUTES.includes(routeBase);
 }
 
 function getDefaultRouteForRole(roleKey) {
@@ -153,6 +154,40 @@ function reportStatusBadge(status) {
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
+function downloadReportFile(report) {
+  if (!report || report.status !== 'success') return false;
+  const fmt = (report.format || 'Excel').toLowerCase();
+  const ext = fmt.includes('word') ? 'doc' : 'xlsx';
+  const mime = fmt.includes('word')
+    ? 'application/msword'
+    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const lines = [
+    '华夏银行 · 投融资碳排放核算报告（演示导出）',
+    '',
+    `报告名称：${report.name || '-'}`,
+    `导出范围：${report.scope || '-'}`,
+    `报表模板：${report.template || '-'}`,
+    `导出格式：${report.format || '-'}`,
+    `记录笔数：${report.recordCount ?? '-'}`,
+    `归因排放量(tCO₂e)：${report.totalEmission != null ? report.totalEmission : '-'}`,
+    `生成时间：${report.generatedAt || '-'}`,
+    `操作人：${report.generatedBy || report.operator || '-'}`,
+    '',
+    '（演示文件，非真实监管报送内容）'
+  ];
+  const blob = new Blob([lines.join('\n')], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (report.name || 'export').replace(/[\\/:*?"<>|]/g, '_');
+  a.href = url;
+  a.download = `${safeName}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 function interfaceBatchStatusBadge(status) {
   if (status === 'success') {
     return '<span class="badge badge-success">获取成功</span>';
@@ -202,8 +237,10 @@ function openSupplementFillDrawer(supplementId) {
   ensureSupplementDrawer();
   const body = qs('#supplementDrawerBody');
   qs('#supplementDrawerTitle').textContent = '查看填报 · ' + s.customerName;
-  body.innerHTML = renderSupplementFillBody(s, { readonly: true });
+  body.innerHTML = renderSupplementPageWithTabs(s, Store.getTask(s.taskId), { readonly: true });
+  bindSupplementPageTabs(body);
   bindSupplementMethodTabs(true, body);
+  SUPPLEMENT_FIELDS.bindFileUpload(body, supplementId, true);
   qs('#supplementDrawer').classList.add('show');
   document.body.classList.add('drawer-open');
 }
@@ -264,33 +301,80 @@ if (typeof window !== 'undefined') window.WORKFLOW_STEP = WORKFLOW_STEP;
 
 const WORKFLOW_STEP_NAMES = ['范畴确定', '清单识别', '对象边界', '数据采集', '排放计算', '生成报告'];
 
-function getWorkflowStepRoute(stepIndex, taskId) {
+function getWorkflowStepRoute(stepIndex, taskId, options = {}) {
   const tid = taskId || Store.get().currentTaskId;
-  const q = tid ? `?taskId=${encodeURIComponent(tid)}` : '';
-  const routes = [
-    () => (tid ? `#/task-edit?id=${encodeURIComponent(tid)}` : '#/task-create'),
-    () => `#/candidates${q}`,
-    () => `#/formal${q}`,
-    () => `#/data-collect${q}`,
-    () => `#/calculation${q}`,
-    () => `#/reports${q}`
-  ];
-  return (routes[stepIndex] || routes[0])();
+  const view = options.view ?? isTaskViewMode();
+  if (stepIndex === 0) {
+    const p = new URLSearchParams();
+    if (tid) p.set('id', tid);
+    if (view) p.set('view', '1');
+    const qs = p.toString();
+    return view ? `#/task-view${qs ? '?' + qs : ''}` : `#/task-edit${qs ? '?' + qs : ''}`;
+  }
+  const paths = ['#/task-edit', '#/candidates', '#/formal', '#/data-collect', '#/calculation', '#/reports'];
+  const path = paths[stepIndex] || paths[0];
+  const p = new URLSearchParams();
+  if (tid) p.set('taskId', tid);
+  if (view) p.set('view', '1');
+  return `${path}?${p.toString()}`;
+}
+
+function isTaskViewMode() {
+  const hash = typeof location !== 'undefined' ? location.hash : '';
+  const base = hash.split('?')[0];
+  const params = new URLSearchParams(hash.split('?')[1] || '');
+  return base === '#/task-view' || params.get('view') === '1';
+}
+
+function viewModeDisabledAttr(title) {
+  if (!isTaskViewMode()) return '';
+  return ` disabled title="${title || '查看模式下不可操作'}"`;
+}
+
+
+function getWorkflowStepFromRoute() {
+  const base = (typeof location !== 'undefined' ? location.hash : '').split('?')[0];
+  const map = {
+    '#/task-view': WORKFLOW_STEP.TASK_CREATE,
+    '#/task-create': WORKFLOW_STEP.TASK_CREATE,
+    '#/task-edit': WORKFLOW_STEP.TASK_CREATE,
+    '#/candidates': WORKFLOW_STEP.CANDIDATES,
+    '#/formal': WORKFLOW_STEP.FORMAL,
+    '#/boundary': WORKFLOW_STEP.FORMAL,
+    '#/data-collect': WORKFLOW_STEP.DATA_COLLECTION,
+    '#/calculation': WORKFLOW_STEP.CALCULATION,
+    '#/reports': WORKFLOW_STEP.REPORT
+  };
+  return map[base];
+}
+
+function workflowStepIsDone(i, ctx) {
+  const { progressStep, taskProgressStep } = ctx;
+  const doneThrough = taskProgressStep != null ? taskProgressStep : progressStep;
+  if (doneThrough >= WORKFLOW_STEP.REPORT) return true;
+  return i <= doneThrough;
+}
+
+function workflowStepState(i, ctx) {
+  if (workflowStepIsDone(i, ctx)) return 'done';
+  if (!ctx.viewMode && i === ctx.activeIdx) return 'active';
+  return 'wait';
 }
 
 function demoSteps(current, options = {}) {
-  const { taskId, clickable = false, maxStep } = options;
+  const { taskId, clickable = false, maxStep, viewMode = isTaskViewMode(), taskProgressStep } = options;
   const maxIdx = WORKFLOW_STEP_NAMES.length - 1;
-  const displayIdx = current >= WORKFLOW_STEP.REPORT
-    ? maxIdx + 1
-    : Math.max(0, Math.min(current, maxIdx));
-  let maxClickIdx = current >= WORKFLOW_STEP.REPORT ? maxIdx : Math.max(0, Math.min(current, maxIdx));
-  if (maxStep != null) maxClickIdx = Math.min(maxClickIdx, maxStep);
+  const progressStep = maxStep != null ? maxStep : current;
+  const maxClickIdx = progressStep >= WORKFLOW_STEP.REPORT
+    ? maxIdx
+    : Math.max(0, Math.min(progressStep, maxIdx));
+  const activeIdx = Math.max(0, Math.min(current, maxIdx));
+  const stepCtx = { activeIdx, progressStep, viewMode, maxIdx, taskProgressStep };
 
   return `<div class="steps">${WORKFLOW_STEP_NAMES.map((s, i) => {
-    const state = i < displayIdx ? 'done' : (i === displayIdx ? 'active' : 'wait');
+    const state = workflowStepState(i, stepCtx);
     const tail = i < WORKFLOW_STEP_NAMES.length - 1
-      ? `<div class="step-tail ${i < displayIdx ? 'done' : ''}"></div>` : '';
+      ? `<div class="step-tail ${workflowStepIsDone(i, stepCtx) ? 'done' : ''}"></div>` : '';
     const canClick = clickable && i <= maxClickIdx;
     const inner = `
       <div class="step-content">
@@ -299,11 +383,17 @@ function demoSteps(current, options = {}) {
       </div>
       ${tail}`;
     if (canClick) {
-      const href = getWorkflowStepRoute(i, taskId);
+      const href = getWorkflowStepRoute(i, taskId, { view: viewMode });
       return `<a href="${href}" class="step-item ${state} clickable">${inner}</a>`;
     }
     return `<div class="step-item ${state}">${inner}</div>`;
   }).join('')}</div>`;
+}
+
+function getTaskMaxWorkflowStep(task) {
+  if (!task) return WORKFLOW_STEP.TASK_CREATE;
+  if (getTaskListStatus(task) === 'completed') return WORKFLOW_STEP.REPORT;
+  return Math.max(task.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP.TASK_CREATE);
 }
 
 /** 数据补录模块页面不展示核算六步流程条 */
@@ -315,13 +405,18 @@ function shouldShowWorkflowSteps() {
 
 function workflowStepsBar(task, stepOverride) {
   if (!shouldShowWorkflowSteps()) return '';
-  const step = stepOverride ?? task?.workflowStep ?? WORKFLOW_STEP.CANDIDATES;
-  const maxStep = task?.id && Store.isDataCollectionComplete && !Store.isDataCollectionComplete(task.id)
-    ? WORKFLOW_STEP.DATA_COLLECTION
-    : (task?.id && (task.workflowStep ?? 0) < WORKFLOW_STEP.REPORT && !task.resultsConfirmed
-      ? WORKFLOW_STEP.CALCULATION
-      : undefined);
-  return demoSteps(step, { taskId: task?.id, clickable: !!task?.id, maxStep });
+  const step = stepOverride ?? getWorkflowStepFromRoute() ?? task?.workflowStep ?? WORKFLOW_STEP.CANDIDATES;
+  const taskProgress = getTaskMaxWorkflowStep(task);
+  const maxStep = getTaskListStatus(task) === 'completed'
+    ? WORKFLOW_STEP.REPORT
+    : Math.max(taskProgress, step, WORKFLOW_STEP.TASK_CREATE);
+  return demoSteps(step, {
+    taskId: task?.id,
+    clickable: !!task?.id,
+    maxStep,
+    taskProgressStep: taskProgress,
+    viewMode: isTaskViewMode()
+  });
 }
 
 /** 任务当前所在步骤名称（6 步流程） */
@@ -353,12 +448,70 @@ function taskListStatusText(task) {
 const TASK_YEAR_MIN = 2026;
 const TASK_YEAR_MAX = 2099;
 
+function clampTaskYear(year) {
+  const y = Number(year);
+  if (!Number.isFinite(y)) return TASK_YEAR_MIN;
+  return Math.min(TASK_YEAR_MAX, Math.max(TASK_YEAR_MIN, y));
+}
+
+function renderTaskYearDatalist(id = 'taskYearList') {
+  let opts = '';
+  for (let y = TASK_YEAR_MIN; y <= TASK_YEAR_MAX; y++) {
+    opts += `<option value="${y}"></option>`;
+  }
+  return `<datalist id="${id}">${opts}</datalist>`;
+}
+
+/** @deprecated 使用 renderTaskYearField / renderTaskYearFilterField */
 function renderYearSelectOptions(selected, includeAll) {
   let html = includeAll ? '<option value="">全部</option>' : '';
-  for (let y = TASK_YEAR_MAX; y >= TASK_YEAR_MIN; y--) {
+  for (let y = TASK_YEAR_MIN; y <= TASK_YEAR_MAX; y++) {
     html += `<option value="${y}" ${String(selected) === String(y) ? 'selected' : ''}>${y}</option>`;
   }
   return html;
+}
+
+function renderTaskYearField(value, options = {}) {
+  const { readonly = false, name = 'year', id = '', required = true, legacyReadonly = false } = options;
+  const raw = value != null && value !== '' ? Number(value) : TASK_YEAR_MIN;
+  if (readonly || legacyReadonly) {
+    return `<input name="${name}" id="${id || name}" value="${raw}" readonly class="year-input-readonly">`;
+  }
+  const display = clampTaskYear(raw);
+  const idAttr = id || name;
+  return `<div class="year-field">
+    <button type="button" class="year-step-btn" data-year-step="-1" aria-label="上一年">−</button>
+    <input type="number" name="${name}" id="${idAttr}" class="year-input" list="taskYearFormList"
+      min="${TASK_YEAR_MIN}" max="${TASK_YEAR_MAX}" step="1" value="${display}" ${required ? 'required' : ''}>
+    <button type="button" class="year-step-btn" data-year-step="1" aria-label="下一年">+</button>
+    <span class="year-unit">年</span>
+  </div>${renderTaskYearDatalist('taskYearFormList')}`;
+}
+
+function renderTaskYearFilterField(selected) {
+  const val = selected != null && selected !== '' ? selected : '';
+  return `<div class="year-filter-field"><input type="number" id="tf_year" class="year-filter-input" list="taskYearFilterList"
+    min="${TASK_YEAR_MIN}" max="${TASK_YEAR_MAX}" step="1" placeholder="全部" value="${val}">${renderTaskYearDatalist('taskYearFilterList')}</div>`;
+}
+
+function bindTaskYearStepper(root) {
+  const scope = root || document;
+  qsa('.year-field', scope).forEach(wrap => {
+    const input = wrap.querySelector('.year-input');
+    if (!input) return;
+    qsa('.year-step-btn', wrap).forEach(btn => {
+      btn.onclick = () => {
+        const step = Number(btn.dataset.yearStep) || 0;
+        const cur = Number(input.value) || TASK_YEAR_MIN;
+        input.value = clampTaskYear(cur + step);
+      };
+    });
+  });
+}
+
+function isLegacyTaskYear(year) {
+  const y = Number(year);
+  return Number.isFinite(y) && (y < TASK_YEAR_MIN || y > TASK_YEAR_MAX);
 }
 
 const TASK_FILTER_KEY = 'task_list_filters';
@@ -403,7 +556,11 @@ function renderTaskFormFields(task, options = {}) {
   return `
     <div class="form-item"><label>${label('任务名称')}</label><input name="name" ${readonly ? '' : 'required'} value="${t.name || ''}" ${ro}></div>
     <div class="form-item"><label>${label('核算年度')}</label>
-      <select name="year" ${readonly ? '' : 'required'} ${dis}>${renderYearSelectOptions(t.year || TASK_YEAR_MIN, false)}</select>
+      ${renderTaskYearField(t.year || TASK_YEAR_MIN, {
+        readonly,
+        legacyReadonly: !readonly && isLegacyTaskYear(t.year)
+      })}
+      ${!readonly && !isLegacyTaskYear(t.year) ? `<span class="field-hint">${TASK_YEAR_MIN}–${TASK_YEAR_MAX}，与接口同步台账年度一致</span>` : ''}
     </div>
     <div class="form-item"><label>${label('行业范围')}</label>
       <select name="industryScope" id="industryScopeSelect" ${readonly ? '' : 'required'} ${dis}>
@@ -448,10 +605,6 @@ function renderTaskFormFields(task, options = {}) {
         <option value="深圳分行" ${t.initiatorBranch === '深圳分行' ? 'selected' : ''}>深圳分行</option>
       </select>
     </div>
-    <div class="form-item" id="branchReviewWrap" style="display:${(t.initiatorOrg || 'hq') === 'hq' ? '' : 'none'}">
-      <label>&nbsp;</label>
-      <label style="cursor:pointer"><input type="checkbox" name="branchReviewEnabled" id="branchReviewEnabled" ${t.branchReviewEnabled !== false ? 'checked' : ''} ${readonly ? 'disabled' : ''}> 启用分行初审（可选，不阻塞截止提交）</label>
-    </div>
     <div class="form-item"><label>${label('数据采集截止')}</label>
       <input type="datetime-local" name="dataCutoffAt" value="${t.dataCutoffAt ? t.dataCutoffAt.replace(' ', 'T').slice(0, 16) : ''}" ${ro}>
     </div>
@@ -466,7 +619,7 @@ function readTaskFormPayload(form) {
   const industryCustomCodes = industryScope === '自定义' ? getSelectedCustomIndustryCodes() : [];
   return {
     name: form.name.value,
-    year: +form.year.value,
+    year: clampTaskYear(form.year.value),
     industryScope,
     industryCustomCodes,
     industryCodes: IndustryScope.resolveCodes(industryScope, industryCustomCodes),
@@ -476,7 +629,6 @@ function readTaskFormPayload(form) {
     deadline: form.deadline.value,
     initiatorOrg: form.initiatorOrg?.value || 'hq',
     initiatorBranch: form.initiatorBranch?.value || form.orgScope?.value || '北京分行',
-    branchReviewEnabled: form.branchReviewEnabled?.checked !== false,
     dataCutoffAt: form.dataCutoffAt?.value ? form.dataCutoffAt.value.replace('T', ' ') + ':00' : null
   };
 }
@@ -484,12 +636,10 @@ function readTaskFormPayload(form) {
 function bindTaskInitiatorToggle() {
   const orgSel = qs('#initiatorOrgSelect');
   const branchWrap = qs('#initiatorBranchWrap');
-  const reviewWrap = qs('#branchReviewWrap');
   if (!orgSel) return;
   const toggle = () => {
     const isBranch = orgSel.value === 'branch';
     if (branchWrap) branchWrap.style.display = isBranch ? '' : 'none';
-    if (reviewWrap) reviewWrap.style.display = isBranch ? 'none' : '';
   };
   orgSel.addEventListener('change', toggle);
   toggle();
@@ -611,15 +761,85 @@ function collectModeBadge(mode) {
     : '<span class="badge badge-primary">经济法直算</span>';
 }
 
+const DATA_COLLECT_STATUS_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'pending_lock', label: '待锁定' },
+  { value: 'pending_dispatch', label: '未派发' },
+  { value: 'pending_economy', label: '待直算' },
+  { value: 'economy_done', label: '已直算' },
+  { value: 'pending_fill', label: '待填报/待提交' },
+  { value: 'in_progress', label: '填报中' },
+  { value: 'branch_review', label: '分行初审' },
+  { value: 'hq_review', label: '总行终审' },
+  { value: 'approved', label: '已完成' },
+  { value: 'returned', label: '已退回' }
+];
+
+function getDataCollectRowStatus(formal, supplement) {
+  if (formal.status !== 'confirmed') return 'pending_lock';
+  if (supplement) {
+    if (supplement.status === 'returned') return 'returned';
+    if (supplement.status === 'pending') return 'pending_fill';
+    if (supplement.status === 'in_progress') return 'in_progress';
+    if (supplement.status === 'completed') {
+      const stage = supplement.auditStage || 'pending_fill';
+      if (stage === 'approved') return 'approved';
+      if (stage === 'pending_fill') return 'pending_fill';
+      if (stage === 'branch_review') return 'branch_review';
+      if (stage === 'hq_review') return 'hq_review';
+      return 'branch_review';
+    }
+    return 'pending_fill';
+  }
+  const mode = formal.collectMode || resolveCollectMode(formal.loanType);
+  if (mode === 'economy_direct') {
+    return formal.economyDirectStatus === 'done' ? 'economy_done' : 'pending_economy';
+  }
+  return 'pending_dispatch';
+}
+
+function getDataCollectFilters(taskId) {
+  try {
+    return JSON.parse(sessionStorage.getItem(`data_collect_filters_${taskId}`) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveDataCollectFilters(taskId, filters) {
+  sessionStorage.setItem(`data_collect_filters_${taskId}`, JSON.stringify(filters || {}));
+}
+
+function filterDataCollectList(list, filters, taskId) {
+  const f = filters || {};
+  const supplements = Store.get().supplements.filter(s => s.taskId === taskId);
+  return list.filter(formal => {
+    const supp = supplements.find(s => s.formalId === formal.id);
+    if (f.keyword && !(formal.customerName || '').toLowerCase().includes(f.keyword.trim().toLowerCase())) return false;
+    if (f.collectMode) {
+      const mode = formal.collectMode || resolveCollectMode(formal.loanType);
+      if (mode !== f.collectMode) return false;
+    }
+    if (f.status && getDataCollectRowStatus(formal, supp) !== f.status) return false;
+    return true;
+  });
+}
+
+function renderDataCollectStatusOptions(selected) {
+  return DATA_COLLECT_STATUS_OPTIONS.map(o =>
+    `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
 function auditStageLabel(supp, task) {
   if (!supp) return '—';
   const stage = supp.auditStage || 'pending_fill';
   const map = {
-    pending_fill: '待填报',
+    pending_fill: '待提交',
     branch_review: '分行初审',
     hq_review: '总行终审',
     approved: '已通过',
-    rejected: '已驳回'
+    rejected: '已退回'
   };
   return map[stage] || stage;
 }
@@ -644,14 +864,93 @@ function economyDirectStatusBadge(formal) {
   return '<span class="badge badge-warning">待直算</span>';
 }
 
+function isDataCollectAdmin(roleKey) {
+  return roleKey === 'hq' || roleKey === 'branch';
+}
+
+function canAdminRejectSupplement(supp) {
+  return !!supp && supp.auditStage === 'approved';
+}
+
+function canHqAdminRejectSupplement(supp, roleKey, task) {
+  if (!canAdminRejectSupplement(supp)) return false;
+  if (roleKey === 'hq') return true;
+  if (roleKey === 'branch' && task?.initiatorOrg === 'branch') return true;
+  return false;
+}
+
+function isSupplementEditableByManager(s) {
+  if (!s) return false;
+  if (['pending', 'in_progress', 'returned'].includes(s.status)) return true;
+  if (s.status === 'completed') {
+    const stage = s.auditStage || 'pending_fill';
+    return stage === 'pending_fill';
+  }
+  return false;
+}
+
+function wasAdminRejected(s) {
+  if (!s?.id) return false;
+  return getSupplementApprovals(s).some(a => a.reviewLevel === 'admin' && a.status === 'rejected');
+}
+
+function renderSupplementRejectBanner(s) {
+  if (!s || (s.status !== 'returned' && !s.rejectReason)) return '';
+  if (wasAdminRejected(s)) {
+    const reason = s.rejectReason ? `原因：${escapeHtml(s.rejectReason)}` : '';
+    return `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-bottom:12px">
+      该笔数据已由管理员驳回，请重新填报。${reason}
+    </div>`;
+  }
+  return `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-bottom:12px">
+    该笔数据已被驳回或未通过审核，请修改后重新提交。${s.rejectReason ? `原因：${escapeHtml(s.rejectReason)}` : '可在「审批流程」查看完整记录。'}
+  </div>`;
+}
+
+function managerSupplementActionLabel(s) {
+  if (!s) return '查看';
+  if (s.status === 'returned') return '重新填报';
+  if (s.status === 'pending' || s.status === 'in_progress') return '去填报';
+  if (s.status === 'completed' && (s.auditStage || 'pending_fill') === 'pending_fill') return '去填报';
+  if (['branch_review', 'hq_review'].includes(s.auditStage)) return '查看进度';
+  if (s.auditStage === 'approved') return '查看';
+  return '查看';
+}
+
+function renderManagerSupplementOp(s, opts = {}) {
+  const label = managerSupplementActionLabel(s);
+  const href = `#/supplement-fill?id=${s.id}`;
+  const showSubmit = opts.showSubmit !== false;
+  let html = `<a href="${href}" class="btn-link">${label}</a>`;
+  if (showSubmit && canSubmitSupplementForReview(s)) {
+    html += ` <button type="button" class="btn-link submit-review-btn" data-id="${s.id}">提交审核</button>`;
+  } else if (showSubmit && ['branch_review', 'hq_review'].includes(s.auditStage)) {
+    html += ` <span style="color:#909399;font-size:13px">审核中</span>`;
+  }
+  return html;
+}
+
+function canSubmitSupplementForReview(supp) {
+  if (!supp || supp.status !== 'completed') return false;
+  const stage = supp.auditStage || 'pending_fill';
+  return !['approved', 'branch_review', 'hq_review'].includes(stage);
+}
+
 function reviewLevelLabel(level) {
-  return level === 'branch' ? '分行初审' : level === 'hq' ? '总行终审' : '审核';
+  if (level === 'branch') return '分行初审';
+  if (level === 'hq') return '总行终审';
+  if (level === 'admin') return '管理员驳回';
+  if (level === 'submit') return '提交审核';
+  return '审核';
 }
 
 function supplementActiveTab(s) {
   const id = s?.methodId;
   if (id === 'energy') return 'energy';
-  if (id === 'product') return 'product';
+  if (id === 'product') {
+    if (typeof SUPPLEMENT_FIELDS !== 'undefined' && !SUPPLEMENT_FIELDS.productSupported(s)) return 'report';
+    return 'product';
+  }
   if (id === 'economy_fallback') return 'other';
   if (id === 'economy') {
     if (isEconomyTabLockedForSupplement(s)) return 'report';
@@ -697,6 +996,173 @@ const SUPPLEMENT_METHOD_TABS = [
   { id: 'other', label: '其他计算法' }
 ];
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function approvalStatusBadge(status) {
+  const map = {
+    pending: ['待审核', 'badge-warning'],
+    approved: ['已通过', 'badge-success'],
+    rejected: ['已驳回', 'badge-danger'],
+    voided: ['已作废', 'badge-draft']
+  };
+  const [text, cls] = map[status] || [status, 'badge-draft'];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+function approvalStatusLabel(status) {
+  return {
+    pending: '待审核',
+    approved: '已通过',
+    rejected: '已驳回',
+    voided: '已作废'
+  }[status] || status || '—';
+}
+
+function getSupplementApprovals(s) {
+  if (!s?.id) return [];
+  return (Store.get().approvals || [])
+    .filter(a => a.docType === 'supplement' && a.docId === s.id)
+    .sort((a, b) => {
+      const ra = a.round || 0;
+      const rb = b.round || 0;
+      if (ra !== rb) return ra - rb;
+      const ta = Date.parse(String(a.submitTime || '').replace(/-/g, '/')) || 0;
+      const tb = Date.parse(String(b.submitTime || '').replace(/-/g, '/')) || 0;
+      if (ta !== tb) return ta - tb;
+      const order = { submit: 0, branch: 1, hq: 2, admin: 3 };
+      return (order[a.reviewLevel] ?? 50) - (order[b.reviewLevel] ?? 50);
+    });
+}
+
+function supplementFillDefaultTab(s) {
+  if (!s) return 'fill';
+  if (s.status === 'returned' || s.rejectReason) return 'approval';
+  return 'fill';
+}
+
+function approvalResultLabel(status) {
+  if (status === 'approved') return '通过';
+  if (status === 'rejected') return '不通过';
+  if (status === 'voided') return '已作废';
+  return '—';
+}
+
+function renderSupplementDispatchTimelineNode(s) {
+  if (!s?.dispatchedAt) return '';
+  return `<div class="approval-timeline-item is-done is-dispatch">
+    <div class="approval-timeline-head">
+      <strong>任务派发</strong>
+      <span class="badge badge-success">已完成</span>
+    </div>
+    <div class="approval-timeline-meta">
+      <div><span class="label">派发人</span>${escapeHtml(s.dispatchedBy || '总行绿金部')}</div>
+      <div><span class="label">派发时间</span>${s.dispatchedAt}</div>
+      <div><span class="label">截止日期</span>${s.deadline || '—'}</div>
+    </div>
+  </div>`;
+}
+
+function renderSupplementApprovalTimeline(s, task) {
+  const approvals = getSupplementApprovals(s);
+  const dispatchNode = renderSupplementDispatchTimelineNode(s);
+
+  const approvalItems = approvals.map(a => {
+    if (a.reviewLevel === 'submit') {
+      const round = a.round || 1;
+      return `<div class="approval-timeline-item is-done">
+        <div class="approval-timeline-head">
+          <strong>提交审核（第${round}轮）</strong>
+          <span class="badge badge-success">已完成</span>
+        </div>
+        <div class="approval-timeline-meta">
+          <div><span class="label">提交人</span>${escapeHtml(a.submitter || '—')}</div>
+          <div><span class="label">提交时间</span>${a.submitTime || '—'}</div>
+        </div>
+      </div>`;
+    }
+    const isCurrent = a.status === 'pending';
+    const stateCls = a.status === 'voided' ? 'is-voided'
+      : a.status === 'rejected' ? 'is-rejected'
+      : a.status === 'approved' ? 'is-done'
+      : isCurrent ? 'is-current' : '';
+    const nodeTitle = reviewLevelLabel(a.reviewLevel);
+    const approver = a.reviewLevel === 'admin'
+      ? (a.approver || '总行管理员')
+      : a.status === 'pending'
+        ? approvalCurrentApproverLabel(a, task)
+        : (a.approver || '—');
+    const reason = (a.rejectReason || '').trim()
+      || (a.status === 'rejected' && a.reviewLevel === 'admin' && s.rejectReason ? String(s.rejectReason).trim() : '');
+    const currentTag = isCurrent ? '<span class="badge badge-warning approval-current-tag">当前节点</span>' : '';
+    const voidTag = a.status === 'voided' ? '<span class="badge badge-draft">已作废</span>' : '';
+    return `<div class="approval-timeline-item ${stateCls}">
+      <div class="approval-timeline-head">
+        <strong>${nodeTitle}</strong>${currentTag}${voidTag}
+        ${approvalStatusBadge(a.status)}
+      </div>
+      <div class="approval-timeline-meta">
+        ${a.reviewLevel !== 'admin' ? `<div><span class="label">提交人</span>${escapeHtml(a.submitter || '—')} · ${a.submitTime || '—'}</div>` : ''}
+        <div><span class="label">${a.reviewLevel === 'admin' ? '操作人' : '审批人'}</span>${escapeHtml(approver)}</div>
+        <div><span class="label">${a.reviewLevel === 'admin' ? '操作状态' : '审批状态'}</span>${approvalStatusLabel(a.status)}</div>
+        <div><span class="label">${a.reviewLevel === 'admin' ? '操作结果' : '审批结果'}</span>${approvalResultLabel(a.status)}</div>
+        ${a.approveTime ? `<div><span class="label">${a.reviewLevel === 'admin' ? '操作时间' : '审批时间'}</span>${a.approveTime}</div>` : ''}
+        ${reason ? `<div class="approval-timeline-reason"><span class="label">${a.reviewLevel === 'admin' ? '驳回原因' : '审批原因'}</span>${escapeHtml(reason)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const reviewApprovals = approvals.filter(a => a.reviewLevel !== 'submit');
+  const items = dispatchNode + approvalItems;
+  const followHint = !reviewApprovals.some(a => a.status === 'pending') && dispatchNode && !reviewApprovals.length
+    ? '<p style="color:#909399;text-align:center;padding:16px 0 4px;font-size:13px">提交审核后可查看后续审批节点</p>'
+    : '';
+  const timelineContent = items
+    ? `<div class="approval-timeline">${items}</div>${followHint}`
+    : '<p style="color:#909399;text-align:center;padding:24px 0">暂无审批记录，任务派发后可在此查看流程进度</p>';
+  const extra = s.rejectReason && !approvals.some(a => a.status === 'rejected')
+    ? `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-top:12px">驳回原因：${escapeHtml(s.rejectReason)}</div>`
+    : '';
+
+  return `<div class="card"><div class="card-header"><h3>审批流程</h3></div><div class="card-body">${timelineContent}${extra}</div></div>`;
+}
+
+function renderSupplementPageWithTabs(s, task, options = {}) {
+  const defaultTab = options.defaultTab || supplementFillDefaultTab(s);
+  const fillActive = defaultTab === 'fill';
+  const approvalActive = defaultTab === 'approval';
+  const rejectBanner = renderSupplementRejectBanner(s);
+  return `
+    ${rejectBanner}
+    <div class="tabs tabs-segment supplement-page-tabs" id="supplementPageTabs">
+      <div class="tab ${fillActive ? 'active' : ''}" data-page-tab="fill">填报内容</div>
+      <div class="tab ${approvalActive ? 'active' : ''}" data-page-tab="approval">审批流程</div>
+    </div>
+    <div class="supplement-page-panel ${fillActive ? 'active' : ''}" data-page-panel="fill">
+      ${renderSupplementFillBody(s, options)}
+    </div>
+    <div class="supplement-page-panel ${approvalActive ? 'active' : ''}" data-page-panel="approval">
+      ${renderSupplementApprovalTimeline(s, task)}
+    </div>`;
+}
+
+function bindSupplementPageTabs(rootEl) {
+  const root = rootEl || document;
+  qsa('#supplementPageTabs .tab', root).forEach(tab => {
+    tab.onclick = () => {
+      qsa('#supplementPageTabs .tab', root).forEach(x => x.classList.remove('active'));
+      qsa('.supplement-page-panel', root).forEach(x => x.classList.remove('active'));
+      tab.classList.add('active');
+      qs(`.supplement-page-panel[data-page-panel="${tab.dataset.pageTab}"]`, root)?.classList.add('active');
+    };
+  });
+}
+
 /** 与补录填报页一致的表单区域（支持只读） */
 function renderSupplementFillBody(s, options = {}) {
   const readonly = !!options.readonly;
@@ -716,47 +1182,30 @@ function renderSupplementFillBody(s, options = {}) {
     if (t === 'economy' && economyLocked) cls += ' tab-panel-locked';
     return cls;
   };
-  const channel = s.disclosureChannel || 'ESG报告';
-  const verified = s.thirdPartyVerified === false ? 'no' : 'yes';
   const directView = economyLocked ? getEconomyDirectViewData(s) : null;
   const basis = directView?.economyBasis || s.economyBasis || 'revenue';
   const economyValue = directView?.economyValue ?? s.economyValue ?? s.revenue ?? '';
   const economyFactor = directView?.economyFactor ?? s.economyFactor ?? 2.35;
   const fallbackFactor = s.fallbackFactor ?? s.economyFactor ?? 2.46;
+  const methodTabs = getSupplementMethodTabs(s);
   const economyLockTip = economyLocked
     ? `<div class="locked-tip">该笔业务在数据采集环节已选择<strong>经济法直算</strong>，经济活动法数据由系统直算生成，此处<strong>不可编辑</strong>，仅供查看。${directView?.economyDirectStatus === 'done' ? `直算时间：${directView.economyDirectAt || '—'}。` : '（直算尚未完成）'}${directView?.entityEmission != null ? ` 主体排放：${formatNum(directView.entityEmission)} tCO₂e。` : ''}</div>`
     : '';
 
   return `
-    <div class="demo-tip">派发：${s.dispatchedAt || '-'} · ${s.dispatchedBy || '总行绿金部'} · 截止 ${s.deadline || '-'}</div>
-    <div class="demo-tip">方法优先级：报告法 → 物理活动法-能源法 → 物理活动法-产品法 → 经济活动法 → 其他计算法（见指引第七章）</div>
     <div class="card"><div class="card-header"><h3>企业基本信息</h3></div>
     <div class="card-body form-grid">
-      <div class="form-item"><label>总资产(万元)</label><input id="f_total_assets" type="number" value="${s.totalAssets ?? ''}" ${dis}></div>
-      <div class="form-item"><label>营业收入(万元)</label><input id="f_revenue" type="number" value="${s.revenue ?? ''}" ${dis}></div>
-      <div class="form-item"><label>投融资日均/月均余额(万元)</label><input id="f_avg_loan" type="number" value="${s.avgLoanBalance ?? ''}" ${dis}></div>
+      ${SUPPLEMENT_FIELDS.renderBasicInfo(s, dis)}
     </div></div>
     <div class="card"><div class="card-header"><h3>排放数据（择一填报）</h3></div>
+    <div class="demo-tip method-priority-tip">方法优先级：报告法 → 物理活动法-能源法 → 物理活动法-产品法 → 经济活动法 → 其他计算法（见指引第七章）</div>
     <div class="tabs method-tabs-bar" id="methodTabs">
-      ${SUPPLEMENT_METHOD_TABS.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
+      ${methodTabs.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
     </div>
     <div class="card-body">
-      <div class="${panelCls('report')}" data-panel="report"><div class="form-grid">
-        <div class="form-item"><label>碳排放量(tCO2)</label><input id="f_report_emission" type="number" value="${s.reportedEmission ?? ''}" ${dis}></div>
-        <div class="form-item"><label>披露渠道</label><select id="f_channel" ${dis}>
-          ${['ESG报告', '年报', '核查报告'].map(c => `<option ${channel === c ? 'selected' : ''}>${c}</option>`).join('')}
-        </select></div>
-        <div class="form-item"><label>第三方核验</label><select id="f_verified" ${dis}>
-          <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
-          <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
-        </select></div>
-      </div></div>
-      <div class="${panelCls('energy')}" data-panel="energy"><div class="form-grid">
-        <div class="form-item full"><label>物理活动法-能源法排放总量(tCO2)</label><input id="f_energy_total" type="number" value="${s.energyTotalEmission ?? ''}" ${dis}><small style="color:#909399">E=Σ(能耗×因子)+工艺+净购入电热</small></div>
-      </div></div>
-      <div class="${panelCls('product')}" data-panel="product"><div class="form-grid">
-        <div class="form-item full"><label>物理活动法-产品法排放总量(tCO2)</label><input id="f_product_total" type="number" value="${s.productTotalEmission ?? ''}" ${dis}><small style="color:#909399">E=Σ(产量×产品因子)</small></div>
-      </div></div>
+      ${SUPPLEMENT_FIELDS.renderReportPanel(s, dis, panelCls('report'), 'report')}
+      ${SUPPLEMENT_FIELDS.renderEnergyPanel(s, dis, panelCls('energy'), 'energy')}
+      ${SUPPLEMENT_FIELDS.renderProductPanel(s, dis, panelCls('product'), 'product')}
       <div class="${panelCls('economy')}" data-panel="economy">
         ${economyLockTip}
         <div class="form-grid">
@@ -770,6 +1219,7 @@ function renderSupplementFillBody(s, options = {}) {
       <div class="${panelCls('other')}" data-panel="other"><div class="form-grid">
         <div class="form-item"><label>行业排放因子</label><input id="f_fallback_factor" type="number" step="0.01" value="${fallbackFactor}" ${dis}></div>
         <div class="form-item full"><small style="color:#909399">${GUIDE.FORMULAS.attribution_fallback}（无法获取主体排放数据时使用）</small></div>
+        ${SUPPLEMENT_FIELDS.renderAttachmentSection('other', s.fieldData?.other?.attachments || [], dis)}
       </div></div>
     </div></div>`;
 }
@@ -802,6 +1252,7 @@ function approvalNextApproverLabel(approval, task) {
 
 function filterApprovalsForRole(approvals, roleKey, role, taskId) {
   let list = approvals.filter(a => !taskId || a.taskId === taskId);
+  list = list.filter(a => a.reviewLevel !== 'submit');
   const d = Store.get();
   if (roleKey === 'manager') {
     return list.filter(a => {
@@ -817,15 +1268,18 @@ function filterApprovalsForRole(approvals, roleKey, role, taskId) {
       return s && s.branch === role.branch;
     });
   }
-  return list.filter(a => a.docType === 'supplement' || roleKey === 'hq');
+  if (roleKey === 'hq') {
+    return list.filter(a => a.docType === 'supplement');
+  }
+  return list.filter(a => a.docType === 'supplement');
 }
 
 function canUserReviewApproval(approval, roleKey) {
   if (!approval || approval.status !== 'pending') return false;
-  if (approval.docType !== 'supplement') return roleKey === 'hq';
+  if (approval.docType !== 'supplement') return false;
   if (approval.reviewLevel === 'branch') return roleKey === 'branch';
   if (approval.reviewLevel === 'hq') return roleKey === 'hq';
-  return roleKey === 'hq';
+  return false;
 }
 
 /** 审核页底部操作栏（审核模式） */
@@ -869,11 +1323,11 @@ function ensureApprovalConfirmModal() {
   return qs('#approvalConfirmModal');
 }
 
-function openApprovalActionConfirm(type, onConfirm) {
+function openApprovalActionConfirm(type, onConfirm, options = {}) {
   if (!ensureApprovalConfirmModal()) return;
   const isApprove = type === 'approve';
-  qs('#approvalConfirmTitle').textContent = isApprove ? '审核通过' : '审核不通过';
-  qs('#approvalConfirmMessage').textContent = isApprove ? '是否确认审核通过？' : '是否确认审核不通过？';
+  qs('#approvalConfirmTitle').textContent = options.title || (isApprove ? '审核通过' : '审核不通过');
+  qs('#approvalConfirmMessage').textContent = options.message || (isApprove ? '是否确认审核通过？' : '是否确认审核不通过？');
   const reasonWrap = qs('#approvalConfirmReasonWrap');
   const reasonInput = qs('#approvalConfirmReason');
   reasonWrap.style.display = isApprove ? 'none' : 'block';
@@ -928,6 +1382,151 @@ function candidateIndustryLabel(c) {
   if (c.industryLabel) return c.industryLabel;
   if (c.gbIndustryCode && c.gbIndustryName) return `${c.gbIndustryCode} ${c.gbIndustryName}`;
   return c.industryMajor || '-';
+}
+
+function getDefaultCandidateFilterRules(task) {
+  const t = task || {};
+  const scopeCodes = IndustryScope.resolveCodes(t.industryScope, t.industryCustomCodes);
+  const eightCodes = IndustryScope.getEightCodes();
+  let industries;
+  if (t.industryScope === '自定义') {
+    industries = eightCodes.filter(c => scopeCodes.includes(c));
+    if (!industries.length) industries = scopeCodes.slice();
+  } else {
+    industries = eightCodes.slice();
+  }
+  return {
+    productTypes: (GUIDE.SCOPE_DEFAULT_PRODUCT_TYPES || []).slice(),
+    borrowerTypes: (GUIDE.SCOPE_DEFAULT_BORROWER_TYPES || []).slice(),
+    industries,
+    balanceMin: String(GUIDE.BALANCE_THRESHOLD_WAN || 500),
+    balanceMax: '',
+    customized: false
+  };
+}
+
+function normalizeCandidateFilterRules(rules, task) {
+  if (!rules || rules.productTypes == null) {
+    const legacy = rules || {};
+    const defaults = getDefaultCandidateFilterRules(task);
+    if (legacy.productType) defaults.productTypes = [legacy.productType];
+    if (legacy.borrowerType) defaults.borrowerTypes = [legacy.borrowerType];
+    if (legacy.industry) {
+      const code = String(legacy.industry).trim().split(/\s+/)[0];
+      defaults.industries = [code];
+    }
+    defaults.balanceMin = legacy.balanceMin ?? defaults.balanceMin;
+    defaults.balanceMax = legacy.balanceMax ?? '';
+    defaults.customized = !!(legacy.productType || legacy.borrowerType || legacy.industry || legacy.tier1Branch || legacy.manager);
+    return defaults;
+  }
+  return {
+    productTypes: rules.productTypes || [],
+    borrowerTypes: rules.borrowerTypes || [],
+    industries: rules.industries || [],
+    balanceMin: rules.balanceMin ?? '',
+    balanceMax: rules.balanceMax ?? '',
+    customized: rules.customized === true
+  };
+}
+
+function isCandidateInGuideAccountingScope(c) {
+  const minBal = Number(GUIDE.BALANCE_THRESHOLD_WAN || 500);
+  if (Number(c.avgMonthlyBalance) < minBal) return false;
+  if (c.isSme || c.isIndividual || c.isOverseas) return false;
+  const bt = candidateBorrowerType(c);
+  if (['个体工商户', '农户', '境外主体', '小微企业'].includes(bt)) return false;
+  const code = c.gbIndustryCode;
+  if (!code || !IndustryScope.getEightCodes().includes(code)) return false;
+  const pt = candidateProductType(c);
+  if (pt === '个人经营性贷款') return false;
+  return true;
+}
+
+function getCandidateIndustryFilterOptions(task) {
+  const codes = IndustryScope.resolveCodes(task?.industryScope, task?.industryCustomCodes);
+  return INDUSTRY_TABLE.filter(i => codes.includes(i.code));
+}
+
+function renderCandidateFilterCheckboxes(name, options, selected, labelFn) {
+  const selectedSet = new Set(selected || []);
+  return `<div class="filter-checkbox-group">${options.map(opt => {
+    const value = typeof opt === 'string' ? opt : opt.value;
+    const text = labelFn ? labelFn(opt) : (typeof opt === 'string' ? opt : opt.label);
+    return `<label class="filter-check"><input type="checkbox" name="${name}" value="${value}" ${selectedSet.has(value) ? 'checked' : ''}> ${text}</label>`;
+  }).join('')}</div>`;
+}
+
+function renderCandidateFilterPanel(rules, task, options = {}) {
+  const viewOnly = !!options.viewOnly;
+  const dis = viewOnly ? ' disabled' : '';
+  const productOptions = GUIDE.CANDIDATE_PRODUCT_TYPES || [];
+  const borrowerOptions = GUIDE.CANDIDATE_BORROWER_TYPES || [];
+  const industryOptions = getCandidateIndustryFilterOptions(task).map(i => ({
+    value: i.code,
+    label: `${i.code} ${i.name}`
+  }));
+  const scopeHint = task?.industryScope === '八大高碳行业'
+    ? '默认按指引核算范畴筛选，仅展示纳入核算的数据'
+    : '默认按八大高碳行业核算范畴筛选，可勾选调整后重新查询';
+  return `
+    <fieldset class="view-mode-fieldset"${viewOnly ? ' disabled' : ''}>
+    <div class="filter-panel">
+      <p class="candidate-filter-hint">${scopeHint} · 月均余额≥500万元 · 排除小微/个人/境外/非高碳行业</p>
+      <div class="filter-extra candidate-filter-grid">
+        <div class="form-item full">
+          <label>业务品种</label>
+          ${renderCandidateFilterCheckboxes('f_product', productOptions, rules.productTypes)}
+        </div>
+        <div class="form-item full">
+          <label>贷款主体类型</label>
+          ${renderCandidateFilterCheckboxes('f_borrower', borrowerOptions, rules.borrowerTypes)}
+        </div>
+        <div class="form-item full">
+          <label>所属行业</label>
+          ${renderCandidateFilterCheckboxes('f_industry', industryOptions, rules.industries)}
+        </div>
+        <div class="candidate-filter-row-2">
+          <div class="form-item"><label>月均信贷余额(万元) 起</label>
+            <input id="f_bal_min" type="number" placeholder="最小值" value="${rules.balanceMin ?? ''}"${dis}>
+          </div>
+          <div class="form-item"><label>月均信贷余额(万元) 止</label>
+            <input id="f_bal_max" type="number" placeholder="最大值" value="${rules.balanceMax ?? ''}"${dis}>
+          </div>
+        </div>
+        <div class="form-item full">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" id="candidateFilterBtn"${dis}>查询</button>
+            <button class="btn" id="candidateFilterResetBtn"${dis}>恢复默认筛选条件</button>
+            <button class="btn" id="candidateFilterClearBtn"${dis}>清除全部筛选条件</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </fieldset>`;
+}
+
+function getEmptyCandidateFilterRules() {
+  return {
+    productTypes: [],
+    borrowerTypes: [],
+    industries: [],
+    balanceMin: '',
+    balanceMax: '',
+    customized: true
+  };
+}
+
+function readCandidateFilterRulesFromDom() {
+  const checked = (name) => qsa(`input[name="${name}"]:checked`).map(el => el.value);
+  return {
+    productTypes: checked('f_product'),
+    borrowerTypes: checked('f_borrower'),
+    industries: checked('f_industry'),
+    balanceMin: qs('#f_bal_min')?.value ?? '',
+    balanceMax: qs('#f_bal_max')?.value ?? '',
+    customized: true
+  };
 }
 
 function candidateTier1Branch(c) {

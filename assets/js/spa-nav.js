@@ -11,15 +11,17 @@ const SPA_NAV = [
     match: ['#/branch-board', '#/manager-tasks', '#/supplement-fill']
   },
   { hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },
-  { hash: '#/factors', label: '排放因子库', match: ['#/factors'] },
-  { hash: '#/interfaces', label: '接口管理', match: ['#/interfaces'] }
+  { hash: '#/factors', label: '排放因子库', match: ['#/factors', '#/factors/new', '#/factors/edit'] }
 ];
+
+/** 接口管理：顶栏入口，不参与侧栏菜单 */
+const SPA_INTERFACES_ENTRY = { hash: '#/interfaces', label: '接口管理' };
 
 function getNavItemsForRole(roleKey) {
   if (roleKey === 'manager') {
     return SPA_NAV.filter(i => i.hash === '#/branch-board');
   }
-  return SPA_NAV;
+  return SPA_NAV.filter(i => i.hash !== '#/branch-board');
 }
 
 function navIsActive(item, hash) {
@@ -71,6 +73,7 @@ function renderSpaLayout(pageTitle) {
         <select id="taskSwitch">
           ${data.tasks.map(t=>`<option value="${t.id}" ${t.id===data.currentTaskId?'selected':''}>${t.name}</option>`).join('')}
         </select>
+        ${data.currentRole !== 'manager' ? `<a href="${SPA_INTERFACES_ENTRY.hash}" class="btn-ghost btn-sm header-nav-btn ${navIsActive(SPA_INTERFACES_ENTRY, hash) ? 'active' : ''}" id="interfacesBtn">${SPA_INTERFACES_ENTRY.label}</a>` : ''}
         <button class="btn-ghost btn-sm" id="resetBtn">重置数据</button>
         <span class="user">${role.user} · ${role.label}</span>
       </div>

@@ -1,23 +1,93 @@
 /** localStorage 数据层 + 指引口径计算 */
 const Store = {
-  KEY: 'hxb_carbon_demo_v7',
+  KEY: 'hxb_carbon_demo_v13',
+  INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
+
+  _ensureInterfaces() {
+    if (!localStorage.getItem(this.INTERFACES_KEY)) {
+      this._migrateInterfacesFromLegacy();
+    }
+    if (!localStorage.getItem(this.INTERFACES_KEY)) {
+      const batches = typeof DemoSeed !== 'undefined' ? DemoSeed.buildInterfaces() : [];
+      localStorage.setItem(this.INTERFACES_KEY, JSON.stringify(batches));
+    }
+  },
+
+  _migrateInterfacesFromLegacy() {
+    ['hxb_carbon_demo_v12', 'hxb_carbon_demo_v11', 'hxb_carbon_demo_v10'].forEach(k => {
+      try {
+        const raw = localStorage.getItem(k);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        if (Array.isArray(d.interfaces) && d.interfaces.length) {
+          localStorage.setItem(this.INTERFACES_KEY, JSON.stringify(d.interfaces));
+        }
+      } catch { /* ignore */ }
+    });
+  },
+
+  _getInterfacesRaw() {
+    this._ensureInterfaces();
+    try {
+      return JSON.parse(localStorage.getItem(this.INTERFACES_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  },
+
+  _migrateReportPdfToWord() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (!Array.isArray(d.reports)) return;
+      let changed = false;
+      d.reports.forEach(r => {
+        if (r.format === 'PDF') {
+          r.format = 'Word';
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
 
   init() {
+    this._ensureInterfaces();
+    this._migrateReportPdfToWord();
     if (!localStorage.getItem(this.KEY)) {
+      const seed = { ...(window.MOCK_SEED || {}) };
+      delete seed.interfaces;
       localStorage.setItem(this.KEY, JSON.stringify({
-        ...window.MOCK_SEED,
+        ...seed,
         currentRole: 'hq',
         currentUser: '张明',
-        currentTaskId: 'T2025001',
-        approvals: []
+        currentTaskId: 'T2025001'
       }));
     }
   },
 
-  get() { this.init(); return JSON.parse(localStorage.getItem(this.KEY)); },
-  set(data) { localStorage.setItem(this.KEY, JSON.stringify(data)); },
+  get() {
+    this.init();
+    const data = JSON.parse(localStorage.getItem(this.KEY));
+    data.interfaces = this._getInterfacesRaw();
+    return data;
+  },
+  set(data) {
+    const rest = { ...data };
+    const interfaces = rest.interfaces;
+    delete rest.interfaces;
+    if (interfaces) {
+      localStorage.setItem(this.INTERFACES_KEY, JSON.stringify(interfaces));
+    }
+    localStorage.setItem(this.KEY, JSON.stringify(rest));
+  },
   update(fn) { const data = this.get(); fn(data); this.set(data); return data; },
-  reset() { localStorage.removeItem(this.KEY); this.init(); return this.get(); },
+  reset() {
+    localStorage.removeItem(this.KEY);
+    this.init();
+    return this.get();
+  },
 
   getCurrentTask() {
     const d = this.get();
@@ -205,15 +275,12 @@ const Store = {
 
   getCandidateFilterRules(taskId) {
     const t = this.getTask(taskId);
-    return t?.candidateFilterRules || {
-      tier1Branch: '',
-      productType: '',
-      borrowerType: '',
-      industry: '',
-      manager: '',
-      balanceMin: '',
-      balanceMax: ''
-    };
+    const raw = t?.candidateFilterRules;
+    const normalized = normalizeCandidateFilterRules(raw, t);
+    if (!raw || normalized.customized !== true) {
+      return getDefaultCandidateFilterRules(t);
+    }
+    return normalized;
   },
 
   saveCandidateFilterRules(taskId, rules) {
@@ -223,37 +290,57 @@ const Store = {
     });
   },
 
-  getCandidatesForView(taskId, rules, page = 1, pageSize = 15) {
+  filterCandidateList(taskId, rules) {
     let list = this.getCandidates(taskId);
-    if (!list.length) return { rows: [], total: 0, page, pageSize, stats: {} };
+    if (!list.length) return [];
 
-    if (rules.tier1Branch) {
-      list = list.filter(c => candidateTier1Branch(c) === rules.tier1Branch);
+    const task = this.getTask(taskId);
+    const r = normalizeCandidateFilterRules(rules, task);
+
+    if (task?.industryScope === '八大高碳行业') {
+      list = list.filter(c => isCandidateInGuideAccountingScope(c));
     }
-    if (rules.productType) list = list.filter(c => candidateProductType(c) === rules.productType);
-    if (rules.borrowerType) list = list.filter(c => candidateBorrowerType(c) === rules.borrowerType);
-    if (rules.industry) {
-      list = list.filter(c => candidateIndustryLabel(c) === rules.industry || c.gbIndustryCode === rules.industry);
+    if (r.productTypes?.length) {
+      list = list.filter(c => r.productTypes.includes(candidateProductType(c)));
     }
-    if (rules.manager) list = list.filter(c => c.manager === rules.manager);
-    if (rules.balanceMin !== '' && rules.balanceMin != null) {
-      const min = Number(rules.balanceMin);
+    if (r.borrowerTypes?.length) {
+      list = list.filter(c => r.borrowerTypes.includes(candidateBorrowerType(c)));
+    }
+    if (r.industries?.length) {
+      list = list.filter(c => r.industries.includes(c.gbIndustryCode));
+    }
+    if (r.balanceMin !== '' && r.balanceMin != null) {
+      const min = Number(r.balanceMin);
       if (!Number.isNaN(min)) list = list.filter(c => Number(c.avgMonthlyBalance) >= min);
     }
-    if (rules.balanceMax !== '' && rules.balanceMax != null) {
-      const max = Number(rules.balanceMax);
+    if (r.balanceMax !== '' && r.balanceMax != null) {
+      const max = Number(r.balanceMax);
       if (!Number.isNaN(max)) list = list.filter(c => Number(c.avgMonthlyBalance) <= max);
     }
+    return list;
+  },
 
+  applyCandidateFilterInclusion(taskId, rules) {
+    const filteredIds = new Set(this.filterCandidateList(taskId, rules).map(c => c.id));
+    this.update(d => {
+      d.candidates.filter(c => c.taskId === taskId).forEach(c => {
+        c.included = filteredIds.has(c.id);
+      });
+    });
+    return filteredIds.size;
+  },
+
+  getCandidatesForView(taskId, rules) {
     const all = this.getCandidates(taskId);
+    if (!all.length) return { rows: [], total: 0, stats: {} };
+
+    const list = this.filterCandidateList(taskId, rules);
     const stats = {
       syncedTotal: all.length,
-      includedCount: all.filter(c => c.included).length,
+      includedCount: list.filter(c => c.included).length,
       viewCount: list.length
     };
-    const total = list.length;
-    const start = (page - 1) * pageSize;
-    return { rows: list.slice(start, start + pageSize), total, page, pageSize, stats };
+    return { rows: list, total: list.length, stats };
   },
 
   /** 从接口管理按月批次汇总，按任务核算年度拉取全量台账（演示展示子集） */
@@ -310,13 +397,20 @@ const Store = {
         task.syncBatchCount = successBatchCount || undefined;
         task.workflowStep = Math.max(task.workflowStep ?? 0, WORKFLOW_STEP.CANDIDATES);
         task.progress = Math.max(task.progress || 0, 15);
+        task.candidateFilterRules = getDefaultCandidateFilterRules(task);
       }
       batch.forEach(c => {
+        c.accountingYear = year;
         c.excludeReason = null;
         c.excluded = false;
         c.included = false;
       });
     });
+
+    const task = this.getTask(taskId);
+    if (task) {
+      this.applyCandidateFilterInclusion(taskId, getDefaultCandidateFilterRules(task));
+    }
 
     return {
       ok: true,
@@ -507,7 +601,8 @@ const Store = {
     });
   },
 
-  _createSupplementApproval(d, s, task, level) {
+  _createSupplementApproval(d, s, task, level, round) {
+    const r = round ?? s.reviewRound ?? 1;
     if (d.approvals.some(a => a.docId === s.id && a.reviewLevel === level && a.status === 'pending')) return;
     d.approvals.unshift({
       id: 'APR' + Date.now() + Math.floor(Math.random() * 10000),
@@ -516,35 +611,58 @@ const Store = {
       docId: s.id,
       docName: '数据采集-' + s.customerName,
       reviewLevel: level,
-      submitter: d.currentUser,
+      round: r,
+      submitter: s.manager || d.currentUser,
       submitTime: new Date().toLocaleString('zh-CN'),
       status: 'pending'
     });
   },
 
-  submitSupplementForReview(supplementId) {
-    return this.update(d => {
-      const s = d.supplements.find(x => x.id === supplementId);
-      if (!s || s.status !== 'completed') return;
-      const task = d.tasks.find(t => t.id === s.taskId) || {};
-      s.approvalStatus = 'pending';
-      if (task.initiatorOrg === 'branch') {
-        s.auditStage = 'branch_review';
-        s.branchReviewStatus = 'pending';
-        s.hqReviewStatus = 'none';
-        this._createSupplementApproval(d, s, task, 'branch');
-      } else if (task.branchReviewEnabled !== false) {
-        s.auditStage = 'branch_review';
-        s.branchReviewStatus = 'pending';
-        s.hqReviewStatus = 'none';
-        this._createSupplementApproval(d, s, task, 'branch');
-      } else {
-        s.auditStage = 'hq_review';
-        s.branchReviewStatus = 'skipped';
-        s.hqReviewStatus = 'pending';
-        this._createSupplementApproval(d, s, task, 'hq');
-      }
+  _createSubmitApproval(d, s, round) {
+    d.approvals = d.approvals || [];
+    d.approvals.unshift({
+      id: 'APR' + Date.now() + Math.floor(Math.random() * 10000),
+      taskId: s.taskId,
+      docType: 'supplement',
+      docId: s.id,
+      docName: '数据采集-' + s.customerName,
+      reviewLevel: 'submit',
+      round,
+      submitter: s.manager || d.currentUser,
+      submitTime: new Date().toLocaleString('zh-CN'),
+      status: 'approved',
+      approver: s.manager || d.currentUser,
+      approveTime: new Date().toLocaleString('zh-CN')
     });
+  },
+
+  _voidSupplementApprovedApprovals(d, supplementId) {
+    (d.approvals || []).filter(a =>
+      a.docType === 'supplement' && a.docId === supplementId &&
+      ['branch', 'hq'].includes(a.reviewLevel) && a.status === 'approved'
+    ).forEach(a => { a.status = 'voided'; });
+  },
+
+  submitSupplementForReview(supplementId) {
+    let submitted = false;
+    this.update(d => {
+      const s = d.supplements.find(x => x.id === supplementId);
+      if (!s || !canSubmitSupplementForReview(s)) return;
+      if (d.approvals.some(a => a.docType === 'supplement' && a.docId === s.id && a.status === 'pending')) return;
+      const task = d.tasks.find(t => t.id === s.taskId) || {};
+      const round = (s.reviewRound || 0) + 1;
+      s.reviewRound = round;
+      s.approvalStatus = 'pending';
+      s.auditStage = 'branch_review';
+      s.branchReviewStatus = 'pending';
+      s.hqReviewStatus = 'none';
+      delete s.rejectReason;
+      this._createSubmitApproval(d, s, round);
+      this._createSupplementApproval(d, s, task, 'branch', round);
+      this.syncTaskWorkflow(d, s.taskId);
+      submitted = true;
+    });
+    return submitted;
   },
 
   submitCutoffToHq(taskId) {
@@ -555,11 +673,21 @@ const Store = {
       d.supplements.filter(s =>
         s.taskId === taskId && s.status === 'completed' && s.auditStage !== 'approved'
       ).forEach(s => {
-        if (s.branchReviewStatus === 'pending') s.branchReviewStatus = 'skipped';
-        s.auditStage = 'hq_review';
-        s.hqReviewStatus = 'pending';
-        this._createSupplementApproval(d, s, task, 'hq');
-        count++;
+        if (s.branchReviewStatus === 'pending') return;
+        if (s.auditStage === 'hq_review' || s.hqReviewStatus === 'pending') return;
+        if (s.branchReviewStatus === 'approved') {
+          s.auditStage = 'hq_review';
+          s.hqReviewStatus = 'pending';
+          this._createSupplementApproval(d, s, task, 'hq');
+          count++;
+        } else {
+          s.approvalStatus = 'pending';
+          s.auditStage = 'branch_review';
+          s.branchReviewStatus = 'pending';
+          s.hqReviewStatus = 'none';
+          this._createSupplementApproval(d, s, task, 'branch');
+          count++;
+        }
       });
       task.cutoffSubmittedAt = new Date().toLocaleString('zh-CN');
       this.syncTaskWorkflow(d, taskId);
@@ -567,9 +695,98 @@ const Store = {
     return count;
   },
 
-  _getIndustryFactor(d, industryMajor) {
-    const f = (d.factors || []).find(x => x.industry === industryMajor && x.type === '经济法');
-    return f ? Number(f.value) : 2.35;
+  _getIndustryFactor(d, industryMajor, gbCode) {
+    const factors = d.factors || [];
+    if (gbCode) {
+      const exact = factors.find(x =>
+        x.methodId === 'economy' && x.gbCode === gbCode && x.valueType === 'default' && x.value != null
+      );
+      if (exact) return Number(exact.value);
+    }
+    const industryFactors = factors.filter(x =>
+      x.methodId === 'economy' && x.industryMajor === industryMajor && x.valueType === 'default' && x.value != null
+    );
+    if (industryFactors.length) {
+      const preferred = industryFactors.find(x => x.gbCode === 'C3120') && industryMajor === '钢铁'
+        ? industryFactors.find(x => x.gbCode === 'C3120')
+        : industryFactors[0];
+      return Number(preferred.value);
+    }
+    return 2.35;
+  },
+
+  getFactor(id) {
+    return (this.get().factors || []).find(x => x.id === id);
+  },
+
+  _factorDuplicateKey(f) {
+    if (f.methodId === 'energy') {
+      return [f.industryMajor, f.methodId, f.energyCategory, f.itemName, f.subIndustry || ''].join('|');
+    }
+    if (f.methodId === 'product') {
+      return [f.industryMajor, f.methodId, f.productMajor, f.productSub].join('|');
+    }
+    return [f.methodId, f.gbCode].join('|');
+  },
+
+  addFactor(payload, options) {
+    let added = null;
+    this.update(d => {
+      d.factors = d.factors || [];
+      const item = {
+        ...payload,
+        id: payload.id || nextCustomFactorId(d.factors),
+        isBuiltin: false,
+        status: 'active',
+        sourceSheet: payload.sourceSheet || '自定义'
+      };
+      if (!(options && options.allowDuplicate)) {
+        const dup = d.factors.some(x => !x.isBuiltin && this._factorDuplicateKey(x) === this._factorDuplicateKey(item));
+        if (dup) return;
+      }
+      d.factors.unshift(item);
+      added = item;
+    });
+    return added;
+  },
+
+  updateFactor(id, payload) {
+    let ok = false;
+    this.update(d => {
+      const idx = (d.factors || []).findIndex(x => x.id === id);
+      if (idx < 0) return;
+      if (d.factors[idx].isBuiltin) return;
+      d.factors[idx] = { ...d.factors[idx], ...payload, id, isBuiltin: false };
+      ok = true;
+    });
+    return ok;
+  },
+
+  deleteFactor(id) {
+    let ok = false;
+    this.update(d => {
+      const f = (d.factors || []).find(x => x.id === id);
+      if (!f || f.isBuiltin) return;
+      d.factors = d.factors.filter(x => x.id !== id);
+      ok = true;
+    });
+    return ok;
+  },
+
+  copyFactorAsCustom(id) {
+    const src = this.getFactor(id);
+    if (!src) return null;
+    const copy = {
+      ...src,
+      id: undefined,
+      isBuiltin: false,
+      sourceSheet: '自定义',
+      sourceNote: src.isBuiltin
+        ? `由指引内置因子 ${src.id} 复制：${factorDisplayName(src)}`
+        : (src.sourceNote || '')
+    };
+    const added = this.addFactor(copy, { allowDuplicate: true });
+    return added ? added.id : null;
   },
 
   runEconomyDirectCalc(taskId, formalIds) {
@@ -584,7 +801,8 @@ const Store = {
         const revenue = Number(c?.revenue) || Number(c?.avgMonthlyBalance) * 12 || 500000;
         const totalAssets = Number(c?.totalAssets) || 800000;
         const avgBalance = Number(c?.avgMonthlyBalance) * 12 || 36000;
-        const factor = this._getIndustryFactor(d, f.industryMajor);
+        const gbCode = f.gbIndustryCode || c?.gbIndustryCode;
+        const factor = this._getIndustryFactor(d, f.industryMajor, gbCode);
         const entityEmission = Math.round(revenue * factor);
         const attributedEmission = f.bizType === 'project'
           ? Math.round(entityEmission * (avgBalance / (Number(f.totalInvestment) || 500000)))
@@ -610,6 +828,65 @@ const Store = {
     return count;
   },
 
+  adminRejectSupplements(taskId, supplementIds, rejectReason) {
+    const reason = (rejectReason || '').trim();
+    if (!reason || !supplementIds?.length) return 0;
+    let count = 0;
+    this.update(d => {
+      const task = d.tasks.find(t => t.id === taskId);
+      supplementIds.forEach(sid => {
+        const s = d.supplements.find(x => x.id === sid && x.taskId === taskId);
+        if (!s || !canAdminRejectSupplement(s)) return;
+
+        s.status = 'returned';
+        s.auditStage = 'pending_fill';
+        s.approvalStatus = 'none';
+        s.branchReviewStatus = 'none';
+        s.hqReviewStatus = 'none';
+        s.rejectReason = reason;
+
+        const f = d.formalList.find(x => x.id === s.formalId && x.taskId === taskId);
+        if (f) delete f.dataCollectStatus;
+
+        this._voidSupplementApprovedApprovals(d, sid);
+
+        (d.approvals || []).filter(a => a.docType === 'supplement' && a.docId === sid).forEach(a => {
+          if (a.status === 'pending') {
+            a.status = 'rejected';
+            a.rejectReason = reason;
+            a.approver = d.currentUser;
+            a.approveTime = new Date().toLocaleString('zh-CN');
+          }
+        });
+
+        d.approvals.unshift({
+          id: 'APR' + Date.now() + Math.floor(Math.random() * 10000),
+          taskId,
+          docType: 'supplement',
+          docId: sid,
+          docName: '数据采集-' + s.customerName,
+          reviewLevel: 'admin',
+          round: s.reviewRound || 1,
+          submitter: d.currentUser,
+          submitTime: new Date().toLocaleString('zh-CN'),
+          status: 'rejected',
+          rejectReason: reason,
+          approver: d.currentUser,
+          approveTime: new Date().toLocaleString('zh-CN')
+        });
+        count++;
+      });
+
+      if (task && count) {
+        task.dataCollectSubmitted = false;
+        delete task.dataCollectSubmittedAt;
+        if (task.milestone) task.milestone.supplementApproved = false;
+      }
+      if (count) this.syncTaskWorkflow(d, taskId);
+    });
+    return count;
+  },
+
   resolveApproval(approvalId, approved, rejectReason) {
     return this.update(d => {
       const a = (d.approvals || []).find(x => x.id === approvalId);
@@ -621,7 +898,10 @@ const Store = {
       a.approveTime = new Date().toLocaleString('zh-CN');
       if (!approved) a.rejectReason = (rejectReason || '').trim();
       this._applyDocApproval(d, a, approved, rejectReason);
-      if (approved && a.taskId) this.syncTaskWorkflowAfterApprovals(d, a.taskId);
+      if (a.taskId) {
+        if (approved) this.syncTaskWorkflowAfterApprovals(d, a.taskId);
+        else this.syncTaskWorkflow(d, a.taskId);
+      }
     });
   },
 
@@ -653,7 +933,7 @@ const Store = {
       const task = d.tasks.find(t => t.id === approval.taskId);
       if (!approved) {
         item.approvalStatus = 'none';
-        item.auditStage = 'rejected';
+        item.auditStage = 'pending_fill';
         item.status = 'returned';
         item.rejectReason = (rejectReason || '').trim();
         if (approval.reviewLevel === 'branch') item.branchReviewStatus = 'rejected';
@@ -668,9 +948,9 @@ const Store = {
         } else {
           item.auditStage = 'hq_review';
           item.hqReviewStatus = 'pending';
-          this._createSupplementApproval(d, item, task, 'hq');
+          this._createSupplementApproval(d, item, task, 'hq', approval.round || item.reviewRound);
         }
-      } else {
+      } else if (approval.reviewLevel === 'hq') {
         item.hqReviewStatus = 'approved';
         item.auditStage = 'approved';
         item.approvalStatus = 'approved';
@@ -815,6 +1095,7 @@ const Store = {
       s.methodId = method.id;
       s.qualityGrade = method.qualityGrade;
       if (payload.complete) s.status = 'completed';
+      else if (s.status === 'returned' || s.status === 'pending') s.status = 'in_progress';
       else if (s.status !== 'returned') s.status = 'in_progress';
     });
   },
@@ -890,7 +1171,7 @@ const Store = {
         d.supplements.push({
           id: 'S' + Date.now() + Math.floor(Math.random() * 10000),
           taskId, formalId: f.id, customerId: f.customerId, customerName: f.customerName,
-          loanType: f.loanType,
+          loanType: f.loanType, bizType: f.bizType, industryMajor: f.industryMajor,
           branch: d.candidates.find(c => c.id === f.customerId)?.branch || '北京分行',
           manager: d.candidates.find(c => c.id === f.customerId)?.manager || '王磊',
           status: 'pending', method: '待选择', fieldsTotal: 12, fieldsDone: 0,
@@ -899,6 +1180,7 @@ const Store = {
           branchReviewStatus: 'none',
           hqReviewStatus: 'none',
           auditStage: 'pending_fill',
+          reviewRound: 0,
           dispatchedAt: new Date().toLocaleString('zh-CN'),
           dispatchedBy: d.currentUser
         });

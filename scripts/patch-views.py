@@ -135,7 +135,7 @@ reports_fn = """SPA_VIEWS['#/reports'] = function(ctx) {
       <div class="form-item full"><label>导出格式</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" id="exportExcel">导出 Excel</button>
-          <button class="btn" id="exportPdf">导出 PDF</button>
+          <button class="btn" id="exportWord">导出 Word</button>
           <button class="btn btn-success" id="exportReg">生成监管报表</button>
         </div>
       </div>

@@ -1,5 +1,10 @@
 # 华夏银行投融资碳核算 - HTML 演示原型
 
+## 在线演示
+
+- **GitHub 仓库**：https://github.com/testdian/huaxia-bank
+- **GitHub Pages**：https://testdian.github.io/huaxia-bank/app.html
+
 ## 快速开始
 
 1. 用浏览器打开 `index.html` 或 `app.html`

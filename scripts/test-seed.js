@@ -14,7 +14,10 @@ function load(name) {
 
 load('guide-constants.js');
 load('industry-table.js');
+load('factors-guide-data.js');
+load('supplement-templates-data.js');
 load('candidate-sync.js');
+load('supplement-fields.js');
 load('demo-seed.js');
 
 const seed = global.MOCK_SEED;
@@ -26,15 +29,50 @@ function assert(cond, msg) {
 }
 
 assert(seed, 'MOCK_SEED exists');
-assert(seed.tasks.length >= 35, 'tasks >= 35, got ' + seed.tasks.length);
-assert(seed.candidates.length === 48, 'candidates count 48, got ' + seed.candidates.length);
-assert(seed.formalList.filter(f => f.taskId === taskId).length === 32, 'formalList 32');
-assert(seed.supplements.filter(s => s.taskId === taskId).length === 32, 'supplements 32');
-assert(seed.calculations.filter(c => c.taskId === taskId).length === 32, 'calculations 32');
+assert(seed.tasks.length >= 5, 'tasks >= 5, got ' + seed.tasks.length);
+assert(seed.candidates.length >= 48, 'candidates count >= 48, got ' + seed.candidates.length);
+assert(seed.formalList.filter(f => f.taskId === taskId).length >= 130, 'formalList >= 130, got ' + seed.formalList.filter(f => f.taskId === taskId).length);
+assert(seed.supplements.filter(s => s.taskId === taskId).length >= 90, 'supplements >= 90, got ' + seed.supplements.filter(s => s.taskId === taskId).length);
+const withFieldData = seed.supplements.filter(s => s.taskId === taskId && s.fieldData && Object.keys(s.fieldData).length);
+assert(withFieldData.length >= 90, 'supplements with fieldData >= 90, got ' + withFieldData.length);
+assert(seed.calculations.filter(c => c.taskId === taskId).length >= 130, 'calculations >= 130, got ' + seed.calculations.filter(c => c.taskId === taskId).length);
+
+const testSupps = seed.supplements.filter(s => s.taskId === taskId && (s.customerName || '').includes('补录测试'));
+assert(testSupps.length >= 90, 'matrix test supplements >= 90, got ' + testSupps.length);
+const s001 = seed.supplements.find(s => s.id === 'S001');
+assert(s001 && s001.testCaseLabel === '电力·项目·报告法', 'S001 is 电力·项目·报告法');
+assert(s001.fieldData && s001.fieldData.report, 'S001 has report fieldData');
+const matrixMethods = new Set(testSupps.map(s => s.methodId));
+['report', 'energy', 'product', 'economy', 'economy_fallback'].forEach(m => assert(matrixMethods.has(m), 'matrix has method ' + m));
+const matrixBiz = new Set(testSupps.map(s => s.bizType));
+assert(matrixBiz.has('project') && matrixBiz.has('non_project'), 'matrix has both biz types');
+const matrixSheets = new Set(testSupps.map(s => (s.testCaseLabel || '').split('·')[0]));
+assert(matrixSheets.size >= 10, 'matrix covers >= 10 industry sheets, got ' + matrixSheets.size);
+const civilNoProduct = testSupps.filter(s => (s.testCaseLabel || '').startsWith('民航') && s.methodId === 'product');
+assert(civilNoProduct.length === 0, '民航无产品法补录');
 assert(seed.reports.length >= 20, 'reports >= 20');
-assert(seed.approvals.length >= 25, 'approvals >= 25');
+assert(seed.approvals.length >= 8, 'approvals >= 8, got ' + seed.approvals.length);
+const pendingApr = seed.approvals.filter(a => a.status === 'pending');
+assert(pendingApr.length >= 2, 'pending approvals >= 2, got ' + pendingApr.length);
+const auditStages = new Set(seed.supplements.filter(s => s.taskId === taskId).map(s => s.auditStage));
+['pending_fill', 'branch_review', 'hq_review', 'approved'].forEach(st => assert(auditStages.has(st), 'supplement audit stage ' + st));
+const undispatched = seed.supplements.filter(s => s.taskId === taskId && !s.dispatchedAt);
+assert(undispatched.length >= 1, 'has undispatched supplements');
+assert(seed.factors.some(f => f.id === 'CF001' && !f.isBuiltin), 'has custom demo factor CF001');
 assert(seed.industryStats.length >= 15, 'industryStats >= 15');
-assert(seed.factors.length >= 25, 'factors >= 25');
+assert(seed.factors.length >= 400, 'factors >= 400, got ' + seed.factors.length);
+assert(typeof global.SUPPLEMENT_TEMPLATES !== 'undefined' && global.SUPPLEMENT_TEMPLATES.length >= 20, 'supplement templates >= 20');
+const tplIds = new Set(global.SUPPLEMENT_TEMPLATES.map(t => t.id));
+assert(tplIds.has('project_电力') && tplIds.has('non_project_水泥'), 'key supplement templates exist');
+const tplPowerProject = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_电力');
+const tplPowerNp = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'non_project_电力');
+assert(tplPowerProject?.methods?.product?.supported === true, 'project_电力 supports product method');
+assert(tplPowerNp?.methods?.product?.supported === true, 'non_project_电力 supports product method');
+assert((tplPowerProject?.methods?.product?.fields?.length || 0) >= 12, 'project_电力 has 12 product fields');
+assert(global.SUPPLEMENT_FIELDS.productSupported({ bizType: 'project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力项目 productSupported');
+assert(global.SUPPLEMENT_FIELDS.productSupported({ bizType: 'non_project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力非项目 productSupported');
+const tplCivil = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_民航');
+assert(tplCivil?.methods?.product?.supported === false, '民航无产品法');
 assert(seed.mappings.length >= 25, 'mappings >= 25');
 assert(seed.branchStats.length >= 25, 'branchStats >= 25');
 
@@ -44,7 +82,7 @@ assert(task.dqr && task.dqr.dqr, 'task dqr');
 assert(task.milestone.calculationDone, 'milestone calculation');
 
 const doneCalcs = seed.calculations.filter(c => c.taskId === taskId && c.status === 'done');
-assert(doneCalcs.length >= 20, 'done calcs >= 20');
+assert(doneCalcs.length >= 25, 'done calcs >= 25, got ' + doneCalcs.length);
 
 const withBoundary = seed.formalList.filter(f => f.boundaryNote);
 assert(withBoundary.length >= 3, 'formal with boundaryNote');
@@ -54,6 +92,7 @@ assert(methods.has('report'), 'has report method');
 assert(methods.has('energy'), 'has energy method');
 assert(methods.has('product'), 'has product method');
 assert(methods.has('economy'), 'has economy method');
+assert(methods.has('economy_fallback'), 'has economy_fallback method');
 
 if (errors.length) {
   console.error('FAIL:\n' + errors.map(e => '  - ' + e).join('\n'));
