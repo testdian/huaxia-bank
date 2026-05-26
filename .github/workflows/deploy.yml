@@ -1,15 +1,28 @@
-# 单仓库双环境 GitHub Pages（公网）
-# - main  → 生产：https://testdian.github.io/huaxia-bank/app.html
-# - uat   → UAT：  https://testdian.github.io/huaxia-bank/uat/app.html
+# UAT / 生产 双环境 GitHub Pages（发布到 gh-pages 分支）
+# 生产：https://testdian.github.io/huaxia-bank/app.html
+# UAT：  https://testdian.github.io/huaxia-bank/uat/app.html
+#
+# 请在 Settings → Pages 选择：Deploy from branch → gh-pages → / (root)
+# 「github-pages」环境为 Pages 内置流程自动生成，可忽略；本 workflow 使用 uat / production 环境
 
 name: Deploy GitHub Pages
 
 on:
   push:
     branches:
-      - main
       - uat
+      # 验收通过后取消下行注释，或合并 uat→main 时一并启用
+      # - main
   workflow_dispatch:
+    inputs:
+      target:
+        description: 部署目标
+        required: true
+        default: uat
+        type: choice
+        options:
+          - uat
+          - production
 
 permissions:
   contents: write
@@ -21,21 +34,29 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'uat' }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref == 'refs/heads/main' && 'production' || 'uat') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'main' || github.event_name == 'workflow_dispatch' && inputs.target == 'uat' && 'uat' || github.ref }}
 
       - name: Resolve deploy path
         id: target
         run: |
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ inputs.target }}"
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            ENV="production"
+          else
+            ENV="uat"
+          fi
+          if [ "$ENV" = "production" ]; then
             echo "destination_dir=" >> "$GITHUB_OUTPUT"
-            echo "env_name=production" >> "$GITHUB_OUTPUT"
           else
             echo "destination_dir=uat" >> "$GITHUB_OUTPUT"
-            echo "env_name=uat" >> "$GITHUB_OUTPUT"
           fi
+          echo "env_name=$ENV" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
