@@ -1,20 +1,48 @@
-name: Deploy static site
+# 单仓库双环境 GitHub Pages（公网）
+# - main  → 生产：https://testdian.github.io/huaxia-bank/app.html
+# - uat   → UAT：  https://testdian.github.io/huaxia-bank/uat/app.html
+
+name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - uat
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'uat' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: peaceiris/actions-gh-pages@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve deploy path
+        id: target
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "destination_dir=" >> "$GITHUB_OUTPUT"
+            echo "env_name=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "destination_dir=uat" >> "$GITHUB_OUTPUT"
+            echo "env_name=uat" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
           publish_dir: .
-          force_orphan: true
+          destination_dir: ${{ steps.target.outputs.destination_dir }}
+          keep_files: true
+          commit_message: "deploy(${{ steps.target.outputs.env_name }}): ${{ github.sha }}"

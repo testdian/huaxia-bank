@@ -41,9 +41,14 @@ const ROLES = {
 /** 客户经理仅可访问数据补录相关路由 */
 const MANAGER_ALLOWED_ROUTES = ['#/branch-board', '#/manager-tasks', '#/supplement-fill'];
 const MANAGER_ONLY_ROUTES = MANAGER_ALLOWED_ROUTES;
+/** 企业碳账户：仅总行、分行 */
+const CARBON_ACCOUNT_ROUTES = ['#/carbon-accounts', '#/carbon-account'];
 
 function isRouteAllowedForRole(routeBase, roleKey) {
   if (roleKey === 'manager') return MANAGER_ALLOWED_ROUTES.includes(routeBase);
+  if (CARBON_ACCOUNT_ROUTES.includes(routeBase)) {
+    return roleKey === 'hq' || roleKey === 'branch';
+  }
   return !MANAGER_ONLY_ROUTES.includes(routeBase);
 }
 

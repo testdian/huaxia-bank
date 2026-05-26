@@ -831,6 +831,446 @@ SPA_VIEWS['#/mapping-field'] = function(ctx) {
     ${renderPagination(listKey, view)}</div>`;
 };
 
+const CA_CHART_COLORS = ['#3d7cc9', '#67c23a', '#e6a23c', '#f56c6c', '#909399', '#5b8fd9', '#9b59b6', '#1abc9c'];
+
+function getCaChartLabel(item) {
+  const raw = item.label ?? item.year ?? item.name;
+  return raw != null && String(raw).trim() !== '' ? String(raw) : '其他';
+}
+
+function caChartEmpty() {
+  return '<p class="ca-chart-empty">暂无数据</p>';
+}
+
+function renderCaBarChart(items, valueKey) {
+  if (!items.length) return caChartEmpty();
+  const key = valueKey || 'emission';
+  const max = Math.max(...items.map(i => Number(i[key]) || 0), 1);
+  return `<div class="ca-bars">${items.map(i => {
+    const v = Number(i[key]) || 0;
+    const pct = Math.max(4, Math.round((100 * v) / max));
+    const label = getCaChartLabel(i);
+    return `<div class="ca-bar-row">
+      <span class="ca-bar-label" title="${label}">${label}</span>
+      <div class="ca-bar-track"><div class="ca-bar-fill" style="width:${pct}%"></div></div>
+      <span class="ca-bar-val">${formatNum(v)}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderCaDonutChart(items, valueKey) {
+  if (!items.length) return caChartEmpty();
+  const key = valueKey || 'emission';
+  const total = items.reduce((s, i) => s + (Number(i[key]) || 0), 0);
+  if (total <= 0) return caChartEmpty();
+  let acc = 0;
+  const segments = items.map((item, idx) => {
+    const v = Number(item[key]) || 0;
+    const pct = (100 * v) / total;
+    const start = acc;
+    acc += pct;
+    return {
+      label: getCaChartLabel(item),
+      v,
+      share: +pct.toFixed(1),
+      start,
+      end: acc,
+      color: CA_CHART_COLORS[idx % CA_CHART_COLORS.length]
+    };
+  });
+  const gradient = segments.map(s => `${s.color} ${s.start}% ${s.end}%`).join(', ');
+  return `<div class="ca-chart-donut-wrap">
+    <div class="ca-chart-donut-ring">
+      <div class="ca-chart-donut" style="background:conic-gradient(${gradient})" role="img" aria-label="排放占比环图"></div>
+      <div class="ca-chart-donut-center"><strong>${formatNum(total)}</strong><span>tCO₂e</span></div>
+    </div>
+    <ul class="ca-chart-legend">${segments.map(s =>
+      `<li><i style="background:${s.color}"></i><span class="ca-legend-label" title="${s.label}">${s.label}</span><span class="ca-legend-val">${formatNum(s.v)}</span><span class="ca-legend-pct">${s.share}%</span></li>`
+    ).join('')}</ul>
+  </div>`;
+}
+
+function renderCaColumnChart(items, valueKey) {
+  if (!items.length) return caChartEmpty();
+  const key = valueKey || 'emission';
+  const max = Math.max(...items.map(i => Number(i[key]) || 0), 1);
+  return `<div class="ca-chart-columns">${items.map((item, idx) => {
+    const v = Number(item[key]) || 0;
+    const h = Math.max(6, Math.round((100 * v) / max));
+    const label = getCaChartLabel(item);
+    return `<div class="ca-chart-col" title="${label}: ${formatNum(v)}">
+      <div class="ca-chart-col-val">${formatNum(v)}</div>
+      <div class="ca-chart-col-bar-wrap"><div class="ca-chart-col-bar" style="height:${h}%;background:${CA_CHART_COLORS[idx % CA_CHART_COLORS.length]}"></div></div>
+      <div class="ca-chart-col-label">${label}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderCaLineChart(items, series) {
+  if (!items.length) return caChartEmpty();
+  const defs = series || [{ key: 'emission', label: '归因排放', color: '#3d7cc9' }];
+  const w = 320;
+  const h = 140;
+  const pad = { l: 8, r: 8, t: 12, b: 28 };
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const allVals = defs.flatMap(s => items.map(i => Number(i[s.key]) || 0));
+  const max = Math.max(...allVals, 1);
+  const n = items.length;
+  const xAt = i => pad.l + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const yAt = v => pad.t + innerH - (v / max) * innerH;
+  const lines = defs.map(s => {
+    const pts = items.map((item, i) => `${xAt(i)},${yAt(Number(item[s.key]) || 0)}`).join(' ');
+    const dots = items.map((item, i) =>
+      `<circle cx="${xAt(i)}" cy="${yAt(Number(item[s.key]) || 0)}" r="3.5" fill="#fff" stroke="${s.color}" stroke-width="2"/>`
+    ).join('');
+    return `<polyline class="ca-line-path" fill="none" stroke="${s.color}" stroke-width="2" points="${pts}"/>${dots}`;
+  }).join('');
+  const gridY = [0, 0.5, 1].map(t => {
+    const y = pad.t + innerH * (1 - t);
+    const val = formatNum(max * t);
+    return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="ca-line-grid"/>
+      <text x="${pad.l - 2}" y="${y + 4}" class="ca-line-grid-label" text-anchor="end">${val}</text>`;
+  }).join('');
+  const labels = items.map(getCaChartLabel);
+  return `<div class="ca-chart-line">
+    <svg class="ca-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet">${gridY}${lines}</svg>
+    <div class="ca-chart-line-xlabels">${labels.map(l => `<span>${l}</span>`).join('')}</div>
+    <div class="ca-chart-line-legend">${defs.map(s =>
+      `<span><i style="background:${s.color}"></i>${s.label}</span>`
+    ).join('')}</div>
+  </div>`;
+}
+
+function renderCaTrendTable(trend) {
+  if (!trend.length) return '<p style="color:#909399">暂无年度数据</p>';
+  return `<table class="data-table"><thead><tr>
+    <th>年度</th><th>笔数</th><th>归因排放(tCO₂e)</th><th>主体排放(tCO₂e)</th>
+    <th>年均贷款余额(万元)</th><th>碳强度(tCO₂e/万元)</th>
+  </tr></thead>
+  <tbody>${trend.map(t => `<tr>
+    <td>${t.year}</td><td>${t.count}</td><td>${formatNum(t.emission)}</td><td>${formatNum(t.entity)}</td>
+    <td>${formatNum(t.balance)}</td><td>${CarbonAccount.formatIntensity(t.intensity)}</td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+function getCaDetailFilters(accountId) {
+  try {
+    return JSON.parse(sessionStorage.getItem('ca_detail_filters_' + accountId) || '{}');
+  } catch { return {}; }
+}
+
+function renderCaDetailFilters(records, filters) {
+  const years = [...new Set(records.map(r => String(r.year)).filter(Boolean))].sort();
+  const industries = [...new Set(records.map(r => r.industryMajor).filter(Boolean))].sort();
+  const loanTypes = [...new Set(records.map(r => r.loanType).filter(Boolean))].sort();
+  const branches = [...new Set(records.map(r => r.handlingBranch || r.tier1Branch).filter(Boolean))].sort();
+  const opt = (vals, cur, allLabel) =>
+    `<option value="">${allLabel}</option>${vals.map(v =>
+      `<option value="${v}" ${cur === v ? 'selected' : ''}>${v}</option>`
+    ).join('')}`;
+  return `<div class="ca-detail-filter-panel">
+    <div class="ca-detail-filter-row">
+      <div class="form-item ca-filter-field ca-filter-field--sm"><label>核算年度</label>
+        <select id="ca_d_year">${opt(years, filters.year || '', '全部')}</select></div>
+      <div class="form-item ca-filter-field ca-filter-field--md"><label>项目/非项目</label>
+        <select id="ca_d_biz">
+          <option value="">全部</option>
+          <option value="project" ${filters.bizType === 'project' ? 'selected' : ''}>项目贷款</option>
+          <option value="non_project" ${filters.bizType === 'non_project' ? 'selected' : ''}>非项目贷款</option>
+        </select></div>
+      <div class="form-item ca-filter-field ca-filter-field--md"><label>行业</label>
+        <select id="ca_d_industry">${opt(industries, filters.industry || '', '全部')}</select></div>
+      <div class="form-item ca-filter-field ca-filter-field--md"><label>经办行</label>
+        <select id="ca_d_branch">${opt(branches, filters.branch || '', '全部')}</select></div>
+      <div class="form-item ca-filter-field ca-filter-field--lg"><label>贷款类型</label>
+        <select id="ca_d_loan">${opt(loanTypes, filters.loanType || '', '全部')}</select></div>
+    </div>
+    <div class="ca-detail-filter-row ca-detail-filter-row--secondary">
+      <div class="form-item ca-filter-field ca-filter-field--kw"><label>关键词</label>
+        <input id="ca_d_kw" placeholder="年度、行业、方法等" value="${filters.keyword || ''}"></div>
+      <div class="form-item ca-filter-field ca-filter-field--actions">
+        <div class="filter-action-btns">
+          <button type="button" class="btn btn-primary" id="caDetailFilterBtn">查询</button>
+          <button type="button" class="btn" id="caDetailFilterResetBtn">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function formatCaRecordStatus(r) {
+  if (r.status === 'confirmed') return '<span class="badge badge-success">已确认</span>';
+  return '<span class="badge badge-draft">其他</span>';
+}
+
+function formatCaConfirmedAt(r) {
+  return r.confirmedAt || r.mountedAt || '-';
+}
+
+function renderCaAccountStatusBadge(acc) {
+  const s = acc.status || 'active';
+  if (s === 'active') return '<span class="badge badge-success">启用</span>';
+  if (s === 'cancelled') return '<span class="badge badge-danger">注销</span>';
+  return '<span class="badge badge-draft">停用</span>';
+}
+
+function getCaListFilters() {
+  try {
+    return JSON.parse(sessionStorage.getItem('ca_list_filters') || '{}');
+  } catch { return {}; }
+}
+
+function renderCaYearSwitcher(years, selected, tabsId = 'caListYearTabs') {
+  if (!years.length) return '';
+  const cur = selected || years[years.length - 1];
+  return `<div class="ca-year-switcher">
+    <span class="ca-year-switcher-label">核算年度</span>
+    <div class="tabs tabs-segment ca-year-tabs" id="${tabsId}">${years.map(y =>
+      `<div class="tab ${String(cur) === String(y) ? 'active' : ''}" data-ca-list-year="${y}">${y}</div>`
+    ).join('')}</div>
+  </div>`;
+}
+
+function renderCaAccountActions(acc, roleKey, accountingYear) {
+  const yearQ = accountingYear ? `&year=${encodeURIComponent(accountingYear)}` : '';
+  const view = `<a href="#/carbon-account?id=${encodeURIComponent(acc.id)}${yearQ}" class="btn-link">查看</a>`;
+  if (roleKey !== 'hq') return `<span class="actions">${view}</span>`;
+  const ops = CarbonAccount.getAccountStatusActions(acc.status);
+  const btns = ops.map(o =>
+    `<button type="button" class="btn-link ca-account-status-btn" data-id="${acc.id}" data-action="${o.next}">${o.label}</button>`
+  ).join('');
+  return `<span class="actions">${view}${btns ? ' ' + btns : ''}</span>`;
+}
+
+function renderCaStatusHistoryPanel(acc) {
+  const hist = (acc.statusHistory || []).slice().reverse();
+  if (!hist.length) return '';
+  return `<div class="card" style="margin-top:16px"><div class="card-header"><h3>状态变更记录</h3></div>
+    <div class="card-body"><table class="data-table">
+      <thead><tr><th>变更时间</th><th>原状态</th><th>新状态</th><th>操作人</th></tr></thead>
+      <tbody>${hist.map(h => `<tr>
+        <td>${h.at || '-'}</td>
+        <td>${CarbonAccount.ACCOUNT_STATUS_LABEL[h.from] || h.from || '-'}</td>
+        <td>${CarbonAccount.ACCOUNT_STATUS_LABEL[h.to] || h.to || '-'}</td>
+        <td>${h.operator || '-'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`;
+}
+
+function carbonAccountTabs(active) {
+  const tabs = [
+    { id: 'profile', label: '账户档案' },
+    { id: 'records', label: '排放明细' },
+    { id: 'summary', label: '多维汇总' },
+    { id: 'trend', label: '趋势分析' }
+  ];
+  return `<div class="tabs tabs-segment ca-tabs">${tabs.map(t =>
+    `<div class="tab ${active === t.id ? 'active' : ''}" data-ca-tab="${t.id}">${t.label}</div>`
+  ).join('')}</div>`;
+}
+
+SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
+  const roleKey = Store.get().currentRole;
+  const { accounts, records: allRecords } = Store.getCarbonContext(roleKey, ctx.role);
+  const listKey = 'carbon_accounts';
+  const filters = getCaListFilters();
+  const { year: accountingYear, years } = CarbonAccount.resolveAccountingYear(allRecords, filters.accountingYear);
+  if (accountingYear && filters.accountingYear !== accountingYear) {
+    filters.accountingYear = accountingYear;
+    sessionStorage.setItem('ca_list_filters', JSON.stringify(filters));
+  }
+  const yearRecords = accountingYear
+    ? CarbonAccount.filterRecords(allRecords, { year: accountingYear })
+    : allRecords.slice();
+  let list = accounts.map(a => CarbonAccount.enrichAccount(a, yearRecords));
+  if (accountingYear) list = list.filter(a => (a.visibleRecordCount || 0) > 0);
+  const kw = (filters.keyword || '').trim().toLowerCase();
+  if (kw) {
+    list = list.filter(a =>
+      (a.customerName || '').toLowerCase().includes(kw) ||
+      (a.creditCode || '').includes(kw) ||
+      (a.loanAccount || '').includes(kw)
+    );
+  }
+  if (filters.branch) list = list.filter(a => a.primaryBranch === filters.branch);
+  if (filters.status) list = list.filter(a => a.status === filters.status);
+  const view = paginateData(listKey, list);
+  const totalEmission = yearRecords.reduce((s, r) => s + (Number(r.attributedEmission) || 0), 0);
+  const branchHint = roleKey === 'branch'
+    ? `当前视角：${ctx.role.branch}辖内数据（含辖内各经办行）`
+    : '当前视角：全行数据';
+  return `
+    <h1 class="page-title">企业碳账户</h1>
+    <p class="page-desc">法人+贷款号建档 · 核算确认结果后自动归集 · ${branchHint}</p>
+    <div class="demo-tip">仅包含已完成核算并【确认结果】的排放记录；未完成核算、退回等数据不计入碳账户。${roleKey === 'hq' ? '总行可对账户执行启用、停用、注销（CA003）。' : ''}</div>
+    <div class="ca-year-toolbar">${renderCaYearSwitcher(years, accountingYear)}</div>
+    <div class="stats-row stats-row--compact">
+      <div class="stat-card"><div class="label">可见账户</div><div class="value">${list.length}</div></div>
+      <div class="stat-card accent"><div class="label">可见归因排放</div><div class="value">${formatNum(totalEmission)}</div><div class="sub">tCO₂e</div></div>
+      <div class="stat-card"><div class="label">归集排放记录</div><div class="value">${yearRecords.length}</div><div class="sub">笔${accountingYear ? ' · ' + accountingYear + '年' : ''}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>账户列表</h3></div>
+      <div class="filter-panel" style="padding:12px 16px">
+        <div class="filter-extra carbon-account-filter-grid">
+          <div class="form-item"><label>企业/贷款号</label><input id="ca_kw" placeholder="名称、信用代码、贷款号" value="${filters.keyword || ''}"></div>
+          <div class="form-item"><label>一级分行</label>
+            <select id="ca_branch"><option value="">全部</option>
+            ${[...new Set(accounts.map(a => a.primaryBranch).filter(Boolean))].map(b =>
+              `<option value="${b}" ${filters.branch === b ? 'selected' : ''}>${b}</option>`
+            ).join('')}
+            </select>
+          </div>
+          <div class="form-item"><label>状态</label>
+            <select id="ca_status"><option value="">全部</option>
+            <option value="active" ${filters.status === 'active' ? 'selected' : ''}>启用</option>
+            <option value="disabled" ${filters.status === 'disabled' ? 'selected' : ''}>停用</option>
+            <option value="cancelled" ${filters.status === 'cancelled' ? 'selected' : ''}>注销</option>
+            </select>
+          </div>
+          <div class="form-item filter-actions"><label>&nbsp;</label>
+            <div class="filter-action-btns">
+              <button class="btn btn-primary" id="caFilterBtn">查询</button>
+              <button class="btn" id="caFilterResetBtn">重置</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body table-wrap"><table class="data-table">
+        <thead><tr>
+          <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>贷款号</th>
+          <th>行业</th><th>主办分行</th><th>可见记录</th><th>可见归因排放(tCO₂e)</th><th>状态</th><th>操作</th>
+        </tr></thead>
+        <tbody>${view.rows.length ? view.rows.map((a, i) => `<tr>
+          <td>${view.startIndex + i + 1}</td>
+          <td>${a.customerName}</td>
+          <td><code style="font-size:12px">${a.creditCode}</code></td>
+          <td>${a.loanAccount}</td>
+          <td>${a.industryMajor || '-'}</td>
+          <td>${a.primaryBranch || '-'}</td>
+          <td>${a.visibleRecordCount || 0}</td>
+          <td>${formatNum(a.visibleAttributedEmission)}</td>
+          <td>${renderCaAccountStatusBadge(a)}</td>
+          <td>${renderCaAccountActions(a, roleKey, accountingYear)}</td>
+        </tr>`).join('') : `<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在核算任务中完成排放计算并【确认结果】。'}</td></tr>`}
+        </tbody></table></div>
+      ${renderPagination(listKey, view)}
+    </div>`;
+};
+
+SPA_VIEWS['#/carbon-account'] = function(ctx) {
+  const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+  const accountId = params.get('id');
+  const tab = params.get('tab') || 'profile';
+  const roleKey = Store.get().currentRole;
+  const acc = Store.getCarbonAccount(accountId);
+  if (!acc) {
+    return `<h1 class="page-title">企业碳账户</h1><p class="page-desc">未找到账户</p>
+      <a href="#/carbon-accounts" class="btn">返回列表</a>`;
+  }
+  const { records: allRec } = Store.getCarbonContext(roleKey, ctx.role);
+  const scopeYear = params.get('year') || getCaListFilters().accountingYear || null;
+  const accountRecordsAll = allRec.filter(r => r.accountId === accountId);
+  const accountRecords = scopeYear && scopeYear !== 'all'
+    ? accountRecordsAll.filter(r => String(r.year) === String(scopeYear))
+    : accountRecordsAll;
+  const detailFilters = getCaDetailFilters(accountId);
+  const records = CarbonAccount.filterRecords(accountRecords, detailFilters);
+  const enriched = CarbonAccount.enrichAccount(acc, accountRecords);
+  const byBiz = CarbonAccount.aggregateBy(accountRecords, r => r.bizLabel);
+  const byIndustry = CarbonAccount.aggregateBy(accountRecords, r => r.industryMajor);
+  const byYear = CarbonAccount.aggregateBy(accountRecords, r => String(r.year));
+  const byLoanType = CarbonAccount.aggregateBy(accountRecords, r => r.loanType);
+  const byBranch = CarbonAccount.aggregateBy(accountRecords, r => r.handlingBranch);
+  const trend = CarbonAccount.trendByYear(accountRecordsAll);
+  const intensityTrend = CarbonAccount.trendIntensityByYear(accountRecordsAll);
+  const { years: detailYears } = CarbonAccount.resolveAccountingYear(accountRecordsAll, scopeYear);
+  const listKey = 'ca_records_' + accountId;
+  const view = paginateData(listKey, records);
+
+  let panel = '';
+  if (tab === 'profile') {
+    panel = `<div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body form-grid">
+      <div class="form-item"><label>企业名称</label><input value="${acc.customerName || ''}" readonly></div>
+      <div class="form-item"><label>统一社会信用代码</label><input value="${acc.creditCode || ''}" readonly></div>
+      <div class="form-item"><label>贷款号</label><input value="${acc.loanAccount || ''}" readonly></div>
+      <div class="form-item"><label>行业</label><input value="${acc.industryMajor || ''}" readonly></div>
+      <div class="form-item"><label>主办分行</label><input value="${acc.primaryBranch || ''}" readonly></div>
+      <div class="form-item"><label>开户时间</label><input value="${acc.openedAt || '-'}" readonly></div>
+      <div class="form-item"><label>账户状态</label><input value="${CarbonAccount.ACCOUNT_STATUS_LABEL[acc.status] || acc.status || '启用'}" readonly></div>
+      <div class="form-item"><label>最近状态变更</label><input value="${acc.statusChangedAt || '-'}" readonly></div>
+      <div class="form-item full"><label>说明</label><p style="font-size:13px;color:#909399;margin:0">账户主键为法人+贷款号；辖内汇总按一级分行过滤，明细可查看经办行。总行可在列表页对账户执行启用/停用/注销。</p></div>
+    </div></div>
+    ${renderCaStatusHistoryPanel(acc)}`;
+  } else if (tab === 'summary') {
+    panel = `<div class="ca-summary-grid">
+      <div class="card"><div class="card-header"><h3>项目 / 非项目</h3><span class="ca-chart-type-tag">环图</span></div><div class="card-body">${renderCaDonutChart(byBiz)}</div></div>
+      <div class="card"><div class="card-header"><h3>行业维度（八大高碳）</h3><span class="ca-chart-type-tag">条形图</span></div><div class="card-body">${renderCaBarChart(byIndustry)}</div></div>
+      <div class="card"><div class="card-header"><h3>核算年度</h3><span class="ca-chart-type-tag">柱状图</span></div><div class="card-body">${renderCaColumnChart(byYear)}</div></div>
+      <div class="card"><div class="card-header"><h3>贷款类型</h3><span class="ca-chart-type-tag">环图</span></div><div class="card-body">${renderCaDonutChart(byLoanType)}</div></div>
+      ${roleKey === 'hq' ? `<div class="card ca-summary-full"><div class="card-header"><h3>经办行分布</h3><span class="ca-chart-type-tag">条形图</span></div><div class="card-body">${renderCaBarChart(byBranch)}</div></div>` : ''}
+    </div>`;
+  } else if (tab === 'trend') {
+    panel = `<div class="ca-trend-grid">
+      <div class="card"><div class="card-header"><h3>年度排放趋势</h3><span class="ca-chart-type-tag">折线图</span></div><div class="card-body">${renderCaLineChart(trend, [
+      { key: 'emission', label: '归因排放 (tCO₂e)', color: '#3d7cc9' },
+      { key: 'entity', label: '主体排放 (tCO₂e)', color: '#67c23a' }
+    ])}</div></div>
+      <div class="card"><div class="card-header"><h3>排放强度趋势</h3><span class="ca-chart-type-tag">折线图</span></div><div class="card-body">
+        <p class="ca-chart-hint">碳强度 = 归因排放 ÷ 年均贷款余额，单位：tCO₂e / 万元</p>
+        ${renderCaLineChart(intensityTrend, [{ key: 'intensity', label: '碳强度 (tCO₂e/万元)', color: '#e6a23c' }])}
+      </div></div>
+      <div class="card ca-summary-full"><div class="card-header"><h3>年度明细</h3></div><div class="card-body">${renderCaTrendTable(trend)}</div></div>
+    </div>`;
+  } else {
+    const filterHint = records.length !== accountRecords.length
+      ? `已筛选 <b>${records.length}</b> / ${accountRecords.length} 笔`
+      : `共 <b>${accountRecords.length}</b> 笔`;
+    panel = `<div class="card">
+      <div class="card-header"><h3>排放明细</h3>
+        <span class="ca-filter-result-hint">${filterHint}</span>
+        <button type="button" class="btn btn-sm" id="caExportBtn">导出 Excel</button></div>
+      ${renderCaDetailFilters(accountRecords, detailFilters)}
+      <div class="card-body table-wrap" style="padding-top:0"><table class="data-table" id="caRecordsTable">
+        <thead><tr>
+          <th>核算年度</th><th>一级分行</th><th>经办行</th><th>项目/非项目</th><th>行业</th>
+          <th>贷款类型</th><th>年均余额(万元)</th><th>主体排放</th><th>归因排放</th>
+          <th>碳强度</th><th>方法</th><th>核算完成时间</th><th>状态</th>
+        </tr></thead>
+        <tbody>${view.rows.map(r => `<tr>
+          <td>${r.year}</td><td>${r.tier1Branch}</td><td>${r.handlingBranch}</td><td>${r.bizLabel}</td>
+          <td>${r.industryMajor}</td><td>${r.loanType}</td>
+          <td>${formatNum(r.avgBalance)}</td>
+          <td>${formatNum(r.entityEmission)}</td><td>${formatNum(r.attributedEmission)}</td>
+          <td>${CarbonAccount.formatIntensity(CarbonAccount.recordIntensity(r))}</td>
+          <td>${r.method || '-'}</td><td>${formatCaConfirmedAt(r)}</td>
+          <td>${formatCaRecordStatus(r)}</td>
+        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="13" style="text-align:center;padding:24px">暂无符合条件的记录</td></tr>' : ''}
+        </tbody></table></div>
+      ${renderPagination(listKey, view)}</div>`;
+  }
+
+  const yearDesc = scopeYear ? `核算年度 ${scopeYear}` : '全部年度';
+  return `
+    <div class="page-head-bar">
+      <div class="page-head-main">
+        <h1 class="page-title">碳账户 · ${acc.customerName}</h1>
+        <p class="page-desc">${acc.creditCode} · 贷款号 ${acc.loanAccount} · ${yearDesc}</p>
+      </div>
+      ${renderCaYearSwitcher(detailYears, scopeYear, 'caDetailYearTabs')}
+    </div>
+    <div class="stats-row">
+      <div class="stat-card accent"><div class="label">可见归因排放</div><div class="value">${formatNum(enriched.visibleAttributedEmission)}</div><div class="sub">tCO₂e</div></div>
+      <div class="stat-card"><div class="label">可见记录</div><div class="value">${enriched.visibleRecordCount}</div><div class="sub">笔</div></div>
+      <div class="stat-card"><div class="label">主办分行</div><div class="value" style="font-size:16px">${acc.primaryBranch || '-'}</div></div>
+    </div>
+    ${carbonAccountTabs(tab)}
+    <div style="margin-top:12px">${panel}</div>
+    <div style="margin-top:16px"><a href="#/carbon-accounts" class="btn">返回列表</a></div>`;
+};
+
 SPA_VIEWS['#/interfaces'] = function(ctx) {
   const listKey = 'interfaces';
   const batches = ctx.data.interfaces || [];

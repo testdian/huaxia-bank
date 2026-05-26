@@ -7,6 +7,14 @@ const vm = require('vm');
 const root = path.join(__dirname, '..', 'assets', 'js');
 global.window = global;
 const ctx = global;
+const localStorageMock = {
+  _data: {},
+  getItem(k) { return this._data[k] ?? null; },
+  setItem(k, v) { this._data[k] = v; },
+  removeItem(k) { delete this._data[k]; }
+};
+global.localStorage = localStorageMock;
+globalThis.localStorage = localStorageMock;
 
 function load(name) {
   require(path.join(root, name));
@@ -19,6 +27,8 @@ load('supplement-templates-data.js');
 load('candidate-sync.js');
 load('supplement-fields.js');
 load('demo-seed.js');
+load('store.js');
+load('carbon-account.js');
 
 const seed = global.MOCK_SEED;
 const taskId = 'T2025001';
@@ -94,6 +104,21 @@ assert(methods.has('product'), 'has product method');
 assert(methods.has('economy'), 'has economy method');
 assert(methods.has('economy_fallback'), 'has economy_fallback method');
 
+assert(seed.carbonAccounts && seed.carbonAccounts.length >= 480,
+  'carbonAccounts >= 480, got ' + (seed.carbonAccounts?.length || 0));
+assert(seed.carbonAccountRecords && seed.carbonAccountRecords.length >= 1700,
+  'carbonAccountRecords >= 1700, got ' + (seed.carbonAccountRecords?.length || 0));
+const crossAcc = seed.carbonAccounts.find(a => a.creditCode === '91310100MA0000CROSS01');
+assert(crossAcc, 'demo cross-branch account exists');
+const crossRecs = seed.carbonAccountRecords.filter(r => r.accountId === crossAcc.id);
+assert(crossRecs.length >= 4, 'cross account has >= 4 records, got ' + crossRecs.length);
+const beijingRecs = seed.carbonAccountRecords.filter(r => r.tier1Branch === '北京分行');
+const shanghaiRecs = seed.carbonAccountRecords.filter(r => r.tier1Branch === '上海分行');
+assert(beijingRecs.length >= 200, '北京分行 records >= 200, got ' + beijingRecs.length);
+assert(shanghaiRecs.length >= 180, '上海分行 records >= 180, got ' + shanghaiRecs.length);
+const shenzhenRecs = seed.carbonAccountRecords.filter(r => r.tier1Branch === '深圳分行');
+assert(shenzhenRecs.length >= 60, '深圳分行 records >= 60, got ' + shenzhenRecs.length);
+
 if (errors.length) {
   console.error('FAIL:\n' + errors.map(e => '  - ' + e).join('\n'));
   process.exit(1);
@@ -104,3 +129,4 @@ console.log('  Tasks:', seed.tasks.length, '| Candidates:', seed.candidates.leng
 console.log('  Supplements:', seed.supplements.length, '| Calculations:', seed.calculations.length);
 console.log('  Reports:', seed.reports.length, '| DQR:', task.dqr.dqr, task.dqr.level);
 console.log('  Total attributed (done):', doneCalcs.reduce((s, c) => s + (c.attributedEmission || 0), 0).toLocaleString(), 'tCO2e');
+console.log('  Carbon accounts:', seed.carbonAccounts.length, '| Carbon records:', seed.carbonAccountRecords.length);

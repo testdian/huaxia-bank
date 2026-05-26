@@ -1,6 +1,6 @@
 /** localStorage 数据层 + 指引口径计算 */
 const Store = {
-  KEY: 'hxb_carbon_demo_v13',
+  KEY: 'hxb_carbon_demo_v16',
   INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
 
   _ensureInterfaces() {
@@ -1233,6 +1233,9 @@ const Store = {
           t.milestone.calculationDone = true;
           t.milestone.resultsConfirmed = true;
         }
+      }
+      if (typeof CarbonAccount !== 'undefined') {
+        CarbonAccount.syncTask(d, taskId);
       }
     });
     return { ok: true };

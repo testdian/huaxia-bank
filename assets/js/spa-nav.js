@@ -11,6 +11,7 @@ const SPA_NAV = [
     match: ['#/branch-board', '#/manager-tasks', '#/supplement-fill']
   },
   { hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },
+  { hash: '#/carbon-accounts', label: '企业碳账户', match: ['#/carbon-accounts', '#/carbon-account'] },
   { hash: '#/factors', label: '排放因子库', match: ['#/factors', '#/factors/new', '#/factors/edit'] }
 ];
 
