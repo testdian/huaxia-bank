@@ -1,0 +1,2447 @@
+{
+  "version": "offline-template-2026",
+  "source": "高碳行业采集表模板（线下版）· 方法字段",
+  "count": 20,
+  "templates": [
+    {
+      "id": "non_project_电力",
+      "bizType": "non_project",
+      "sheetName": "电力",
+      "industryMajor": "电力",
+      "gbCodes": [
+        "D4411",
+        "D4412",
+        "D4417",
+        "D4420"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化石油气",
+            "液化天然气",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": false,
+          "processBlocks": [
+            {
+              "type": "desulfur",
+              "label": "脱硫试剂",
+              "slots": 2,
+              "typeOptions": [
+                "石灰石",
+                "菱镁石",
+                "纯碱",
+                "小苏打",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "coalPower",
+              "label": "燃煤发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "gasPower",
+              "label": "燃气发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "hydroPower",
+              "label": "水力发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "nuclearPower",
+              "label": "核能发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "windPower",
+              "label": "风力发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "solarPvPower",
+              "label": "光伏发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "solarThermalPower",
+              "label": "光热发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "biomassPower",
+              "label": "生物质发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpPowerLevel1",
+              "label": "热电联产-供电排放水平I级机组发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpPowerLevel2",
+              "label": "热电联产-供电排放水平II级机组发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpHeatLevel1",
+              "label": "热电联产-供热排放水平I级机组供热量（GJ）",
+              "group": "供热"
+            },
+            {
+              "key": "chpHeatLevel2",
+              "label": "热电联产-供热排放水平II级机组供热量（GJ）",
+              "group": "供热"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_电力",
+      "bizType": "project",
+      "sheetName": "电力",
+      "industryMajor": "电力",
+      "gbCodes": [
+        "D4411",
+        "D4412",
+        "D4417",
+        "D4420"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化石油气",
+            "液化天然气",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": false,
+          "processBlocks": [
+            {
+              "type": "desulfur",
+              "label": "脱硫试剂",
+              "slots": 2,
+              "typeOptions": [
+                "石灰石",
+                "菱镁石",
+                "纯碱",
+                "小苏打",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "coalPower",
+              "label": "燃煤发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "gasPower",
+              "label": "燃气发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "hydroPower",
+              "label": "水力发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "nuclearPower",
+              "label": "核能发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "windPower",
+              "label": "风力发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "solarPvPower",
+              "label": "光伏发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "solarThermalPower",
+              "label": "光热发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "biomassPower",
+              "label": "生物质发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpPowerLevel1",
+              "label": "热电联产-供电排放水平I级机组发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpPowerLevel2",
+              "label": "热电联产-供电排放水平II级机组发电量（MWh）",
+              "group": "供电"
+            },
+            {
+              "key": "chpHeatLevel1",
+              "label": "热电联产-供热排放水平I级机组供热量（GJ）",
+              "group": "供热"
+            },
+            {
+              "key": "chpHeatLevel2",
+              "label": "热电联产-供热排放水平II级机组供热量（GJ）",
+              "group": "供热"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_水泥",
+      "bizType": "non_project",
+      "sheetName": "水泥",
+      "industryMajor": "建材",
+      "gbCodes": [
+        "C3011"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化石油气",
+            "液化天然气",
+            "焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "clinkerOutput",
+              "label": "水泥熟料产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_水泥",
+      "bizType": "project",
+      "sheetName": "水泥",
+      "industryMajor": "建材",
+      "gbCodes": [
+        "C3011"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化石油气",
+            "液化天然气",
+            "焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "clinkerOutput",
+              "label": "水泥熟料产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_平板玻璃",
+      "bizType": "non_project",
+      "sheetName": "平板玻璃",
+      "industryMajor": "建材",
+      "gbCodes": [
+        "C3041"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化石油气",
+            "液化天然气",
+            "焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "glassOutput",
+              "label": "平板玻璃产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_平板玻璃",
+      "bizType": "project",
+      "sheetName": "平板玻璃",
+      "industryMajor": "建材",
+      "gbCodes": [
+        "C3041"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化石油气",
+            "液化天然气",
+            "焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿"
+              ],
+              "amountUnit": "t"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "glassOutput",
+              "label": "平板玻璃产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_钢铁",
+      "bizType": "non_project",
+      "sheetName": "钢铁",
+      "industryMajor": "钢铁",
+      "gbCodes": [
+        "C3110",
+        "C3120",
+        "C3130"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "煤焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "electrode",
+              "label": "电极使用消耗量（吨）"
+            },
+            {
+              "type": "amount",
+              "key": "limestone",
+              "label": "石灰石分解消耗量（吨）"
+            },
+            {
+              "type": "amount",
+              "key": "dolomite",
+              "label": "白云石分解消耗量（吨）"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "pigIron",
+              "label": "生铁产量（吨）"
+            },
+            {
+              "key": "steelBof",
+              "label": "粗钢（转炉）产量（吨）"
+            },
+            {
+              "key": "steelEaf",
+              "label": "粗钢（电炉）产量（吨）"
+            },
+            {
+              "key": "rebar",
+              "label": "钢筋产量（吨）"
+            },
+            {
+              "key": "sectionSteel",
+              "label": "型钢产量（吨）"
+            },
+            {
+              "key": "largeSteel",
+              "label": "大型钢材产量（吨）"
+            },
+            {
+              "key": "smallSteel",
+              "label": "小型钢材产量（吨）"
+            },
+            {
+              "key": "lowCarbonSteel",
+              "label": "低碳钢产量（吨）"
+            },
+            {
+              "key": "ironProducts",
+              "label": "铁制品产量（吨）"
+            },
+            {
+              "key": "steelProducts",
+              "label": "钢制品产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_钢铁",
+      "bizType": "project",
+      "sheetName": "钢铁",
+      "industryMajor": "钢铁",
+      "gbCodes": [
+        "C3110",
+        "C3120",
+        "C3130"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "煤焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "electrode",
+              "label": "电极使用消耗量（吨）"
+            },
+            {
+              "type": "amount",
+              "key": "limestone",
+              "label": "石灰石分解消耗量（吨）"
+            },
+            {
+              "type": "amount",
+              "key": "dolomite",
+              "label": "白云石分解消耗量（吨）"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "pigIron",
+              "label": "生铁产量（吨）"
+            },
+            {
+              "key": "steelBof",
+              "label": "粗钢（转炉）产量（吨）"
+            },
+            {
+              "key": "steelEaf",
+              "label": "粗钢（电炉）产量（吨）"
+            },
+            {
+              "key": "rebar",
+              "label": "钢筋产量（吨）"
+            },
+            {
+              "key": "sectionSteel",
+              "label": "型钢产量（吨）"
+            },
+            {
+              "key": "largeSteel",
+              "label": "大型钢材产量（吨）"
+            },
+            {
+              "key": "smallSteel",
+              "label": "小型钢材产量（吨）"
+            },
+            {
+              "key": "lowCarbonSteel",
+              "label": "低碳钢产量（吨）"
+            },
+            {
+              "key": "ironProducts",
+              "label": "铁制品产量（吨）"
+            },
+            {
+              "key": "steelProducts",
+              "label": "钢制品产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_铝冶炼",
+      "bizType": "non_project",
+      "sheetName": "铝冶炼",
+      "industryMajor": "有色",
+      "gbCodes": [
+        "C3216"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "alumina",
+              "label": "氧化铝产量（吨）"
+            },
+            {
+              "key": "aluminumLiquid",
+              "label": "铝液（原铝）产量（吨）"
+            },
+            {
+              "key": "aluminumIngot",
+              "label": "铝锭产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_铝冶炼",
+      "bizType": "project",
+      "sheetName": "铝冶炼",
+      "industryMajor": "有色",
+      "gbCodes": [
+        "C3216"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "alumina",
+              "label": "氧化铝产量（吨）"
+            },
+            {
+              "key": "aluminumLiquid",
+              "label": "铝液（原铝）产量（吨）"
+            },
+            {
+              "key": "aluminumIngot",
+              "label": "铝锭产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_铜冶炼",
+      "bizType": "non_project",
+      "sheetName": "铜冶炼",
+      "industryMajor": "有色",
+      "gbCodes": [
+        "C3211"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "copperOutput",
+              "label": "铜产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_铜冶炼",
+      "bizType": "project",
+      "sheetName": "铜冶炼",
+      "industryMajor": "有色",
+      "gbCodes": [
+        "C3211"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "copperOutput",
+              "label": "铜产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_石化",
+      "bizType": "non_project",
+      "sheetName": "石化",
+      "industryMajor": "石化",
+      "gbCodes": [
+        "C2511"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "煤焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "crudeOil",
+              "label": "原油产量（吨）"
+            },
+            {
+              "key": "ngl",
+              "label": "天然气凝析液产量（吨）"
+            },
+            {
+              "key": "aviationGasoline",
+              "label": "航空汽油产量（吨）"
+            },
+            {
+              "key": "motorGasoline",
+              "label": "车用汽油产量（吨）"
+            },
+            {
+              "key": "aviationKerosene",
+              "label": "航空煤油产量（吨）"
+            },
+            {
+              "key": "lampKerosene",
+              "label": "灯用煤油产量（吨）"
+            },
+            {
+              "key": "diesel",
+              "label": "柴油产量（吨）"
+            },
+            {
+              "key": "marineFuelOil",
+              "label": "船用燃料油产量（吨）"
+            },
+            {
+              "key": "industrialFuelOil",
+              "label": "工业用燃料油产量（吨）"
+            },
+            {
+              "key": "lpg",
+              "label": "液化石油气产量（吨）"
+            },
+            {
+              "key": "methaneHydrogen",
+              "label": "甲烷氢产量（吨）"
+            },
+            {
+              "key": "paraffin",
+              "label": "石蜡产量（吨）"
+            },
+            {
+              "key": "coalTarPitch",
+              "label": "煤焦沥青产量（吨）"
+            },
+            {
+              "key": "petroleumAsphalt",
+              "label": "石油沥青产量（吨）"
+            },
+            {
+              "key": "petroleumCoke",
+              "label": "石油焦产量（吨）"
+            },
+            {
+              "key": "lubricant",
+              "label": "润滑油产量（吨）"
+            },
+            {
+              "key": "naphtha",
+              "label": "石脑油产量（吨）"
+            },
+            {
+              "key": "ethane",
+              "label": "乙烷产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_石化",
+      "bizType": "project",
+      "sheetName": "石化",
+      "industryMajor": "石化",
+      "gbCodes": [
+        "C2511"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "其他石油制品",
+            "液化天然气",
+            "液化石油气",
+            "煤焦油",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "炼厂干气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "crudeOil",
+              "label": "原油产量（吨）"
+            },
+            {
+              "key": "ngl",
+              "label": "天然气凝析液产量（吨）"
+            },
+            {
+              "key": "aviationGasoline",
+              "label": "航空汽油产量（吨）"
+            },
+            {
+              "key": "motorGasoline",
+              "label": "车用汽油产量（吨）"
+            },
+            {
+              "key": "aviationKerosene",
+              "label": "航空煤油产量（吨）"
+            },
+            {
+              "key": "lampKerosene",
+              "label": "灯用煤油产量（吨）"
+            },
+            {
+              "key": "diesel",
+              "label": "柴油产量（吨）"
+            },
+            {
+              "key": "marineFuelOil",
+              "label": "船用燃料油产量（吨）"
+            },
+            {
+              "key": "industrialFuelOil",
+              "label": "工业用燃料油产量（吨）"
+            },
+            {
+              "key": "lpg",
+              "label": "液化石油气产量（吨）"
+            },
+            {
+              "key": "methaneHydrogen",
+              "label": "甲烷氢产量（吨）"
+            },
+            {
+              "key": "paraffin",
+              "label": "石蜡产量（吨）"
+            },
+            {
+              "key": "coalTarPitch",
+              "label": "煤焦沥青产量（吨）"
+            },
+            {
+              "key": "petroleumAsphalt",
+              "label": "石油沥青产量（吨）"
+            },
+            {
+              "key": "petroleumCoke",
+              "label": "石油焦产量（吨）"
+            },
+            {
+              "key": "lubricant",
+              "label": "润滑油产量（吨）"
+            },
+            {
+              "key": "naphtha",
+              "label": "石脑油产量（吨）"
+            },
+            {
+              "key": "ethane",
+              "label": "乙烷产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_化工",
+      "bizType": "non_project",
+      "sheetName": "化工",
+      "industryMajor": "化工",
+      "gbCodes": [
+        "C2611",
+        "C2612",
+        "C2613",
+        "C2614",
+        "C2619",
+        "C2621",
+        "C2622",
+        "C2623",
+        "C2624",
+        "C2625",
+        "C2629"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "原油",
+            "燃料油",
+            "汽油",
+            "一般煤油",
+            "石油焦",
+            "液化天然气",
+            "液化石油气",
+            "焦油",
+            "其他石油制品",
+            "粗苯",
+            "炼厂干气",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "n2oEmission",
+              "label": "氧化亚氮排放（吨）"
+            },
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿",
+                "菱锰石"
+              ],
+              "amountUnit": "t",
+              "keyPrefix": "carbonate"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "pvc1",
+              "label": "聚氯乙烯产量（吨）"
+            },
+            {
+              "key": "causticSoda",
+              "label": "氢氧化钠产量（吨）"
+            },
+            {
+              "key": "potassiumChloride",
+              "label": "氯化钾产量（吨）"
+            },
+            {
+              "key": "carbonAnode",
+              "label": "碳阳极产量（吨）"
+            },
+            {
+              "key": "ethylene",
+              "label": "乙烯产量（吨）"
+            },
+            {
+              "key": "pesticide",
+              "label": "化学农药产量（吨）"
+            },
+            {
+              "key": "ppc",
+              "label": "聚碳酸亚丙酯产量（吨）"
+            },
+            {
+              "key": "polypropylene",
+              "label": "聚丙烯产量（吨）"
+            },
+            {
+              "key": "polyethylene",
+              "label": "聚乙烯产量（吨）"
+            },
+            {
+              "key": "pvc2",
+              "label": "聚氯乙烯产量-2（吨）"
+            },
+            {
+              "key": "abs",
+              "label": "丙烯腈-苯乙烯-丁二烯共聚物产量（吨）"
+            },
+            {
+              "key": "pc",
+              "label": "聚碳酸酯产量（吨）"
+            },
+            {
+              "key": "detergentRegular",
+              "label": "普通洗涤液产量（吨）"
+            },
+            {
+              "key": "detergentConc",
+              "label": "浓缩洗涤液产量（吨）"
+            },
+            {
+              "key": "cellulose",
+              "label": "纤维素产量（吨）"
+            },
+            {
+              "key": "polyesterResin",
+              "label": "聚酯树脂产量（吨）"
+            },
+            {
+              "key": "pta",
+              "label": "对苯二甲酸产量（吨）"
+            },
+            {
+              "key": "methanol",
+              "label": "甲醇产量（吨）"
+            },
+            {
+              "key": "coating",
+              "label": "涂料产量（吨）"
+            },
+            {
+              "key": "nitrogenFertilizer",
+              "label": "氮肥（含尿素）产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_化工",
+      "bizType": "project",
+      "sheetName": "化工",
+      "industryMajor": "化工",
+      "gbCodes": [
+        "C2611",
+        "C2612",
+        "C2613",
+        "C2614",
+        "C2619",
+        "C2621",
+        "C2622",
+        "C2623",
+        "C2624",
+        "C2625",
+        "C2629"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "原油",
+            "燃料油",
+            "汽油",
+            "一般煤油",
+            "石油焦",
+            "液化天然气",
+            "液化石油气",
+            "焦油",
+            "其他石油制品",
+            "粗苯",
+            "炼厂干气",
+            "高炉煤气",
+            "转炉煤气",
+            "焦炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "n2oEmission",
+              "label": "氧化亚氮排放（吨）"
+            },
+            {
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石",
+                "纯碱",
+                "小苏打",
+                "菱镁石",
+                "毒重石",
+                "锂盐",
+                "草碱、珠碱",
+                "菱锶矿",
+                "菱铁矿",
+                "菱锰石"
+              ],
+              "amountUnit": "t",
+              "keyPrefix": "carbonate"
+            }
+          ]
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "pvc1",
+              "label": "聚氯乙烯产量（吨）"
+            },
+            {
+              "key": "causticSoda",
+              "label": "氢氧化钠产量（吨）"
+            },
+            {
+              "key": "potassiumChloride",
+              "label": "氯化钾产量（吨）"
+            },
+            {
+              "key": "carbonAnode",
+              "label": "碳阳极产量（吨）"
+            },
+            {
+              "key": "ethylene",
+              "label": "乙烯产量（吨）"
+            },
+            {
+              "key": "pesticide",
+              "label": "化学农药产量（吨）"
+            },
+            {
+              "key": "ppc",
+              "label": "聚碳酸亚丙酯产量（吨）"
+            },
+            {
+              "key": "polypropylene",
+              "label": "聚丙烯产量（吨）"
+            },
+            {
+              "key": "polyethylene",
+              "label": "聚乙烯产量（吨）"
+            },
+            {
+              "key": "pvc2",
+              "label": "聚氯乙烯产量-2（吨）"
+            },
+            {
+              "key": "abs",
+              "label": "丙烯腈-苯乙烯-丁二烯共聚物产量（吨）"
+            },
+            {
+              "key": "pc",
+              "label": "聚碳酸酯产量（吨）"
+            },
+            {
+              "key": "detergentRegular",
+              "label": "普通洗涤液产量（吨）"
+            },
+            {
+              "key": "detergentConc",
+              "label": "浓缩洗涤液产量（吨）"
+            },
+            {
+              "key": "cellulose",
+              "label": "纤维素产量（吨）"
+            },
+            {
+              "key": "polyesterResin",
+              "label": "聚酯树脂产量（吨）"
+            },
+            {
+              "key": "pta",
+              "label": "对苯二甲酸产量（吨）"
+            },
+            {
+              "key": "methanol",
+              "label": "甲醇产量（吨）"
+            },
+            {
+              "key": "coating",
+              "label": "涂料产量（吨）"
+            },
+            {
+              "key": "nitrogenFertilizer",
+              "label": "氮肥（含尿素）产量（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_造纸",
+      "bizType": "non_project",
+      "sheetName": "造纸",
+      "industryMajor": "造纸",
+      "gbCodes": [
+        "C2211",
+        "C2212",
+        "C2221"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "packagingPaper",
+              "label": "包装纸（吨）"
+            },
+            {
+              "key": "copyPaper",
+              "label": "复印纸（吨）"
+            },
+            {
+              "key": "householdPaper",
+              "label": "生活用纸（吨）"
+            },
+            {
+              "key": "paperProducts",
+              "label": "纸制品（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_造纸",
+      "bizType": "project",
+      "sheetName": "造纸",
+      "industryMajor": "造纸",
+      "gbCodes": [
+        "C2211",
+        "C2212",
+        "C2221"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": true,
+          "fields": [
+            {
+              "key": "packagingPaper",
+              "label": "包装纸（吨）"
+            },
+            {
+              "key": "copyPaper",
+              "label": "复印纸（吨）"
+            },
+            {
+              "key": "householdPaper",
+              "label": "生活用纸（吨）"
+            },
+            {
+              "key": "paperProducts",
+              "label": "纸制品（吨）"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "non_project_民航",
+      "bizType": "non_project",
+      "sheetName": "民航",
+      "industryMajor": "民航",
+      "gbCodes": [
+        "G5631",
+        "G5611",
+        "G5612"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "碳核查",
+            "碳排放权配额实际履约情况",
+            "环境信息披露报告",
+            "ESG报告",
+            "可持续发展报告",
+            "社会责任报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "企业所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": false,
+          "fields": []
+        }
+      }
+    },
+    {
+      "id": "project_民航",
+      "bizType": "project",
+      "sheetName": "民航",
+      "industryMajor": "民航",
+      "gbCodes": [
+        "G5631",
+        "G5611",
+        "G5612"
+      ],
+      "methods": {
+        "report": {
+          "sourceOptions": [
+            "经连续测量的碳排放数据",
+            "建设或运营过程实际产生的数据",
+            "可行性研究报告",
+            "设计文件",
+            "节能报告",
+            "其他"
+          ],
+          "hasAttachments": true
+        },
+        "energy": {
+          "fuelFixed": [
+            {
+              "key": "coal",
+              "label": "煤炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "coke",
+              "label": "焦炭消耗量（吨）",
+              "required": true
+            },
+            {
+              "key": "diesel",
+              "label": "柴油消耗量（吨）",
+              "required": false
+            },
+            {
+              "key": "gas",
+              "label": "天然气消耗量（万立方米）",
+              "required": true,
+              "step": "0.0001"
+            }
+          ],
+          "otherFuelOptions": [
+            "石油焦",
+            "原油",
+            "燃料油",
+            "汽油",
+            "煤油",
+            "液化天然气",
+            "液化石油气",
+            "炼厂干气",
+            "焦油",
+            "焦炉煤气",
+            "高炉煤气",
+            "转炉煤气",
+            "其他煤气",
+            "无"
+          ],
+          "gridOptions": [
+            "华北电网",
+            "东北电网",
+            "华东电网",
+            "华中电网",
+            "西北电网",
+            "南方电网",
+            "西南电网",
+            "全国平均"
+          ],
+          "gridLabel": "项目所属电网",
+          "hasPurchasedHeat": true,
+          "processBlocks": []
+        },
+        "product": {
+          "supported": false,
+          "fields": []
+        }
+      }
+    }
+  ]
+}
