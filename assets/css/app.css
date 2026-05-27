@@ -205,6 +205,13 @@ table.data-table th, table.data-table td {
   padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border);
 }
 table.data-table th { background: #fafafa; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+table.data-table th.col-select,
+table.data-table td.col-select {
+  width: 40px;
+  min-width: 40px;
+  text-align: center;
+  vertical-align: middle;
+}
 table.data-table tr:hover td { background: #fafcff; }
 table.data-table .actions { white-space: nowrap; }
 
@@ -799,6 +806,32 @@ tr.row-excluded .badge { opacity: .85; }
   white-space: nowrap;
 }
 .page-head-bar .ca-year-tabs { margin-bottom: 0; flex-wrap: wrap; }
+.filter-extra.ca-detail-filter-grid {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  width: 100%;
+}
+.filter-extra.ca-detail-filter-grid .form-item {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+}
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(1) select { width: 108px; }
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(2) select,
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(3) select,
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(4) select { width: 140px; }
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(5) {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+.filter-extra.ca-detail-filter-grid .form-item:nth-child(5) input { width: 100%; }
+.filter-extra.ca-detail-filter-grid .form-item.filter-actions { flex: 0 0 auto; }
+@media (max-width: 1100px) {
+  .filter-extra.ca-detail-filter-grid { flex-wrap: wrap; }
+  .filter-extra.ca-detail-filter-grid .form-item.filter-actions { width: 100%; }
+}
 .ca-detail-filter-panel {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
