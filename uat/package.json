@@ -1,0 +1,14 @@
+{
+  "name": "huaxia-bank",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "manual:screenshots": "node scripts/capture-manual-screenshots.mjs",
+    "manual:docx": "python3 scripts/generate-manual-docx.py",
+    "manual:build": "npm run manual:screenshots && npm run manual:docx"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

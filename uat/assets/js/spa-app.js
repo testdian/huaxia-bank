@@ -555,10 +555,9 @@ function bindPageEvents(base, ctx) {
       const accountId = params.get('id');
       sessionStorage.setItem('ca_detail_filters_' + accountId, JSON.stringify({
         year: qs('#ca_d_year')?.value || '',
-        bizType: qs('#ca_d_biz')?.value || '',
         industry: qs('#ca_d_industry')?.value || '',
         branch: qs('#ca_d_branch')?.value || '',
-        loanType: qs('#ca_d_loan')?.value || '',
+        productType: qs('#ca_d_product')?.value || '',
         keyword: qs('#ca_d_kw')?.value || ''
       }));
       setListPage('ca_records_' + accountId, 1);
@@ -580,12 +579,17 @@ function bindPageEvents(base, ctx) {
       const lines = [
         '华夏银行 · 企业碳账户排放明细',
         '',
-        '账户ID\t年度\t一级分行\t经办行\t项目非项目\t行业\t贷款类型\t年均余额(万元)\t主体排放\t归因排放\t碳强度\t方法\t核算完成时间\t状态'
+        '账户ID\t一级分行\t经办行\t客户名称\t业务品种\t贷款账号\t投放金额\t投放日\t贷款主体类型\t所属行业\t月均信贷余额(万元)\t营业收入(万元)\t业务经理\t核算年度\t主体排放\t归因排放\t碳强度\t方法\t核算完成时间\t状态'
       ];
       recs.forEach(r => {
+        const row = caRecordAsCandidateRow(r);
         lines.push([
-          accountId, r.year, r.tier1Branch, r.handlingBranch, r.bizLabel, r.industryMajor,
-          r.loanType, r.avgBalance, r.entityEmission, r.attributedEmission,
+          accountId, row.tier1Branch, row.handlingBranch, row.customerName,
+          candidateProductType(row), row.loanAccount,
+          row.disbursementAmount ?? '', row.disbursementDate ?? '',
+          candidateBorrowerType(row), candidateIndustryLabel(row),
+          row.avgMonthlyBalance ?? '', row.operatingRevenue ?? '',
+          row.manager ?? '', r.year, r.entityEmission, r.attributedEmission,
           CarbonAccount.recordIntensity(r) ?? '', r.method,
           r.confirmedAt || r.mountedAt || '', r.status
         ].join('\t'));

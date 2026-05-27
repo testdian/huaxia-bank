@@ -26,6 +26,43 @@ const CarbonAccount = {
     return 'CA_' + raw.replace(/[^0-9A-Za-z\u4e00-\u9fa5]/g, '_').slice(0, 48);
   },
 
+  accountUniqueKey(creditCode, loanAccount) {
+    return `${creditCode || ''}|${loanAccount || ''}`;
+  },
+
+  /** 法人+贷款号唯一：合并重复账户并重挂排放记录 */
+  dedupeCarbonAccounts(accounts, records) {
+    const kept = [];
+    const keyToAccount = new Map();
+    const idRemap = new Map();
+
+    (accounts || []).forEach(acc => {
+      const key = this.accountUniqueKey(acc.creditCode, acc.loanAccount);
+      const canonical = keyToAccount.get(key);
+      if (!canonical) {
+        keyToAccount.set(key, acc);
+        kept.push(acc);
+        return;
+      }
+      idRemap.set(acc.id, canonical.id);
+      if (!canonical.customerName && acc.customerName) canonical.customerName = acc.customerName;
+      if (!canonical.industryMajor && acc.industryMajor) canonical.industryMajor = acc.industryMajor;
+      if (!canonical.gbIndustryCode && acc.gbIndustryCode) canonical.gbIndustryCode = acc.gbIndustryCode;
+      if (!canonical.primaryBranch && acc.primaryBranch) canonical.primaryBranch = acc.primaryBranch;
+      if (acc.statusHistory?.length) {
+        canonical.statusHistory = (canonical.statusHistory || []).concat(acc.statusHistory);
+      }
+      if (acc.status === 'cancelled') canonical.status = 'cancelled';
+      else if (acc.status === 'disabled' && canonical.status === 'active') canonical.status = 'disabled';
+    });
+
+    (records || []).forEach(r => {
+      if (idRemap.has(r.accountId)) r.accountId = idRemap.get(r.accountId);
+    });
+
+    return kept;
+  },
+
   resolveLedgerRow(d, formal, calc) {
     const cand = d.candidates.find(c => c.id === formal?.customerId);
     return {
@@ -127,7 +164,10 @@ const CarbonAccount = {
     let list = records.slice();
     const year = filters.year != null && filters.year !== '' ? String(filters.year) : '';
     if (year) list = list.filter(r => String(r.year) === year);
-    if (filters.loanType) list = list.filter(r => r.loanType === filters.loanType);
+    const productType = filters.productType || filters.loanType;
+    if (productType) {
+      list = list.filter(r => caRecordProductType(r) === productType);
+    }
     if (filters.industry) list = list.filter(r => r.industryMajor === filters.industry);
     if (filters.branch) {
       list = list.filter(r => r.handlingBranch === filters.branch || r.tier1Branch === filters.branch);
@@ -135,14 +175,16 @@ const CarbonAccount = {
     if (filters.bizType) list = list.filter(r => r.bizType === filters.bizType);
     const kw = (filters.keyword || '').trim().toLowerCase();
     if (kw) {
-      list = list.filter(r =>
-        String(r.year).includes(kw) ||
-        (r.handlingBranch || '').toLowerCase().includes(kw) ||
-        (r.loanType || '').toLowerCase().includes(kw) ||
-        (r.industryMajor || '').toLowerCase().includes(kw) ||
-        (r.bizLabel || '').toLowerCase().includes(kw) ||
-        (r.method || '').toLowerCase().includes(kw)
-      );
+      list = list.filter(r => {
+        const row = caRecordAsCandidateRow(r);
+        return String(r.year).includes(kw) ||
+          (r.customerName || '').toLowerCase().includes(kw) ||
+          (row.loanAccount || '').toLowerCase().includes(kw) ||
+          (r.handlingBranch || '').toLowerCase().includes(kw) ||
+          caRecordProductType(r).toLowerCase().includes(kw) ||
+          (r.industryMajor || '').toLowerCase().includes(kw) ||
+          (r.method || '').toLowerCase().includes(kw);
+      });
     }
     return list;
   },
@@ -159,9 +201,48 @@ const CarbonAccount = {
     return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
   },
 
+  parseYearFromDateTime(s) {
+    const m = String(s || '').match(/^(\d{4})/);
+    return m ? Number(m[1]) : null;
+  },
+
+  /** 核算完成时间落在核算年度的上一年（核算年度 = 完成时间年份 + 1） */
+  completionTimeForAccountingYear(accountingYear, salt = 0) {
+    const accYear = Number(accountingYear);
+    const y = accYear - 1;
+    if (!accYear || y < 1900) return `${accYear || new Date().getFullYear()}-01-15 10:00:00`;
+    const seed = Math.abs(Number(salt) || 0);
+    const m = (seed % 12) + 1;
+    const d = (seed % 28) + 1;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')} 10:00:00`;
+  },
+
+  alignRecordYearCompletion(record) {
+    if (!record) return record;
+    const accYear = Number(record.year);
+    if (!accYear) return record;
+    const salt = String(record.id || record.calcId || '').split('')
+      .reduce((s, c) => s + c.charCodeAt(0), 0);
+    const confYear = this.parseYearFromDateTime(record.confirmedAt || record.mountedAt);
+    if (confYear == null || confYear >= accYear) {
+      record.confirmedAt = this.completionTimeForAccountingYear(accYear, salt);
+    }
+    if (record.mountedAt) record.mountedAt = record.confirmedAt;
+    record.period = String(record.year);
+    return record;
+  },
+
   buildRecordPayload(d, task, formal, calc, accountId) {
     const row = this.resolveLedgerRow(d, formal, calc);
-    const year = task?.year || new Date().getFullYear();
+    const cand = (d.candidates || []).find(c => c.id === formal?.customerId);
+    const year = Number(task?.year) || new Date().getFullYear();
+    const salt = String(calc?.id || formal?.id || '').split('')
+      .reduce((s, c) => s + c.charCodeAt(0), 0);
+    let confirmedAt = task?.resultsConfirmedAt || calc?.confirmedAt || '';
+    const confYear = this.parseYearFromDateTime(confirmedAt);
+    if (!confirmedAt || confYear == null || confYear >= year) {
+      confirmedAt = this.completionTimeForAccountingYear(year, salt);
+    }
     return {
       id: 'CAR_' + calc.id,
       accountId,
@@ -175,7 +256,14 @@ const CarbonAccount = {
       handlingBranch: row.handlingBranch,
       industryMajor: row.industryMajor,
       gbIndustryCode: row.gbIndustryCode,
+      industryLabel: cand?.industryLabel ?? formal?.industryLabel,
+      productType: cand?.productType || formal?.productType || cand?.loanType || row.loanType,
       loanType: row.loanType,
+      disbursementAmount: cand?.disbursementAmount ?? formal?.disbursementAmount,
+      disbursementDate: cand?.disbursementDate ?? formal?.disbursementDate,
+      borrowerType: cand?.borrowerType ?? formal?.borrowerType,
+      avgMonthlyBalance: cand?.avgMonthlyBalance ?? formal?.avgMonthlyBalance,
+      operatingRevenue: cand?.operatingRevenue ?? formal?.operatingRevenue ?? cand?.revenue,
       bizType: row.bizType,
       bizLabel: row.bizType === 'project' ? '项目贷款' : '非项目贷款',
       manager: row.manager,
@@ -185,7 +273,7 @@ const CarbonAccount = {
       year,
       period: String(year),
       method: calc.method,
-      confirmedAt: new Date().toLocaleString('zh-CN'),
+      confirmedAt,
       status: 'confirmed'
     };
   },
@@ -315,13 +403,7 @@ const CarbonAccount = {
 
     const ensureAccount = (row, openedAt) => {
       const acc = this.upsertAccount({ carbonAccounts: accounts }, row, openedAt);
-      if (!accountIds.has(acc.id)) {
-        accounts.push(acc);
-        accountIds.add(acc.id);
-      } else {
-        const idx = accounts.findIndex(a => a.id === acc.id);
-        if (idx >= 0) accounts[idx] = acc;
-      }
+      accountIds.add(acc.id);
       return acc;
     };
 
@@ -338,7 +420,7 @@ const CarbonAccount = {
       const entity = Math.round((8000 + (seq % 97) * 1370) * emissionScale);
       const attr = Math.round(entity * (0.08 + (seq % 11) * 0.012));
       const y = year;
-      const mounted = `${y}-${String((seq % 12) + 1).padStart(2, '0')}-${String((seq % 28) + 1).padStart(2, '0')} 10:00:00`;
+      const mounted = this.completionTimeForAccountingYear(y, seq);
       pushRecord({
         id: 'CAR_BD_' + String(seq++).padStart(5, '0'),
         accountId: acc.id,
@@ -367,7 +449,7 @@ const CarbonAccount = {
       });
     };
 
-    // 场景1：同一法人+贷款号，多经办行（W/E/R 演示）
+    // 场景1：同一法人+贷款号单账户，多条排放记录（跨经办行/年度，明细页可见）
     (() => {
       const creditCode = '91310100MA0000CROSS01';
       const loanAccount = '6221000888001';
@@ -577,7 +659,8 @@ const CarbonAccount = {
       a.statusHistory = [{ from: 'active', to: 'cancelled', at: a.statusChangedAt, operator: '总行绿金部' }];
     });
 
-    return { carbonAccounts: accounts, carbonAccountRecords: records };
+    const dedupedAccounts = this.dedupeCarbonAccounts(accounts, records);
+    return { carbonAccounts: dedupedAccounts, carbonAccountRecords: records };
   },
 
   applyBulkDemoToStore(d, opts) {
@@ -648,7 +731,12 @@ if (typeof Store !== 'undefined') {
       if (!d.carbonAccountRecords) d.carbonAccountRecords = [];
       (d.carbonAccountRecords || []).forEach(r => {
         if (!r.confirmedAt && r.mountedAt) r.confirmedAt = r.mountedAt;
+        CarbonAccount.alignRecordYearCompletion(r);
       });
+      d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
+        d.carbonAccounts,
+        d.carbonAccountRecords
+      );
       const needsBackfill = d.carbonAccounts.length < 50;
       if (needsBackfill) CarbonAccount.backfillAll(d);
       if (d.carbonAccountRecords.length < 1500) {
@@ -657,6 +745,10 @@ if (typeof Store !== 'undefined') {
           recordTarget: 1800
         });
       }
+      d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
+        d.carbonAccounts,
+        d.carbonAccountRecords
+      );
     }
   });
 
@@ -679,9 +771,15 @@ if (typeof Store !== 'undefined') {
 
   (function migrateCarbonAccountsOnce() {
     const d = Store.get();
-    if (!d.calculations?.length) return;
-    if ((d.carbonAccountRecords || []).length >= 1500) return;
-    Store._migrateCarbonAccounts(d);
+    if (!d.calculations?.length && !(d.carbonAccounts || []).length) return;
+    (d.carbonAccountRecords || []).forEach(r => CarbonAccount.alignRecordYearCompletion(r));
+    d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
+      d.carbonAccounts || [],
+      d.carbonAccountRecords || []
+    );
+    if ((d.carbonAccountRecords || []).length < 1500) {
+      Store._migrateCarbonAccounts(d);
+    }
     Store.set(d);
   })();
 }

@@ -108,10 +108,23 @@ assert(seed.carbonAccounts && seed.carbonAccounts.length >= 480,
   'carbonAccounts >= 480, got ' + (seed.carbonAccounts?.length || 0));
 assert(seed.carbonAccountRecords && seed.carbonAccountRecords.length >= 1700,
   'carbonAccountRecords >= 1700, got ' + (seed.carbonAccountRecords?.length || 0));
-const crossAcc = seed.carbonAccounts.find(a => a.creditCode === '91310100MA0000CROSS01');
+const crossAccs = seed.carbonAccounts.filter(a => a.creditCode === '91310100MA0000CROSS01');
+assert(crossAccs.length === 1, 'cross account unique per credit+loan, got ' + crossAccs.length);
+const crossAcc = crossAccs[0];
 assert(crossAcc, 'demo cross-branch account exists');
 const crossRecs = seed.carbonAccountRecords.filter(r => r.accountId === crossAcc.id);
 assert(crossRecs.length >= 4, 'cross account has >= 4 records, got ' + crossRecs.length);
+const accountKeys = seed.carbonAccounts.map(a => `${a.creditCode}|${a.loanAccount}`);
+assert(accountKeys.length === new Set(accountKeys).size,
+  'carbonAccounts unique by creditCode+loanAccount');
+seed.carbonAccountRecords.forEach(r => {
+  const accYear = Number(r.year);
+  const confYear = CarbonAccount.parseYearFromDateTime(r.confirmedAt);
+  if (accYear && confYear != null) {
+    assert(confYear === accYear - 1,
+      `record ${r.id}: completion year ${confYear} should be accounting year ${accYear} - 1`);
+  }
+});
 const beijingRecs = seed.carbonAccountRecords.filter(r => r.tier1Branch === '北京分行');
 const shanghaiRecs = seed.carbonAccountRecords.filter(r => r.tier1Branch === '上海分行');
 assert(beijingRecs.length >= 200, '北京分行 records >= 200, got ' + beijingRecs.length);

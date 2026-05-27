@@ -1555,6 +1555,46 @@ function renderCandidateListCells(c) {
     <td>${c.manager || '-'}</td>`;
 }
 
+const CANDIDATE_LIST_TABLE_HEAD = `
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+  <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
+  <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>`;
+
+/** 碳账户排放明细 → 候选清单同款行（复用台账列） */
+function caRecordAsCandidateRow(r) {
+  const avgMonthly = r.avgMonthlyBalance != null
+    ? r.avgMonthlyBalance
+    : (r.avgBalance != null ? Math.round(Number(r.avgBalance) / 12) : null);
+  return {
+    tier1Branch: r.tier1Branch,
+    branch: r.tier1Branch,
+    handlingBranch: r.handlingBranch,
+    customerName: r.customerName,
+    productType: r.productType || r.loanType,
+    loanType: r.loanType,
+    loanAccount: r.loanAccount,
+    disbursementAmount: r.disbursementAmount,
+    disbursementDate: r.disbursementDate,
+    borrowerType: r.borrowerType,
+    industryLabel: r.industryLabel,
+    gbIndustryCode: r.gbIndustryCode,
+    gbIndustryName: r.gbIndustryName,
+    industryMajor: r.industryMajor,
+    avgMonthlyBalance: avgMonthly,
+    operatingRevenue: r.operatingRevenue,
+    revenue: r.operatingRevenue,
+    manager: r.manager
+  };
+}
+
+function renderCaRecordLedgerCells(r) {
+  return renderCandidateListCells(caRecordAsCandidateRow(r));
+}
+
+function caRecordProductType(r) {
+  return candidateProductType(caRecordAsCandidateRow(r));
+}
+
 /** 核算方法展示名（五类） */
 function calcMethodLabel(item) {
   if (!item) return '待选择';

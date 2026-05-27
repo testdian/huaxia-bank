@@ -102,12 +102,12 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
           </div>
         </div>
       </div>
-      <div class="card-body table-wrap"><table class="data-table">
-    <thead><tr>
-      <th>序号</th><th>任务名称</th><th>核算年度</th><th>行业范围</th><th>截止日期</th>
-      <th>当前进度</th><th>操作</th>
-    </tr></thead>
-    <tbody>${view.rows.length ? view.rows.map((t, i) => `<tr>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr>
+          <th>序号</th><th>任务名称</th><th>核算年度</th><th>行业范围</th><th>截止日期</th>
+          <th>当前进度</th><th>操作</th>
+        </tr></thead>
+        <tbody>${view.rows.length ? view.rows.map((t, i) => `<tr>
       <td>${view.startIndex + i + 1}</td>
       <td>${t.name}</td>
       <td>${t.year}</td>
@@ -120,8 +120,8 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
         <button type="button" class="btn-link task-delete-btn" data-id="${t.id}" data-name="${t.name.replace(/"/g, '&quot;')}">删除</button>
       </td>
     </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;padding:40px;color:#909399">暂无符合条件的任务</td></tr>`}
-    </tbody></table></div>
-    ${renderPagination(listKey, view)}</div>`;
+        </tbody></table></div>
+      ${renderPagination(listKey, view)}</div>`;
 };
 
 SPA_VIEWS['#/task-create'] = function() {
@@ -211,7 +211,7 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
 
   const rowsHtml = view.rows.length ? view.rows.map(c => `
     <tr>
-      <td><input type="checkbox" class="row-check" data-id="${c.id}" ${c.included ? 'checked' : ''} ${viewOnly || !synced ? 'disabled' : ''}></td>
+      <td class="col-select"><input type="checkbox" class="row-check" data-id="${c.id}" ${c.included ? 'checked' : ''} ${viewOnly || !synced ? 'disabled' : ''}></td>
       ${renderCandidateListCells(c)}
       <td>${c.included ? '<span class="badge badge-success">拟纳入</span>' : '<span class="badge badge-draft">未勾选</span>'}</td>
     </tr>`).join('') : `<tr><td colspan="14" style="text-align:center;padding:40px;color:#909399">
@@ -250,7 +250,7 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
       </div>` : ''}
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
-          <th><input type="checkbox" id="checkAllPage" title="全选列表" ${viewOnly || !synced ? 'disabled' : ''}></th>
+          <th class="col-select"><input type="checkbox" id="checkAllPage" title="全选列表" ${viewOnly || !synced ? 'disabled' : ''}></th>
           <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
           <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>纳入标记</th>
@@ -269,7 +269,7 @@ SPA_VIEWS['#/formal'] = function(ctx) {
   const rowsHtml = list.map(f => {
     const canLock = f.status !== 'confirmed';
     return `<tr>
-      <td><input type="checkbox" class="formal-row-check" value="${f.id}" ${viewOnly || !canLock ? 'disabled' : ''}></td>
+      <td class="col-select"><input type="checkbox" class="formal-row-check" value="${f.id}" ${viewOnly || !canLock ? 'disabled' : ''}></td>
       ${renderCandidateListCells(formalLedgerRow(f, taskId))}
       <td>${statusBadge(f.status)}</td>
     </tr>`;
@@ -281,12 +281,15 @@ SPA_VIEWS['#/formal'] = function(ctx) {
     <div class="toolbar">
       <button class="btn btn-primary" id="confirmFormalBtn"${vma}>确认锁定</button>
     </div>
-    <div class="card"><div class="card-body table-wrap"><table class="data-table">
-    <thead><tr><th><input type="checkbox" id="formalCheckAll" title="全选列表"${viewOnly ? ' disabled' : ''}></th>
-      <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
-      <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-      <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>状态</th></tr></thead>
-    <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="14" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody></table></div></div>`;
+    <div class="card"><div class="table-wrap"><table class="data-table">
+        <thead><tr>
+          <th class="col-select"><input type="checkbox" id="formalCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
+          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+          <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
+          <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>状态</th>
+        </tr></thead>
+        <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="14" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
+      </table></div></div>`;
 };
 
 SPA_VIEWS['#/data-collect'] = function(ctx) {
@@ -342,7 +345,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       ops.push('—');
     }
     return `<tr>
-      <td>${checkCol}</td>
+      <td class="col-select">${checkCol}</td>
       <td>${f.customerName}</td>
       <td>${f.loanType || cand?.loanType || '—'}</td>
       <td>${collectModeBadge(mode)}</td>
@@ -405,12 +408,13 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         </div>
         </fieldset>
       </div>
-      <div class="card-body table-wrap"><table class="data-table">
-    <thead><tr>
-      <th style="white-space:nowrap"><input type="checkbox" id="dispatchCheckAll" title="全选可派发项"${viewOnly ? ' disabled' : ''}></th>
-      <th>客户</th><th>贷款类型</th><th>收数方式</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
-    </tr></thead>
-    <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody></table></div></div>`;
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr>
+          <th class="col-select"><input type="checkbox" id="dispatchCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
+          <th>客户</th><th>贷款类型</th><th>收数方式</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
+        </tr></thead>
+        <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
+      </table></div></div>`;
 };
 
 SPA_VIEWS['#/boundary'] = function(ctx) {
@@ -964,33 +968,26 @@ function getCaDetailFilters(accountId) {
 function renderCaDetailFilters(records, filters) {
   const years = [...new Set(records.map(r => String(r.year)).filter(Boolean))].sort();
   const industries = [...new Set(records.map(r => r.industryMajor).filter(Boolean))].sort();
-  const loanTypes = [...new Set(records.map(r => r.loanType).filter(Boolean))].sort();
+  const productTypes = [...new Set(records.map(r => caRecordProductType(r)).filter(Boolean))].sort();
   const branches = [...new Set(records.map(r => r.handlingBranch || r.tier1Branch).filter(Boolean))].sort();
+  const productVal = filters.productType || filters.loanType || '';
   const opt = (vals, cur, allLabel) =>
     `<option value="">${allLabel}</option>${vals.map(v =>
       `<option value="${v}" ${cur === v ? 'selected' : ''}>${v}</option>`
     ).join('')}`;
-  return `<div class="ca-detail-filter-panel">
-    <div class="ca-detail-filter-row">
-      <div class="form-item ca-filter-field ca-filter-field--sm"><label>核算年度</label>
+  return `<div class="filter-panel" style="padding:12px 16px;border-bottom:1px solid var(--border)">
+    <div class="filter-extra ca-detail-filter-grid">
+      <div class="form-item"><label>核算年度</label>
         <select id="ca_d_year">${opt(years, filters.year || '', '全部')}</select></div>
-      <div class="form-item ca-filter-field ca-filter-field--md"><label>项目/非项目</label>
-        <select id="ca_d_biz">
-          <option value="">全部</option>
-          <option value="project" ${filters.bizType === 'project' ? 'selected' : ''}>项目贷款</option>
-          <option value="non_project" ${filters.bizType === 'non_project' ? 'selected' : ''}>非项目贷款</option>
-        </select></div>
-      <div class="form-item ca-filter-field ca-filter-field--md"><label>行业</label>
+      <div class="form-item"><label>业务品种</label>
+        <select id="ca_d_product">${opt(productTypes, productVal, '全部')}</select></div>
+      <div class="form-item"><label>所属行业</label>
         <select id="ca_d_industry">${opt(industries, filters.industry || '', '全部')}</select></div>
-      <div class="form-item ca-filter-field ca-filter-field--md"><label>经办行</label>
+      <div class="form-item"><label>经办行</label>
         <select id="ca_d_branch">${opt(branches, filters.branch || '', '全部')}</select></div>
-      <div class="form-item ca-filter-field ca-filter-field--lg"><label>贷款类型</label>
-        <select id="ca_d_loan">${opt(loanTypes, filters.loanType || '', '全部')}</select></div>
-    </div>
-    <div class="ca-detail-filter-row ca-detail-filter-row--secondary">
-      <div class="form-item ca-filter-field ca-filter-field--kw"><label>关键词</label>
-        <input id="ca_d_kw" placeholder="年度、行业、方法等" value="${filters.keyword || ''}"></div>
-      <div class="form-item ca-filter-field ca-filter-field--actions">
+      <div class="form-item"><label>关键词</label>
+        <input id="ca_d_kw" placeholder="客户、账号、方法等" value="${filters.keyword || ''}"></div>
+      <div class="form-item filter-actions"><label>&nbsp;</label>
         <div class="filter-action-btns">
           <button type="button" class="btn btn-primary" id="caDetailFilterBtn">查询</button>
           <button type="button" class="btn" id="caDetailFilterResetBtn">重置</button>
@@ -1138,7 +1135,7 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
           </div>
         </div>
       </div>
-      <div class="card-body table-wrap"><table class="data-table">
+      <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>贷款号</th>
           <th>行业</th><th>主办分行</th><th>可见记录</th><th>可见归因排放(tCO₂e)</th><th>状态</th><th>操作</th>
@@ -1233,21 +1230,20 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
         <span class="ca-filter-result-hint">${filterHint}</span>
         <button type="button" class="btn btn-sm" id="caExportBtn">导出 Excel</button></div>
       ${renderCaDetailFilters(accountRecords, detailFilters)}
-      <div class="card-body table-wrap" style="padding-top:0"><table class="data-table" id="caRecordsTable">
+      <div class="table-wrap"><table class="data-table" id="caRecordsTable">
         <thead><tr>
-          <th>核算年度</th><th>一级分行</th><th>经办行</th><th>项目/非项目</th><th>行业</th>
-          <th>贷款类型</th><th>年均余额(万元)</th><th>主体排放</th><th>归因排放</th>
-          <th>碳强度</th><th>方法</th><th>核算完成时间</th><th>状态</th>
+          ${CANDIDATE_LIST_TABLE_HEAD}
+          <th>核算年度</th><th>主体排放(tCO₂e)</th><th>归因排放(tCO₂e)</th><th>碳强度(tCO₂e/万元)</th>
+          <th>方法</th><th>核算完成时间</th><th>状态</th>
         </tr></thead>
         <tbody>${view.rows.map(r => `<tr>
-          <td>${r.year}</td><td>${r.tier1Branch}</td><td>${r.handlingBranch}</td><td>${r.bizLabel}</td>
-          <td>${r.industryMajor}</td><td>${r.loanType}</td>
-          <td>${formatNum(r.avgBalance)}</td>
+          ${renderCaRecordLedgerCells(r)}
+          <td>${r.year}</td>
           <td>${formatNum(r.entityEmission)}</td><td>${formatNum(r.attributedEmission)}</td>
           <td>${CarbonAccount.formatIntensity(CarbonAccount.recordIntensity(r))}</td>
           <td>${r.method || '-'}</td><td>${formatCaConfirmedAt(r)}</td>
           <td>${formatCaRecordStatus(r)}</td>
-        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="13" style="text-align:center;padding:24px">暂无符合条件的记录</td></tr>' : ''}
+        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="19" style="text-align:center;padding:24px">暂无符合条件的记录</td></tr>' : ''}
         </tbody></table></div>
       ${renderPagination(listKey, view)}</div>`;
   }
