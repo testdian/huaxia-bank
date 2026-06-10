@@ -88,12 +88,41 @@ window.SUPPLEMENT_FIELDS = {
   renderBasicInfo(s, dis) {
     const ctx = this.getContext(s);
     const formal = ctx.formal;
+    const projectSeed = (Array.isArray(formal?.projectDetails) && formal.projectDetails[0])
+      || (Array.isArray(s.projectDetails) && s.projectDetails[0])
+      || {};
+    const projectInfo = s.projectInfo || {};
+    const projectInfoAvailable = s.projectInfoAvailable === true ? 'yes'
+      : (s.projectInfoAvailable === false ? 'no' : '');
+    const projectVal = (key, fallback = '') => this.val(projectInfo, key, projectSeed?.[key] ?? fallback);
     return `
       <div class="form-item"><label>客户名称</label><input value="${s.customerName || '—'}" disabled></div>
       <div class="form-item"><label>所属行业</label><input value="${ctx.industryMajor}" disabled></div>
       <div class="form-item"><label>业务类型</label><input value="${this.bizTypeLabel(ctx.bizType)}" disabled></div>
+      ${ctx.isProject ? `<div class="form-item"><label>是否可提供项目信息</label>
+        <select id="f_project_info_available" ${dis}>
+          <option value="" ${projectInfoAvailable === '' ? 'selected' : ''}>请选择</option>
+          <option value="yes" ${projectInfoAvailable === 'yes' ? 'selected' : ''}>是</option>
+          <option value="no" ${projectInfoAvailable === 'no' ? 'selected' : ''}>否</option>
+        </select></div>` : ''}
       ${ctx.template ? `<div class="form-item"><label>采集模板</label><input value="${ctx.sheetName}（${ctx.isProject ? '项目' : '非项目'}）" disabled></div>` : ''}
       ${ctx.isProject && formal?.projectName ? `<div class="form-item full"><label>项目名称</label><input value="${formal.projectName}" disabled></div>` : ''}
+      ${ctx.isProject ? `<div class="form-item full project-info-fields" data-project-info-fields style="${projectInfoAvailable === 'yes' ? '' : 'display:none'}">
+        <div class="form-section-title">项目信息填报</div>
+        <div class="form-grid">
+          <div class="form-item"><label>项目号</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
+          <div class="form-item"><label>项目名称</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
+          <div class="form-item"><label>项目所在地区域（省）</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
+          <div class="form-item"><label>项目所属行业</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
+          <div class="form-item"><label>客户号</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
+          <div class="form-item"><label>客户名称</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
+          <div class="form-item"><label>统一社会信用代码</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
+          <div class="form-item"><label>国民经济行业代码（4级）</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
+          <div class="form-item"><label>项目均贷款余额（万元）</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
+          <div class="form-item"><label>项目收入（万元）</label>${this.numInput('f_prj_revenue', projectVal('projectRevenueWan', s.revenue), dis, '0.01')}</div>
+          <div class="form-item"><label>项目总投资（万元）</label>${this.numInput('f_prj_total_invest', projectVal('projectTotalInvestmentWan', formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
+        </div>
+      </div>` : ''}
       <div class="form-item"><label>总资产(万元)</label>${this.numInput('f_total_assets', s.totalAssets, dis)}</div>
       <div class="form-item"><label>营业收入(万元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
       <div class="form-item"><label>投融资日均/月均余额(万元)</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
@@ -369,6 +398,30 @@ window.SUPPLEMENT_FIELDS = {
       avgLoanBalance: numVal('#f_avg_loan', rootEl),
       fieldData: { ...(supplement.fieldData || {}) }
     };
+    const projectInfoFlagEl = qs('#f_project_info_available', rootEl);
+    if (projectInfoFlagEl) {
+      const v = projectInfoFlagEl.value;
+      payload.projectInfoAvailable = v === 'yes' ? true : (v === 'no' ? false : null);
+      if (payload.projectInfoAvailable === true) {
+        payload.projectInfo = {
+          projectNo: txtVal('#f_prj_no', rootEl),
+          projectName: txtVal('#f_prj_name', rootEl),
+          projectProvince: txtVal('#f_prj_province', rootEl),
+          projectIndustry: txtVal('#f_prj_industry', rootEl),
+          customerNo: txtVal('#f_prj_customer_no', rootEl),
+          customerName: txtVal('#f_prj_customer_name', rootEl),
+          creditCode: txtVal('#f_prj_credit_code', rootEl),
+          nationalIndustryCodeLv4: txtVal('#f_prj_industry_code_lv4', rootEl),
+          projectAvgLoanBalanceWan: numVal('#f_prj_avg_loan', rootEl),
+          projectRevenueWan: numVal('#f_prj_revenue', rootEl),
+          projectTotalInvestmentWan: numVal('#f_prj_total_invest', rootEl)
+        };
+        payload.projectDetails = [payload.projectInfo];
+      } else if (payload.projectInfoAvailable === false) {
+        payload.projectInfo = null;
+        payload.projectDetails = [];
+      }
+    }
     if (tab === 'report') {
       if (tpl?.methods?.report) {
         const report = {
@@ -468,6 +521,13 @@ function numVal(sel, root) {
   const el = qs(sel, root);
   const v = Number(el?.value);
   return Number.isFinite(v) && el?.value !== '' ? v : null;
+}
+
+function txtVal(sel, root) {
+  const el = qs(sel, root);
+  if (!el) return null;
+  const v = (el.value || '').trim();
+  return v || null;
 }
 
 function getSupplementMethodTabs(s) {
