@@ -2,3 +2,6 @@
 *.log
 node_modules/
 __pycache__/
+# 本地开发目录（已同步到仓库根目录发布）
+prototype/
+package-lock.json

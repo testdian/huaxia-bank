@@ -20,7 +20,9 @@ const ROUTE_TITLES = {
   '#/calculation': '碳排放计算',
   '#/results': '核算结果查询',
   '#/reports': '生成报告',
-  '#/interfaces': '接口管理'
+  '#/interfaces': '接口管理',
+  '#/carbon-accounts': '企业碳账户',
+  '#/carbon-account': '碳账户详情'
 };
 
 function syncRouteTaskContext() {
@@ -244,6 +246,13 @@ function bindPageEvents(base, ctx) {
         route();
       };
     });
+
+    qsa('.candidate-expand-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleCandidateProjectExpanded(taskId, btn.dataset.id);
+        route();
+      });
+    });
   }
 
   if (base === '#/formal' && !viewOnly) {
@@ -271,6 +280,15 @@ function bindPageEvents(base, ctx) {
       Store.confirmFormalItems(taskId, toLock.map(f => f.id));
       toast(`已锁定 ${toLock.length} 笔，进入数据采集环节`, 'success');
       location.hash = `#/data-collect?taskId=${encodeURIComponent(taskId)}`;
+    });
+  }
+
+  if (base === '#/formal') {
+    qsa('.candidate-expand-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleCandidateProjectExpanded(taskId, btn.dataset.id);
+        route();
+      });
     });
   }
 
@@ -393,6 +411,16 @@ function bindPageEvents(base, ctx) {
     bindSupplementPageTabs(root);
     bindSupplementMethodTabs(!editable, root);
     SUPPLEMENT_FIELDS.bindFileUpload(root, sid, !editable);
+    const projectInfoSelect = qs('#f_project_info_available', root);
+    const toggleProjectInfoFields = () => {
+      const wrap = qs('[data-project-info-fields]', root);
+      if (!wrap) return;
+      wrap.style.display = projectInfoSelect?.value === 'yes' ? '' : 'none';
+    };
+    if (projectInfoSelect) {
+      projectInfoSelect.addEventListener('change', toggleProjectInfoFields);
+      toggleProjectInfoFields();
+    }
     if (!editable) return;
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
@@ -471,8 +499,134 @@ function bindPageEvents(base, ctx) {
         toast(r?.message || '无法确认结果', 'warning');
         return;
       }
-      toast('结果已确认，进入生成报告环节', 'success');
+      toast('结果已确认，排放记录已归集至企业碳账户', 'success');
       location.hash = '#/reports?taskId=' + encodeURIComponent(taskId);
+    });
+  }
+
+  if (base === '#/carbon-accounts') {
+    const readCaListFilters = () => {
+      try {
+        return JSON.parse(sessionStorage.getItem('ca_list_filters') || '{}');
+      } catch { return {}; }
+    };
+    qs('#caListYearTabs')?.querySelectorAll('.tab[data-ca-list-year]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const filters = readCaListFilters();
+        filters.accountingYear = tab.dataset.caListYear;
+        sessionStorage.setItem('ca_list_filters', JSON.stringify(filters));
+        setListPage('carbon_accounts', 1);
+        route();
+      });
+    });
+    qs('#caFilterBtn')?.addEventListener('click', () => {
+      const prev = readCaListFilters();
+      sessionStorage.setItem('ca_list_filters', JSON.stringify({
+        ...prev,
+        keyword: qs('#ca_kw')?.value || '',
+        branch: qs('#ca_branch')?.value || '',
+        status: qs('#ca_status')?.value || ''
+      }));
+      setListPage('carbon_accounts', 1);
+      route();
+    });
+    qs('#caFilterResetBtn')?.addEventListener('click', () => {
+      const prev = readCaListFilters();
+      const next = prev.accountingYear ? { accountingYear: prev.accountingYear } : {};
+      sessionStorage.setItem('ca_list_filters', JSON.stringify(next));
+      setListPage('carbon_accounts', 1);
+      route();
+    });
+    qsa('.ca-account-status-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const accountId = btn.dataset.id;
+        const nextStatus = btn.dataset.action;
+        const label = CarbonAccount.ACCOUNT_STATUS_LABEL[nextStatus] || nextStatus;
+        const acc = Store.getCarbonAccount(accountId);
+        const curLabel = CarbonAccount.ACCOUNT_STATUS_LABEL[acc?.status] || '当前';
+        if (!confirm(`确认将「${acc?.customerName || accountId}」从【${curLabel}】变更为【${label}】？`)) return;
+        const r = Store.setCarbonAccountStatus(accountId, nextStatus, Store.get().currentRole);
+        if (!r?.ok) {
+          toast(r?.message || '状态变更失败', 'warning');
+          return;
+        }
+        toast(r.message, 'success');
+        route();
+      });
+    });
+  }
+
+  if (base === '#/carbon-account') {
+    qs('#caDetailYearTabs')?.querySelectorAll('.tab[data-ca-list-year]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+        params.set('year', tab.dataset.caListYear);
+        location.hash = '#/carbon-account?' + params.toString();
+      });
+    });
+    qsa('.ca-tabs .tab').forEach(tab => {
+      tab.onclick = () => {
+        const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+        params.set('tab', tab.dataset.caTab);
+        location.hash = '#/carbon-account?' + params.toString();
+      };
+    });
+    const readCaDetailFilters = (accountId) => {
+      try {
+        return JSON.parse(sessionStorage.getItem('ca_detail_filters_' + accountId) || '{}');
+      } catch { return {}; }
+    };
+    qs('#caDetailFilterBtn')?.addEventListener('click', () => {
+      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+      const accountId = params.get('id');
+      sessionStorage.setItem('ca_detail_filters_' + accountId, JSON.stringify({
+        year: qs('#ca_d_year')?.value || '',
+        industry: qs('#ca_d_industry')?.value || '',
+        branch: qs('#ca_d_branch')?.value || '',
+        productType: qs('#ca_d_product')?.value || '',
+        keyword: qs('#ca_d_kw')?.value || ''
+      }));
+      setListPage('ca_records_' + accountId, 1);
+      route();
+    });
+    qs('#caDetailFilterResetBtn')?.addEventListener('click', () => {
+      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+      const accountId = params.get('id');
+      sessionStorage.removeItem('ca_detail_filters_' + accountId);
+      setListPage('ca_records_' + accountId, 1);
+      route();
+    });
+    qs('#caExportBtn')?.addEventListener('click', () => {
+      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
+      const accountId = params.get('id');
+      const roleKey = Store.get().currentRole;
+      const all = Store.getCarbonContext(roleKey, ctx.role).records.filter(r => r.accountId === accountId);
+      const recs = CarbonAccount.filterRecords(all, readCaDetailFilters(accountId));
+      const lines = [
+        '华夏银行 · 企业碳账户排放明细',
+        '',
+        '账户ID\t一级分行\t经办行\t客户名称\t业务品种\t贷款账号\t投放金额\t投放日\t贷款主体类型\t所属行业\t月均信贷余额(万元)\t营业收入(万元)\t业务经理\t核算年度\t主体排放\t归因排放\t碳强度\t方法\t核算完成时间\t状态'
+      ];
+      recs.forEach(r => {
+        const row = caRecordAsCandidateRow(r);
+        lines.push([
+          accountId, row.tier1Branch, row.handlingBranch, row.customerName,
+          candidateProductType(row), row.loanAccount,
+          row.disbursementAmount ?? '', row.disbursementDate ?? '',
+          candidateBorrowerType(row), candidateIndustryLabel(row),
+          row.avgMonthlyBalance ?? '', row.operatingRevenue ?? '',
+          row.manager ?? '', r.year, r.entityEmission, r.attributedEmission,
+          CarbonAccount.recordIntensity(r) ?? '', r.method,
+          r.confirmedAt || r.mountedAt || '', r.status
+        ].join('\t'));
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '碳账户排放明细_' + accountId + '.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast(`已导出 ${recs.length} 笔明细`, 'success');
     });
   }
 
@@ -649,7 +803,7 @@ function openInterfaceBatchModal(batchId) {
     <div class="table-wrap" style="max-height:420px;overflow:auto">
       <table class="data-table">
         <thead><tr>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
           <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>
         </tr></thead>
