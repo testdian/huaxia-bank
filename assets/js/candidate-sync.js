@@ -64,6 +64,25 @@ const CandidateSync = {
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
       const disbursementDate = `${year || 2024}-${String((idx % 12) + 1).padStart(2, '0')}-${String(10 + (idx % 18)).padStart(2, '0')}`;
       const operatingRevenue = Math.round(avgMonthlyBalance * 6 + idx * 500);
+      const hasSyncedProjectInfo = bizType === 'project' && (idx % 3 !== 0);
+      const projectTotalInvestmentWan = hasSyncedProjectInfo
+        ? Math.round((avgMonthlyBalance || 0) * (18 + (idx % 7)))
+        : null;
+      const projectDetails = hasSyncedProjectInfo
+        ? [{
+          projectNo: `PRJ${String(year || 2024)}${String(i + 1).padStart(4, '0')}`,
+          projectName: `${name.replace('有限公司', '')}项目`,
+          projectProvince: tier1Branch.replace('分行', ''),
+          projectIndustry: industryMajor || major,
+          customerNo: `KH${String(100000 + idx)}`,
+          customerName: name,
+          creditCode: '91' + String(110000 + idx).slice(0, 6) + 'MA' + String(idx).padStart(4, '0') + 'X',
+          nationalIndustryCodeLv4: industryMajor ? (industryOpt.code || code) : 'C4190',
+          projectAvgLoanBalanceWan: avgMonthlyBalance,
+          projectRevenueWan: operatingRevenue,
+          projectTotalInvestmentWan
+        }]
+        : [];
       rows.push({
         id: 'C' + taskId.replace(/\D/g, '').slice(-6) + String(i + 1).padStart(3, '0'),
         taskId,
@@ -77,12 +96,18 @@ const CandidateSync = {
         productType: loanType,
         loanType,
         bizType,
+        accountingType: bizType === 'project'
+          ? (projectDetails.length ? 'project_as_project' : 'project_pending')
+          : 'non_project',
+        projectInfoAvailable: (bizType === 'project' && projectDetails.length) ? true : null,
         tier1Branch,
         handlingBranch,
         loanAccount: '622' + String(1000000000000 + idx * 7919).slice(0, 13),
         disbursementAmount,
         disbursementDate,
         operatingRevenue,
+        projectTotalInvestmentWan,
+        projectDetails,
         avgMonthlyBalance,
         totalAssets: avgMonthlyBalance * 80 + idx * 1000,
         branch: tier1Branch,

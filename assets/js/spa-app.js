@@ -246,6 +246,13 @@ function bindPageEvents(base, ctx) {
         route();
       };
     });
+
+    qsa('.candidate-expand-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleCandidateProjectExpanded(taskId, btn.dataset.id);
+        route();
+      });
+    });
   }
 
   if (base === '#/formal' && !viewOnly) {
@@ -273,6 +280,15 @@ function bindPageEvents(base, ctx) {
       Store.confirmFormalItems(taskId, toLock.map(f => f.id));
       toast(`已锁定 ${toLock.length} 笔，进入数据采集环节`, 'success');
       location.hash = `#/data-collect?taskId=${encodeURIComponent(taskId)}`;
+    });
+  }
+
+  if (base === '#/formal') {
+    qsa('.candidate-expand-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleCandidateProjectExpanded(taskId, btn.dataset.id);
+        route();
+      });
     });
   }
 
@@ -395,6 +411,16 @@ function bindPageEvents(base, ctx) {
     bindSupplementPageTabs(root);
     bindSupplementMethodTabs(!editable, root);
     SUPPLEMENT_FIELDS.bindFileUpload(root, sid, !editable);
+    const projectInfoSelect = qs('#f_project_info_available', root);
+    const toggleProjectInfoFields = () => {
+      const wrap = qs('[data-project-info-fields]', root);
+      if (!wrap) return;
+      wrap.style.display = projectInfoSelect?.value === 'yes' ? '' : 'none';
+    };
+    if (projectInfoSelect) {
+      projectInfoSelect.addEventListener('change', toggleProjectInfoFields);
+      toggleProjectInfoFields();
+    }
     if (!editable) return;
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
@@ -777,7 +803,7 @@ function openInterfaceBatchModal(batchId) {
     <div class="table-wrap" style="max-height:420px;overflow:auto">
       <table class="data-table">
         <thead><tr>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
           <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>
         </tr></thead>

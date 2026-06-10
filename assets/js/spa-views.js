@@ -208,13 +208,19 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
     Store.applyCandidateFilterInclusion(taskId, rules);
   }
   const view = synced ? Store.getCandidatesForView(taskId, rules) : { rows: [], total: 0, stats: {} };
+  const expandedProjectRows = getCandidateProjectExpandedSet(taskId);
 
-  const rowsHtml = view.rows.length ? view.rows.map(c => `
+  const rowsHtml = view.rows.length ? view.rows.map(c => {
+    const expanded = expandedProjectRows.has(c.id);
+    const mainRow = `
     <tr>
       <td class="col-select"><input type="checkbox" class="row-check" data-id="${c.id}" ${c.included ? 'checked' : ''} ${viewOnly || !synced ? 'disabled' : ''}></td>
-      ${renderCandidateListCells(c)}
+      ${renderCandidateListCells(c, { showProjectToggle: true, projectExpanded: expanded })}
       <td>${c.included ? '<span class="badge badge-success">拟纳入</span>' : '<span class="badge badge-draft">未勾选</span>'}</td>
-    </tr>`).join('') : `<tr><td colspan="14" style="text-align:center;padding:40px;color:#909399">
+    </tr>`;
+    if (!expanded) return mainRow;
+    return mainRow + renderCandidateProjectDetailRow(c, 15);
+  }).join('') : `<tr><td colspan="15" style="text-align:center;padding:40px;color:#909399">
       ${synced ? '无符合筛选条件的记录，请调整筛选后重新查询' : '暂无台账数据，请先点击上方「从接口同步台账」'}</td></tr>`;
 
   const syncTip = synced
@@ -251,7 +257,7 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="checkAllPage" title="全选列表" ${viewOnly || !synced ? 'disabled' : ''}></th>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
           <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>纳入标记</th>
         </tr></thead>
@@ -266,13 +272,18 @@ SPA_VIEWS['#/formal'] = function(ctx) {
   const viewOnly = isTaskViewMode();
   const vma = viewModeDisabledAttr();
   const list = Store.getFormalList(taskId);
+  const expandedProjectRows = getCandidateProjectExpandedSet(taskId);
   const rowsHtml = list.map(f => {
     const canLock = f.status !== 'confirmed';
-    return `<tr>
+    const row = formalLedgerRow(f, taskId);
+    const expanded = expandedProjectRows.has(f.customerId || f.id);
+    const mainRow = `<tr>
       <td class="col-select"><input type="checkbox" class="formal-row-check" value="${f.id}" ${viewOnly || !canLock ? 'disabled' : ''}></td>
-      ${renderCandidateListCells(formalLedgerRow(f, taskId))}
+      ${renderCandidateListCells(row, { showProjectToggle: true, projectExpanded: expanded })}
       <td>${statusBadge(f.status)}</td>
     </tr>`;
+    if (!expanded) return mainRow;
+    return mainRow + renderCandidateProjectDetailRow(row, 15);
   }).join('');
   return `
     <h1 class="page-title">正式清单确认</h1>
@@ -284,11 +295,11 @@ SPA_VIEWS['#/formal'] = function(ctx) {
     <div class="card"><div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="formalCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
           <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>状态</th>
         </tr></thead>
-        <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="14" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
+        <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="15" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
       </table></div></div>`;
 };
 
@@ -348,6 +359,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <td class="col-select">${checkCol}</td>
       <td>${f.customerName}</td>
       <td>${f.loanType || cand?.loanType || '—'}</td>
+      <td>${candidateAccountingTypeLabel(f)}</td>
       <td>${collectModeBadge(mode)}</td>
       <td>${f.manager || supp?.manager || cand?.manager || '—'}</td>
       <td>${entityCol}</td>
@@ -411,9 +423,9 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="dispatchCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          <th>客户</th><th>贷款类型</th><th>收数方式</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
+          <th>客户</th><th>贷款类型</th><th>核算类型</th><th>收数方式</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
         </tr></thead>
-        <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
+        <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="11" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
       </table></div></div>`;
 };
 
@@ -456,7 +468,7 @@ SPA_VIEWS['#/branch-board'] = function(ctx) {
     <div class="card"><div class="card-body table-wrap"><table class="data-table">
     <thead><tr><th>客户</th><th>客户经理</th><th>计算方法</th><th>截止</th><th>状态</th><th>操作</th></tr></thead>
     <tbody>${view.rows.map(s => `<tr><td>${s.customerName}</td><td>${s.manager}</td><td>${calcMethodLabel(s)}</td>
-    <td>${s.deadline}</td><td>${statusBadge(s.status)}</td>
+    <td>${s.deadline}</td><td>${supplementTaskStatusBadge(s)}</td>
     <td>${renderManagerSupplementOp(s)}</td></tr>`).join('')}</tbody></table></div>
     ${renderPagination(listKey, view)}</div>`;
 };
@@ -470,10 +482,10 @@ SPA_VIEWS['#/manager-tasks'] = function(ctx) {
     <h1 class="page-title">客户经理任务清单</h1>
     <p class="page-desc">Step 6 · 我的待办</p>
     <div class="card"><div class="card-body table-wrap"><table class="data-table">
-    <thead><tr><th>客户</th><th>缺口字段</th><th>截止</th><th>状态</th><th>操作</th></tr></thead>
-    <tbody>${view.rows.map(s => `<tr><td>${s.customerName}</td><td>${s.fieldsTotal - s.fieldsDone} 项</td><td>${s.deadline}</td><td>${statusBadge(s.status)}</td>
+    <thead><tr><th>客户</th><th>截止</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>${view.rows.map(s => `<tr><td>${s.customerName}</td><td>${s.deadline}</td><td>${supplementTaskStatusBadge(s)}</td>
     <td>${renderManagerSupplementOp(s, { showSubmit: false })}</td></tr>`).join('')}
-    ${view.rows.length===0?'<tr><td colspan="5" style="text-align:center;padding:32px">当前角色下无待办，请切换为客户经理(王磊)或总行视角</td></tr>':''}
+    ${view.rows.length===0?'<tr><td colspan="4" style="text-align:center;padding:32px">当前角色下无待办，请切换为客户经理(王磊)或总行视角</td></tr>':''}
     </tbody></table></div>
     ${renderPagination(listKey, view)}</div>`;
 };
@@ -748,7 +760,7 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
     ${industries.length ? renderPagination(industryKey, industryView) : ''}</div>
     <div class="card"><div class="card-header"><h3>排放计算清单</h3></div><div class="card-body table-wrap"><table class="data-table">
     <thead><tr>
-      <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+      <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
       <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
       <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>
       <th>主体排放(tCO₂e)</th><th>归因排放(tCO₂e)</th><th>质量等级</th>
@@ -1243,7 +1255,7 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
           <td>${CarbonAccount.formatIntensity(CarbonAccount.recordIntensity(r))}</td>
           <td>${r.method || '-'}</td><td>${formatCaConfirmedAt(r)}</td>
           <td>${formatCaRecordStatus(r)}</td>
-        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="19" style="text-align:center;padding:24px">暂无符合条件的记录</td></tr>' : ''}
+        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="20" style="text-align:center;padding:24px">暂无符合条件的记录</td></tr>' : ''}
         </tbody></table></div>
       ${renderPagination(listKey, view)}</div>`;
   }

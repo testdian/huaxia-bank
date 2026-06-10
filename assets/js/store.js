@@ -52,6 +52,40 @@ const Store = {
     } catch { /* ignore */ }
   },
 
+  /** 保障演示数据存在“项目（计算方法待定）”样本 */
+  _ensureProjectPendingSamples() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (!Array.isArray(d.candidates) || !Array.isArray(d.formalList)) return;
+      const hasPending = d.candidates.some(c =>
+        c?.bizType === 'project' &&
+        (!Array.isArray(c.projectDetails) || c.projectDetails.length === 0) &&
+        c.projectInfoAvailable !== false
+      );
+      if (hasPending) return;
+
+      const targetCandidates = d.candidates
+        .filter(c => c?.bizType === 'project' && Array.isArray(c.projectDetails) && c.projectDetails.length > 0)
+        .slice(0, 4);
+      if (!targetCandidates.length) return;
+
+      targetCandidates.forEach(c => {
+        c.projectDetails = [];
+        c.projectInfoAvailable = null;
+        c.accountingType = 'project_pending';
+        const relatedFormals = d.formalList.filter(f => f.customerId === c.id);
+        relatedFormals.forEach(f => {
+          f.projectDetails = [];
+          f.projectInfoAvailable = null;
+          f.accountingType = 'project_pending';
+        });
+      });
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
   init() {
     this._ensureInterfaces();
     this._migrateReportPdfToWord();
@@ -65,6 +99,7 @@ const Store = {
         currentTaskId: 'T2025001'
       }));
     }
+    this._ensureProjectPendingSamples();
   },
 
   get() {
@@ -461,6 +496,7 @@ const Store = {
           taskId, customerId: c.id, customerName: c.customerName,
           loanType: c.loanType || c.productType,
           productType: c.productType || c.loanType,
+          accountingType: c.accountingType || resolveAccountingType(c),
           collectMode: resolveCollectMode(c.loanType || c.productType),
           bizType: isProject ? 'project' : 'non_project',
           objectType: isProject ? '项目' : '融资主体',
@@ -479,7 +515,9 @@ const Store = {
           borrowerType: c.borrowerType,
           avgMonthlyBalance: c.avgMonthlyBalance,
           operatingRevenue: c.operatingRevenue,
-          manager: c.manager
+          manager: c.manager,
+          projectDetails: c.projectDetails,
+          projectInfoAvailable: c.projectInfoAvailable
         });
       });
       const t = d.tasks.find(x => x.id === taskId);
@@ -1097,6 +1135,35 @@ const Store = {
       if (payload.complete) s.status = 'completed';
       else if (s.status === 'returned' || s.status === 'pending') s.status = 'in_progress';
       else if (s.status !== 'returned') s.status = 'in_progress';
+
+      const formal = d.formalList.find(f => f.id === s.formalId);
+      const candidate = d.candidates.find(c => c.id === (s.customerId || formal?.customerId));
+      if (s.bizType === 'project') {
+        const hasSyncedProject = (Array.isArray(candidate?.projectDetails) && candidate.projectDetails.length > 0)
+          || (Array.isArray(formal?.projectDetails) && formal.projectDetails.length > 0);
+        const hasSupplementProject = Array.isArray(s.projectDetails) && s.projectDetails.length > 0;
+        let accountingType = 'project_pending';
+        if (hasSyncedProject || hasSupplementProject || s.projectInfoAvailable === true) {
+          accountingType = 'project_as_project';
+        } else if (s.projectInfoAvailable === false && payload.complete) {
+          accountingType = 'project_as_non_project';
+        }
+        if (accountingType) {
+          s.accountingType = accountingType;
+          if (formal) formal.accountingType = accountingType;
+          if (candidate) candidate.accountingType = accountingType;
+        }
+        if (hasSupplementProject) {
+          if (formal) formal.projectDetails = s.projectDetails;
+          if (candidate) candidate.projectDetails = s.projectDetails;
+        }
+        if (s.projectInfoAvailable === false) {
+          if (formal) formal.projectDetails = [];
+          if (candidate) candidate.projectDetails = [];
+        }
+        if (formal && s.projectInfoAvailable != null) formal.projectInfoAvailable = s.projectInfoAvailable;
+        if (candidate && s.projectInfoAvailable != null) candidate.projectInfoAvailable = s.projectInfoAvailable;
+      }
     });
   },
 
@@ -1172,6 +1239,9 @@ const Store = {
           id: 'S' + Date.now() + Math.floor(Math.random() * 10000),
           taskId, formalId: f.id, customerId: f.customerId, customerName: f.customerName,
           loanType: f.loanType, bizType: f.bizType, industryMajor: f.industryMajor,
+          accountingType: f.accountingType || null,
+          projectInfoAvailable: f.projectInfoAvailable ?? (f.accountingType === 'project_as_project' ? true : (f.accountingType === 'project_as_non_project' ? false : null)),
+          projectDetails: Array.isArray(f.projectDetails) ? f.projectDetails : [],
           branch: d.candidates.find(c => c.id === f.customerId)?.branch || '北京分行',
           manager: d.candidates.find(c => c.id === f.customerId)?.manager || '王磊',
           status: 'pending', method: '待选择', fieldsTotal: 12, fieldsDone: 0,

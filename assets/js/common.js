@@ -257,7 +257,7 @@ function hideSupplementFillDrawer() {
 
 function submitApprovalModal(docType, docId, docName) {
   Store.submitApproval(docType, docId, docName);
-  toast('已提交审核！请前往绿金系统「待办事项」处理（演示：状态已更新为审批中）', 'success');
+  toast('已提交审核！请前往绿金系统「待办事项」处理（演示：状态已更新为待审核）', 'success');
   hideModal('approvalModal');
   setTimeout(() => location.reload(), 600);
 }
@@ -739,6 +739,25 @@ function fillStatusBadge(supplement) {
   };
   const [text, cls] = map[supplement.status] || [supplement.status, 'badge-draft'];
   return `<span class="badge ${cls}">${text}</span>`;
+}
+
+/** 补录任务状态（用于客户经理/补录清单） */
+function supplementTaskStatusBadge(supplement) {
+  if (!supplement) return '<span class="badge badge-draft">—</span>';
+  if (supplement.status === 'returned' || supplement.auditStage === 'rejected') {
+    return '<span class="badge badge-danger">已退回</span>';
+  }
+  if (supplement.status === 'pending') return '<span class="badge badge-warning">待填报</span>';
+  if (supplement.status === 'in_progress') return '<span class="badge badge-running">填报中</span>';
+  if (supplement.status === 'completed') {
+    const stage = supplement.auditStage || 'pending_fill';
+    if (stage === 'approved') return '<span class="badge badge-success">已通过</span>';
+    if (stage === 'branch_review' || stage === 'hq_review') {
+      return '<span class="badge badge-warning">待审核</span>';
+    }
+    return '<span class="badge badge-warning">待提交</span>';
+  }
+  return statusBadge(supplement.status);
 }
 
 function auditStatusBadge(supplement) {
@@ -1389,6 +1408,109 @@ function candidateIndustryLabel(c) {
   return c.industryMajor || '-';
 }
 
+/** 解析核算类型 id（优先记录字段，其次业务品种映射表） */
+function resolveAccountingType(c) {
+  if (!c) return null;
+  const explicit = c.accountingType;
+  if (explicit && GUIDE.ACCOUNTING_TYPES.some(t => t.id === explicit)) return explicit;
+  const isProject = candidateIsProjectType(c);
+  if (!isProject) return 'non_project';
+  const hasProjectDetails = Array.isArray(c.projectDetails) && c.projectDetails.length > 0;
+  const hasProjectInfo = hasProjectDetails || c.projectInfoAvailable === true || !!c.projectInfo;
+  if (hasProjectInfo) return 'project_as_project';
+  if (c.projectInfoAvailable === false) return 'project_as_non_project';
+  return 'project_pending';
+}
+
+function candidateAccountingTypeLabel(c) {
+  const id = resolveAccountingType(c);
+  if (!id) return '-';
+  const item = GUIDE.ACCOUNTING_TYPES.find(t => t.id === id);
+  return item ? item.label : '-';
+}
+
+function candidateIsProjectType(c) {
+  return c?.bizType === 'project'
+    || ['项目贷款', '一般性固定资产贷款', '出口退税账户托管贷款'].includes(candidateProductType(c));
+}
+
+function normalizeProjectDetailFromCandidate(c, index = 0) {
+  const idSeed = `${(c.id || 'P').replace(/\W/g, '').slice(-6)}${String(index + 1).padStart(2, '0')}`;
+  return {
+    projectNo: c.projectNo || ('PRJ' + idSeed),
+    projectName: c.projectName || `${c.customerName || '项目'}-${candidateProductType(c)}`,
+    projectProvince: c.projectProvince || c.projectRegion || candidateTier1Branch(c).replace('分行', '') || '-',
+    projectIndustry: c.projectIndustry || c.industryMajor || '-',
+    customerNo: c.customerNo || ('CUST' + String(c.id || idSeed).replace(/\W/g, '').slice(-8)),
+    customerName: c.customerName || '-',
+    creditCode: c.creditCode || '-',
+    nationalIndustryCodeLv4: c.nationalIndustryCodeLv4 || c.gbIndustryCode || '-',
+    projectAvgLoanBalanceWan: c.projectAvgLoanBalanceWan ?? c.avgMonthlyBalance ?? '-',
+    projectRevenueWan: c.projectRevenueWan ?? c.operatingRevenue ?? c.revenue ?? '-',
+    projectTotalInvestmentWan: c.projectTotalInvestmentWan ?? c.totalInvestmentWan ?? '-'
+  };
+}
+
+function getCandidateProjectDetails(c) {
+  if (!candidateIsProjectType(c)) return [];
+  if (Array.isArray(c.projectDetails) && c.projectDetails.length) {
+    return c.projectDetails.map((p, i) => ({ ...normalizeProjectDetailFromCandidate(c, i), ...p }));
+  }
+  return [normalizeProjectDetailFromCandidate(c)];
+}
+
+function getCandidateProjectExpandedSet(taskId) {
+  try {
+    const raw = sessionStorage.getItem(`candidate_project_expanded_${taskId}`) || '[]';
+    const ids = JSON.parse(raw);
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function toggleCandidateProjectExpanded(taskId, candidateId) {
+  const set = getCandidateProjectExpandedSet(taskId);
+  if (set.has(candidateId)) set.delete(candidateId);
+  else set.add(candidateId);
+  sessionStorage.setItem(`candidate_project_expanded_${taskId}`, JSON.stringify(Array.from(set)));
+}
+
+function renderCandidateProjectDetailRow(c, colspan = 15) {
+  const details = getCandidateProjectDetails(c);
+  if (!details.length) return '';
+  return `<tr class="project-detail-row">
+    <td colspan="${colspan}">
+      <div class="project-detail-wrap">
+        <div class="project-detail-title">项目明细（接口同步）</div>
+        <div class="table-wrap">
+          <table class="data-table project-detail-table">
+            <thead><tr>
+              <th>序号</th><th>项目号</th><th>项目名称</th><th>项目所在地区域（省）</th><th>项目所属行业</th>
+              <th>客户号</th><th>客户名称</th><th>统一社会信用代码</th><th>国民经济行业代码（4级）</th>
+              <th>项目均贷款余额（万元）</th><th>项目收入（万元）</th><th>项目总投资（万元）</th>
+            </tr></thead>
+            <tbody>${details.map((p, i) => `<tr>
+              <td>${i + 1}</td>
+              <td>${p.projectNo || '-'}</td>
+              <td>${p.projectName || '-'}</td>
+              <td>${p.projectProvince || '-'}</td>
+              <td>${p.projectIndustry || '-'}</td>
+              <td>${p.customerNo || '-'}</td>
+              <td>${p.customerName || '-'}</td>
+              <td>${p.creditCode || '-'}</td>
+              <td>${p.nationalIndustryCodeLv4 || '-'}</td>
+              <td>${p.projectAvgLoanBalanceWan ?? '-'}</td>
+              <td>${p.projectRevenueWan ?? '-'}</td>
+              <td>${p.projectTotalInvestmentWan ?? '-'}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>
+    </td>
+  </tr>`;
+}
+
 function getDefaultCandidateFilterRules(task) {
   const t = task || {};
   const scopeCodes = IndustryScope.resolveCodes(t.industryScope, t.industryCustomCodes);
@@ -1538,13 +1660,21 @@ function candidateTier1Branch(c) {
   return c.tier1Branch || c.branch || '-';
 }
 
-/** 候选清单表格数据列（12 列） */
-function renderCandidateListCells(c) {
+/** 候选清单表格数据列（13 列，含核算类型） */
+function renderCandidateListCells(c, options = {}) {
+  const hasProjectDetails = !!options.showProjectToggle && getCandidateProjectDetails(c).length > 0;
+  const toggle = hasProjectDetails
+    ? `<button type="button" class="candidate-expand-toggle ${options.projectExpanded ? 'is-expanded' : ''}" data-id="${c.id}" aria-expanded="${options.projectExpanded ? 'true' : 'false'}" title="${options.projectExpanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>`
+    : (options.showProjectToggle ? '<span class="candidate-expand-placeholder"></span>' : '');
+  const branchCell = options.showProjectToggle
+    ? `<span class="candidate-branch-cell">${toggle}<span>${candidateTier1Branch(c)}</span></span>`
+    : candidateTier1Branch(c);
   return `
-    <td>${candidateTier1Branch(c)}</td>
+    <td>${branchCell}</td>
     <td>${c.handlingBranch || '-'}</td>
     <td>${c.customerName}</td>
     <td>${candidateProductType(c)}</td>
+    <td>${candidateAccountingTypeLabel(c)}</td>
     <td>${c.loanAccount || '-'}</td>
     <td>${c.disbursementAmount != null ? Number(c.disbursementAmount).toLocaleString() : '-'}</td>
     <td>${c.disbursementDate || '-'}</td>
@@ -1556,7 +1686,7 @@ function renderCandidateListCells(c) {
 }
 
 const CANDIDATE_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>贷款账号</th>
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
   <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
   <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>`;
 
@@ -1572,6 +1702,7 @@ function caRecordAsCandidateRow(r) {
     customerName: r.customerName,
     productType: r.productType || r.loanType,
     loanType: r.loanType,
+    accountingType: r.accountingType,
     loanAccount: r.loanAccount,
     disbursementAmount: r.disbursementAmount,
     disbursementDate: r.disbursementDate,
@@ -1639,11 +1770,14 @@ function formalLedgerRow(f, taskId) {
   const c = Store.getCandidates(taskId).find(x => x.id === f.customerId);
   if (c) return c;
   return {
+    id: f.customerId || f.id,
     customerName: f.customerName,
     tier1Branch: f.tier1Branch || f.branch,
     handlingBranch: f.handlingBranch,
     productType: f.productType || f.loanType,
     loanType: f.loanType,
+    accountingType: f.accountingType,
+    bizType: f.bizType,
     loanAccount: f.loanAccount,
     disbursementAmount: f.disbursementAmount,
     disbursementDate: f.disbursementDate,
@@ -1654,7 +1788,9 @@ function formalLedgerRow(f, taskId) {
     industryMajor: f.industryMajor,
     avgMonthlyBalance: f.avgMonthlyBalance,
     operatingRevenue: f.operatingRevenue,
-    manager: f.manager
+    manager: f.manager,
+    projectDetails: f.projectDetails,
+    projectInfoAvailable: f.projectInfoAvailable
   };
 }
 
