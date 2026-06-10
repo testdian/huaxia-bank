@@ -11,8 +11,7 @@ on:
   push:
     branches:
       - uat
-      # 验收通过后取消下行注释，或合并 uat→main 时一并启用
-      # - main
+      - main
   workflow_dispatch:
     inputs:
       target:
