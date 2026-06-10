@@ -554,6 +554,79 @@ body.drawer-open { overflow: hidden; }
 tr.row-excluded td { color: var(--text-muted); background: #fafafa; }
 tr.row-excluded .badge { opacity: .85; }
 
+.candidate-branch-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.candidate-expand-toggle {
+  border: 1px solid #c9d5e6;
+  background: #fff;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  text-align: center;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  transition: border-color .12s ease, background .12s ease;
+}
+.candidate-expand-icon {
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid #6b778c;
+  border-bottom: 2px solid #6b778c;
+  transform: rotate(-45deg);
+  margin-left: -1px;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.candidate-expand-toggle:hover {
+  border-color: #9eb6d8;
+  background: #f7faff;
+}
+.candidate-expand-toggle.is-expanded,
+.candidate-expand-toggle[aria-expanded="true"] {
+  background: #edf3ff;
+  border-color: #8eabd4;
+}
+.candidate-expand-toggle.is-expanded .candidate-expand-icon,
+.candidate-expand-toggle[aria-expanded="true"] .candidate-expand-icon {
+  transform: rotate(45deg);
+  border-color: #3f5f90;
+}
+.candidate-expand-placeholder {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+}
+.project-detail-row > td {
+  background: #f8fbff;
+  padding: 10px 12px;
+}
+.project-detail-wrap {
+  border: 1px solid #dbe7ff;
+  border-radius: 6px;
+  background: #fff;
+}
+.project-detail-title {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #4d5d7a;
+  border-bottom: 1px solid #eef3ff;
+  background: #f5f8ff;
+}
+.project-detail-table th,
+.project-detail-table td {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
 .milestone-list { display: flex; flex-wrap: wrap; gap: 10px; }
 .milestone-list .badge { font-size: 13px; padding: 6px 12px; }
 .stat-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }

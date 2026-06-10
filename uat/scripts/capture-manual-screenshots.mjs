@@ -239,6 +239,64 @@ async function main() {
     await go(page, '#/manager-tasks', 'manager');
     await shot(page, 'MGR-09-返回列表');
 
+    // —— 企业碳账户 ——
+    await resetDemo(page);
+    await go(page, '#/carbon-accounts', 'hq');
+    await shot(page, 'CA-01-列表总览');
+    await page.evaluate(() => {
+      const tabs = document.querySelectorAll('#caListYearTabs .tab');
+      if (tabs.length > 1) tabs[0].click();
+    });
+    await waitStable(page, 400);
+    await page.type('#ca_kw', '华能', { delay: 15 });
+    await shot(page, 'CA-02-年度与筛选');
+    await page.click('#caFilterResetBtn');
+    await waitStable(page, 300);
+
+    const accountId = await page.evaluate(() => {
+      const link = document.querySelector('a[href^="#/carbon-account?id="]');
+      const m = (link?.getAttribute('href') || '').match(/id=([^&]+)/);
+      return m ? decodeURIComponent(m[1]) : null;
+    });
+    if (accountId) {
+      await go(page, `#/carbon-accounts`, 'hq');
+      await page.evaluate((id) => {
+        const row = [...document.querySelectorAll('.ca-account-status-btn')].find(
+          (b) => b.dataset.id === id && b.dataset.action === 'disabled'
+        );
+        row?.scrollIntoView({ block: 'center' });
+      }, accountId);
+      await waitStable(page, 400);
+      await shot(page, 'CA-03-账户状态管理');
+
+      await go(page, `#/carbon-account?id=${encodeURIComponent(accountId)}&tab=profile`, 'hq');
+      await shot(page, 'CA-04-账户档案');
+      await page.evaluate(() => {
+        document.querySelector('.ca-tabs .tab[data-ca-tab="records"]')?.click();
+      });
+      await waitStable(page, 500);
+      await shot(page, 'CA-05-排放明细');
+      await page.evaluate(() => {
+        document.querySelector('.ca-tabs .tab[data-ca-tab="summary"]')?.click();
+      });
+      await waitStable(page, 500);
+      await shot(page, 'CA-06-多维汇总');
+      await page.evaluate(() => {
+        document.querySelector('.ca-tabs .tab[data-ca-tab="trend"]')?.click();
+      });
+      await waitStable(page, 500);
+      await shot(page, 'CA-07-趋势分析');
+    } else {
+      await shot(page, 'CA-03-账户状态管理');
+      await shot(page, 'CA-04-账户档案');
+      await shot(page, 'CA-05-排放明细');
+      await shot(page, 'CA-06-多维汇总');
+      await shot(page, 'CA-07-趋势分析');
+    }
+
+    await go(page, '#/carbon-accounts', 'branch');
+    await shot(page, 'CA-08-分行辖内列表');
+
     console.log('\n完成，共输出目录:', OUT_DIR);
   } finally {
     await browser.close();
