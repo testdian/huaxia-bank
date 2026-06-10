@@ -52,6 +52,31 @@ const Store = {
     } catch { /* ignore */ }
   },
 
+  /** 按当前规则刷新候选/正式清单上的核算类型（兼容旧 localStorage） */
+  _refreshAccountingTypes() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof resolveAccountingType !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      (d.candidates || []).forEach(c => {
+        const next = resolveAccountingType(c);
+        if (next && c.accountingType !== next) {
+          c.accountingType = next;
+          changed = true;
+        }
+      });
+      (d.formalList || []).forEach(f => {
+        const next = resolveAccountingType(f);
+        if (next && f.accountingType !== next) {
+          f.accountingType = next;
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
   /** 保障演示数据存在“项目（计算方法待定）”样本 */
   _ensureProjectPendingSamples() {
     const raw = localStorage.getItem(this.KEY);
@@ -99,6 +124,7 @@ const Store = {
         currentTaskId: 'T2025001'
       }));
     }
+    this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
   },
 
