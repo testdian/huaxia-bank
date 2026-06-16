@@ -383,6 +383,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         : '<div class="demo-tip">全部已锁定业务须计算出主体排放；未完成填报且主体排放为空时，可使用「数据为0」置零并完成采集</div>'}
     <div class="toolbar">
       <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放补录任务</button>
+      <button class="btn" id="fetchGelanBtn"${vma} title="模拟调用格澜数据接口，为已锁定且尚无主体排放的客户获取报告法主体排放">调取格澜数据</button>
       <button class="btn btn-success" id="economyDirectBtn"${vma} title="对全部已锁定、收数方式为经济法直算且未完成直算的记录一键计算">经济法直算</button>
       <button class="btn btn-primary" id="submitAllDataBtn"${viewOnly ? vma : (allHaveEntity ? '' : ' disabled title="请待全部记录计算出主体排放"')}>一键提交数据</button>
       <button class="btn" id="zeroMissingBtn"${viewOnly ? vma : (hasMissingEntity ? '' : ' disabled title="当前无缺失主体排放的记录"')}>数据为0</button>

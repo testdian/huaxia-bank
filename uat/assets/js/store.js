@@ -213,12 +213,26 @@ const Store = {
   getFormalEntityEmission(taskId, formalId) {
     const calc = this.getCalculations(taskId).find(c => c.formalId === formalId);
     if (calc && calc.entityEmission != null) return calc.entityEmission;
+    const f = this.getFormalList(taskId).find(x => x.id === formalId);
+    if (f?.gelanEntityEmission != null) return f.gelanEntityEmission;
     const s = this.get().supplements.find(x => x.formalId === formalId && x.taskId === taskId);
     if (s && (s.auditStage === 'approved' || s.status === 'completed')) {
       const e = this.calcEntityEmission(s);
       if (e != null && !Number.isNaN(Number(e))) return Number(e);
     }
     return null;
+  },
+
+  _formalHasEntityEmission(d, taskId, f) {
+    const calc = d.calculations.find(c => c.formalId === f.id && c.taskId === taskId);
+    if (calc?.entityEmission != null) return true;
+    if (f.gelanEntityEmission != null) return true;
+    const s = d.supplements.find(x => x.formalId === f.id && x.taskId === taskId);
+    if (s && (s.auditStage === 'approved' || s.status === 'completed')) {
+      const e = this.calcEntityEmission(s);
+      if (e != null && !Number.isNaN(Number(e))) return true;
+    }
+    return false;
   },
 
   _markFormalCollectDone(d, f, taskId) {
@@ -865,6 +879,77 @@ const Store = {
     };
     const added = this.addFactor(copy, { allowDuplicate: true });
     return added ? added.id : null;
+  },
+
+  /** 调取格澜数据：为已锁定且尚无主体排放的记录写入报告法主体排放 */
+  fetchGelanEntityEmissions(taskId, formalIds) {
+    const task = this.getTask(taskId);
+    if (!task) return { ok: false, message: '任务不存在', withData: 0, noData: 0, skipped: 0 };
+    let withData = 0;
+    let noData = 0;
+    let skipped = 0;
+    this.update(d => {
+      let targets = d.formalList.filter(f =>
+        f.taskId === taskId && f.status === 'confirmed' && !this._formalHasEntityEmission(d, taskId, f)
+      );
+      if (formalIds?.length) {
+        const idSet = new Set(formalIds);
+        targets = targets.filter(f => idSet.has(f.id));
+      }
+      targets.forEach(f => {
+        const row = typeof CarbonAccount !== 'undefined'
+          ? CarbonAccount.resolveLedgerRow(d, f, null)
+          : formalLedgerRow(f, taskId);
+        const gelan = typeof fetchGelanEntityDataMock === 'function'
+          ? fetchGelanEntityDataMock(row, task)
+          : { ok: false, reason: 'invalid' };
+        f.gelanFetchedAt = new Date().toLocaleString('zh-CN');
+        if (!gelan.ok) {
+          f.gelanStatus = gelan.reason || 'no_data';
+          noData++;
+          return;
+        }
+        const c = d.candidates.find(x => x.id === f.customerId);
+        const entityEmission = gelan.data.entityEmission;
+        const totalAssets = Number(c?.totalAssets) || 800000;
+        const avgBalance = Number(c?.avgMonthlyBalance) || Number(f.avgMonthlyBalance) || 3000;
+        const attributedEmission = f.bizType === 'project'
+          ? Math.round(entityEmission * (avgBalance / (Number(f.totalInvestment) || 500000)))
+          : Math.round(entityEmission * (avgBalance / totalAssets));
+        f.gelanStatus = 'success';
+        f.gelanEntityEmission = entityEmission;
+        f.gelanPrefill = gelan.data;
+        const payload = {
+          taskId,
+          formalId: f.id,
+          customerName: f.customerName,
+          bizType: f.bizType,
+          method: '报告法',
+          methodId: 'report',
+          entityEmission,
+          attributedEmission,
+          totalEmission: entityEmission,
+          avgBalance,
+          totalAssets,
+          totalInvestment: f.totalInvestment || 500000,
+          qualityGrade: 1,
+          quality: '一级(优)',
+          source: 'gelan',
+          status: 'pending',
+          approvalStatus: 'none',
+          calculatedAt: gelan.data.fetchedAt
+        };
+        let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
+        if (calc) Object.assign(calc, payload);
+        else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
+        withData++;
+      });
+      skipped = d.formalList.filter(f =>
+        f.taskId === taskId && f.status === 'confirmed' && this._formalHasEntityEmission(d, taskId, f)
+      ).length;
+      this.syncTaskWorkflow(d, taskId);
+    });
+    return { ok: true, withData, noData, skipped };
   },
 
   runEconomyDirectCalc(taskId, formalIds) {
