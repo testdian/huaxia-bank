@@ -90,9 +90,22 @@ const CarbonAccount = {
   filterAccountsForRole(accounts, records, roleKey, role) {
     const visibleRecords = this.filterRecordsByRole(records, roleKey, role);
     const accountIds = new Set(visibleRecords.map(r => r.accountId));
-    return accounts
-      .filter(a => accountIds.has(a.id))
-      .map(a => this.enrichAccount(a, visibleRecords));
+    /** 【业务规则】对象边界确认锁定后建档的账户，无排放记录也应在列表可见 */
+    const visible = accounts.filter(a => {
+      if (accountIds.has(a.id)) return true;
+      if (a.provisionSource !== 'formal_lock') return false;
+      if (roleKey === 'hq') return true;
+      if (roleKey === 'branch' && role?.branch) return a.primaryBranch === role.branch;
+      return false;
+    });
+    const uniq = [];
+    const seen = new Set();
+    visible.forEach(a => {
+      if (seen.has(a.id)) return;
+      seen.add(a.id);
+      uniq.push(this.enrichAccount(a, visibleRecords));
+    });
+    return uniq;
   },
 
   enrichAccount(account, records) {
@@ -302,6 +315,47 @@ const CarbonAccount = {
     return acc;
   },
 
+  /**
+   * 【业务规则】对象边界「确认锁定」后，按正式清单逐笔生成企业碳账户（法人+贷款号）
+   * 有项目明细的账户保留 projectDetails，供列表展开展示项目客户名称
+   */
+  provisionFromFormalLock(d, taskId, formals) {
+    d.carbonAccounts = d.carbonAccounts || [];
+    if (!formals?.length) return 0;
+    const openedAt = new Date().toLocaleString('zh-CN');
+    let count = 0;
+    formals.forEach(f => {
+      if (f.status !== 'confirmed') return;
+      const row = this.resolveLedgerRow(d, f, null);
+      if (!row.creditCode || !row.loanAccount) return;
+      const acc = this.upsertAccount(d, row, openedAt);
+      acc.formalId = f.id;
+      acc.taskId = taskId;
+      acc.provisionSource = 'formal_lock';
+      acc.provisionedAt = acc.provisionedAt || openedAt;
+      acc.customerName = row.customerName;
+      acc.primaryBranch = row.tier1Branch || acc.primaryBranch;
+      acc.projectDetails = Array.isArray(f.projectDetails) ? f.projectDetails.slice() : [];
+      acc.accountingType = f.accountingType || null;
+      acc.loanType = row.loanType;
+      count++;
+    });
+    return count;
+  },
+
+  /** 为历史已锁定清单补建碳账户（迁移/演示种子） */
+  backfillProvisionFromLockedFormals(d) {
+    const taskIds = [...new Set((d.formalList || [])
+      .filter(f => f.status === 'confirmed')
+      .map(f => f.taskId))];
+    let total = 0;
+    taskIds.forEach(taskId => {
+      const formals = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
+      total += this.provisionFromFormalLock(d, taskId, formals);
+    });
+    return total;
+  },
+
   /** 仅核算已确认结果的任务、且计算完成的记录 */
   syncTask(d, taskId) {
     d.carbonAccounts = d.carbonAccounts || [];
@@ -350,6 +404,8 @@ const CarbonAccount = {
       carbonAccountRecords: []
     };
     tasks.forEach(t => {
+      const locked = formalList.filter(f => f.taskId === t.id && f.status === 'confirmed');
+      if (locked.length) this.provisionFromFormalLock(d, t.id, locked);
       if (t.resultsConfirmed) this.syncTask(d, t.id);
     });
     return { carbonAccounts: d.carbonAccounts, carbonAccountRecords: d.carbonAccountRecords };
@@ -737,6 +793,7 @@ if (typeof Store !== 'undefined') {
         d.carbonAccounts,
         d.carbonAccountRecords
       );
+      CarbonAccount.backfillProvisionFromLockedFormals(d);
       const needsBackfill = d.carbonAccounts.length < 50;
       if (needsBackfill) CarbonAccount.backfillAll(d);
       if (d.carbonAccountRecords.length < 1500) {

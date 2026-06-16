@@ -29,6 +29,7 @@ load('assets/js/supplement-fields.js');
 global.MOCK_SEED = DemoSeed.build();
 load('assets/js/common.js');
 load('assets/js/store.js');
+load('assets/js/carbon-account.js');
 
 const taskId = 'T2025001';
 
@@ -76,7 +77,13 @@ Store.update(d => {
 Store.generateFormalFromCandidates(newId);
 assert(Store.getTask(newId).workflowStep === WORKFLOW_STEP.FORMAL, '生成正式清单后处于第3步');
 const formalIds = Store.getFormalList(newId).map(f => f.id);
-Store.confirmFormalItems(newId, formalIds);
+const lockR = Store.confirmFormalItems(newId, formalIds);
+assert(lockR.locked === formalIds.length, '锁定全部正式清单');
+assert(lockR.provisioned > 0, '确认锁定后生成企业碳账户');
+const provisionedAccounts = Store.getCarbonAccounts().filter(a =>
+  a.taskId === newId && a.provisionSource === 'formal_lock'
+);
+assert(provisionedAccounts.length === lockR.provisioned, '碳账户数量与 provisioned 一致');
 const afterLock = Store.getTask(newId);
 assert(afterLock.workflowStep === WORKFLOW_STEP.DATA_COLLECTION, '锁定后 workflowStep=3（第4步数据采集）');
 assert(afterLock.milestone?.formalLocked, 'milestone.formalLocked');

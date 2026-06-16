@@ -277,8 +277,8 @@ function bindPageEvents(base, ctx) {
         toast('所选记录均已锁定', 'warning');
         return;
       }
-      Store.confirmFormalItems(taskId, toLock.map(f => f.id));
-      toast(`已锁定 ${toLock.length} 笔，进入数据采集环节`, 'success');
+      const r = Store.confirmFormalItems(taskId, toLock.map(f => f.id));
+      toast(`已锁定 ${r.locked || toLock.length} 笔，已生成/更新 ${r.provisioned || 0} 个企业碳账户`, 'success');
       location.hash = `#/data-collect?taskId=${encodeURIComponent(taskId)}`;
     });
   }
@@ -536,6 +536,12 @@ function bindPageEvents(base, ctx) {
       sessionStorage.setItem('ca_list_filters', JSON.stringify(next));
       setListPage('carbon_accounts', 1);
       route();
+    });
+    qsa('.candidate-expand-toggle[data-ca-expand]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleCaProjectExpanded(btn.dataset.caExpand);
+        route();
+      });
     });
     qsa('.ca-account-status-btn').forEach(btn => {
       btn.addEventListener('click', () => {

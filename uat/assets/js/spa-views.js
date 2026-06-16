@@ -1094,7 +1094,10 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
     ? CarbonAccount.filterRecords(allRecords, { year: accountingYear })
     : allRecords.slice();
   let list = accounts.map(a => CarbonAccount.enrichAccount(a, yearRecords));
-  if (accountingYear) list = list.filter(a => (a.visibleRecordCount || 0) > 0);
+  if (accountingYear) {
+    list = list.filter(a => (a.visibleRecordCount || 0) > 0 || a.provisionSource === 'formal_lock');
+  }
+  const caExpanded = getCaProjectExpandedSet();
   const kw = (filters.keyword || '').trim().toLowerCase();
   if (kw) {
     list = list.filter(a =>
@@ -1112,8 +1115,8 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
     : '当前视角：全行数据';
   return `
     <h1 class="page-title">企业碳账户</h1>
-    <p class="page-desc">法人+贷款号建档 · 核算确认结果后自动归集 · ${branchHint}</p>
-    <div class="demo-tip">仅包含已完成核算并【确认结果】的排放记录；未完成核算、退回等数据不计入碳账户。${roleKey === 'hq' ? '总行可对账户执行启用、停用、注销（CA003）。' : ''}</div>
+    <p class="page-desc">法人+贷款号建档 · 对象边界【确认锁定】后按清单客户生成 · ${branchHint}</p>
+    <div class="demo-tip">【业务规则】在核算任务「对象边界」步骤点击【确认锁定】后，本模块自动生成正式清单内全部客户名称的碳账户；有项目明细的可展开查看项目信息中的客户名称。核算【确认结果】后排放记录再归集至对应账户。${roleKey === 'hq' ? '总行可对账户执行启用、停用、注销（CA003）。' : ''}</div>
     <div class="ca-year-toolbar">${renderCaYearSwitcher(years, accountingYear)}</div>
     <div class="stats-row stats-row--compact">
       <div class="stat-card"><div class="label">可见账户</div><div class="value">${list.length}</div></div>
@@ -1152,9 +1155,10 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
           <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>贷款号</th>
           <th>行业</th><th>主办分行</th><th>可见记录</th><th>可见归因排放(tCO₂e)</th><th>状态</th><th>操作</th>
         </tr></thead>
-        <tbody>${view.rows.length ? view.rows.map((a, i) => `<tr>
+        <tbody>${view.rows.length ? view.rows.map((a, i) => {
+          const mainRow = `<tr>
           <td>${view.startIndex + i + 1}</td>
-          <td>${a.customerName}</td>
+          <td>${renderCarbonAccountNameCell(a, caExpanded)}</td>
           <td><code style="font-size:12px">${a.creditCode}</code></td>
           <td>${a.loanAccount}</td>
           <td>${a.industryMajor || '-'}</td>
@@ -1163,7 +1167,13 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
           <td>${formatNum(a.visibleAttributedEmission)}</td>
           <td>${renderCaAccountStatusBadge(a)}</td>
           <td>${renderCaAccountActions(a, roleKey, accountingYear)}</td>
-        </tr>`).join('') : `<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在核算任务中完成排放计算并【确认结果】。'}</td></tr>`}
+        </tr>`;
+          const expanded = caExpanded.has(a.id);
+          if (expanded && a.projectDetails?.length) {
+            return mainRow + renderCaProjectDetailRow(a, 10);
+          }
+          return mainRow;
+        }).join('') : `<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在对象边界步骤【确认锁定】正式清单。'}</td></tr>`}
         </tbody></table></div>
       ${renderPagination(listKey, view)}
     </div>`;

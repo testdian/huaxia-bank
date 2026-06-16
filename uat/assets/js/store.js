@@ -1,6 +1,6 @@
 /** localStorage 数据层 + 指引口径计算 */
 const Store = {
-  KEY: 'hxb_carbon_demo_v16',
+  KEY: 'hxb_carbon_demo_v18',
   INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
 
   _ensureInterfaces() {
@@ -126,6 +126,20 @@ const Store = {
     }
     this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
+    this._migrateCarbonAccountProvision();
+  },
+
+  /** 【业务规则】对象边界锁定后补建企业碳账户 */
+  _migrateCarbonAccountProvision() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof CarbonAccount === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._carbonProvisionMigrated) return;
+      CarbonAccount.backfillProvisionFromLockedFormals(d);
+      d._carbonProvisionMigrated = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
   },
 
   get() {
@@ -1230,10 +1244,11 @@ const Store = {
   },
 
   confirmFormalItems(taskId, formalIds) {
-    if (!formalIds?.length) return;
-    return this.update(d => {
+    if (!formalIds?.length) return { locked: 0, provisioned: 0 };
+    let locked = 0;
+    let provisioned = 0;
+    this.update(d => {
       const formal = d.formalList.filter(f => f.taskId === taskId && formalIds.includes(f.id));
-      let locked = 0;
       formal.forEach(f => {
         if (f.status === 'confirmed') return;
         f.status = 'confirmed';
@@ -1249,8 +1264,16 @@ const Store = {
           t.progress = Math.max(t.progress || 0, 35);
         }
       }
+      // 【业务规则】确认锁定后，在企业碳账户模块生成清单内全部客户账户
+      if (typeof CarbonAccount !== 'undefined') {
+        const targets = d.formalList.filter(f =>
+          f.taskId === taskId && formalIds.includes(f.id) && f.status === 'confirmed'
+        );
+        provisioned = CarbonAccount.provisionFromFormalLock(d, taskId, targets);
+      }
       this.syncTaskWorkflow(d, taskId);
     });
+    return { locked, provisioned };
   },
 
   dispatchSupplements(taskId, formalIds) {
