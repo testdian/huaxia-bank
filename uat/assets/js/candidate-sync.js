@@ -83,7 +83,6 @@ const CandidateSync = {
           projectTotalInvestmentWan
         }]
         : [];
-      const canDirectByEntity = !!industryMajor && operatingRevenue != null;
       rows.push({
         id: 'C' + taskId.replace(/\D/g, '').slice(-6) + String(i + 1).padStart(3, '0'),
         taskId,
@@ -98,7 +97,7 @@ const CandidateSync = {
         loanType,
         bizType,
         accountingType: bizType === 'project'
-          ? (projectDetails.length ? 'project_as_project' : (canDirectByEntity ? 'project_as_non_project' : 'project_pending'))
+          ? (projectDetails.length ? 'project_as_project' : 'project_pending')
           : 'non_project',
         projectInfoAvailable: (bizType === 'project' && projectDetails.length) ? true : null,
         tier1Branch,

@@ -232,37 +232,6 @@ const CarbonAccount = {
     return record;
   },
 
-  /** 【业务调整】账户开立后模拟调用格澜数据查询报告法数据 */
-  fetchGelanReportDataMock(row, task) {
-    const code = String(row.creditCode || '');
-    if (!code || code.length < 4) return { ok: false, reason: 'invalid' };
-    const tail = parseInt(code.replace(/\D/g, '').slice(-2) || '0', 10);
-    if (tail % 5 === 0) return { ok: false, reason: 'no_data' };
-    const year = task?.year || new Date().getFullYear();
-    return {
-      ok: true,
-      data: {
-        reportedEmission: Math.round(8500 + tail * 163),
-        disclosureChannel: 'ESG报告',
-        reportYear: year - 1,
-        thirdPartyVerified: true,
-        source: '格澜数据',
-        fetchedAt: new Date().toLocaleString('zh-CN')
-      }
-    };
-  },
-
-  formatGelanStatus(acc) {
-    const map = {
-      success: ['格澜已预填', 'badge-success'],
-      no_data: ['格澜无数据', 'badge-draft'],
-      invalid: ['格澜调用失败', 'badge-danger'],
-      empty: ['待查询', 'badge-draft']
-    };
-    const [text, cls] = map[acc?.gelanStatus] || ['—', 'badge-draft'];
-    return `<span class="badge ${cls}">${text}</span>`;
-  },
-
   buildRecordPayload(d, task, formal, calc, accountId) {
     const row = this.resolveLedgerRow(d, formal, calc);
     const cand = (d.candidates || []).find(c => c.id === formal?.customerId);
@@ -273,14 +242,6 @@ const CarbonAccount = {
     const confYear = this.parseYearFromDateTime(confirmedAt);
     if (!confirmedAt || confYear == null || confYear >= year) {
       confirmedAt = this.completionTimeForAccountingYear(year, salt);
-    }
-    let entityEmission = calc.entityEmission;
-    let attributedEmission = calc.attributedEmission;
-    const acc = (d.carbonAccounts || []).find(a => a.id === accountId);
-    if (acc?.manualEntityEmission != null) {
-      entityEmission = Number(acc.manualEntityEmission);
-      const ratio = calc.entityEmission > 0 ? calc.attributedEmission / calc.entityEmission : 0.08;
-      attributedEmission = Math.round(entityEmission * ratio);
     }
     return {
       id: 'CAR_' + calc.id,
@@ -306,8 +267,8 @@ const CarbonAccount = {
       bizType: row.bizType,
       bizLabel: row.bizType === 'project' ? '项目贷款' : '非项目贷款',
       manager: row.manager,
-      entityEmission,
-      attributedEmission,
+      entityEmission: calc.entityEmission,
+      attributedEmission: calc.attributedEmission,
       avgBalance: calc.avgBalance,
       year,
       period: String(year),
