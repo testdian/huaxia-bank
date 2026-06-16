@@ -715,6 +715,9 @@ function formatFormalEntityEmission(taskId, formalId) {
   return v != null ? formatNum(v) : '—';
 }
 
+/** 格澜接口预填时，报告法数据来源固定为「其他」 */
+const GELAN_REPORT_DATA_SOURCE = '其他';
+
 /** 模拟调用格澜数据接口，返回报告法主体排放（部分客户有数据） */
 function fetchGelanEntityDataMock(row, task) {
   const code = String(row?.creditCode || '');
@@ -738,7 +741,8 @@ function fetchGelanEntityDataMock(row, task) {
       disclosureChannel: 'ESG报告',
       reportYear: year - 1,
       thirdPartyVerified: true,
-      source: '格澜数据',
+      reportSource: GELAN_REPORT_DATA_SOURCE,
+      apiSource: '格澜数据',
       fetchedAt: new Date().toLocaleString('zh-CN')
     }
   };
@@ -1621,7 +1625,7 @@ function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
       customerName: project?.customerName || project?.projectName || acc.customerName,
       creditCode: project?.creditCode || acc.creditCode,
       entityEmission: subProfile.entityEmission ?? metrics.entityEmission,
-      method: subProfile.method || metrics.method,
+      method: subProfile.methodLabel || subProfile.method || metrics.methodLabel || metrics.method,
       methodId: subProfile.methodId || metrics.methodId
     };
   }
@@ -1629,7 +1633,7 @@ function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
     customerName: metrics.customerName || acc.customerName || '-',
     creditCode: metrics.creditCode || acc.creditCode || '-',
     customerNo: metrics.customerNo || '-',
-    method: metrics.method || '-',
+    method: metrics.methodLabel || metrics.method || '-',
     entityEmission: metrics.entityEmission,
     metrics
   };
@@ -1673,7 +1677,7 @@ function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
       scope1Emission: gelan.scope1Emission,
       scope2Emission: gelan.scope2Emission,
       unitTotalCo2Emission: gelan.unitTotalCo2Emission,
-      source: '格澜数据',
+      source: gelan.reportSource || GELAN_REPORT_DATA_SOURCE,
       verified: 'yes',
       attachments: []
     };
@@ -1714,11 +1718,15 @@ function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
   };
 }
 
+function isCarbonAccountReportMethod(methodLabel, methodId) {
+  return methodId === 'report' || String(methodLabel || '').startsWith('报告法');
+}
+
 function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo) {
   const profile = resolveCarbonAccountProfileRow(d, acc, year, subProjectNo);
   const supplementView = buildCarbonAccountSupplementView(d, acc, year, subProjectNo);
   const yearProfile = acc.annualProfiles?.[String(year || '')];
-  const reportSummary = (profile.method === '报告法' || profile.metrics?.methodId === 'report')
+  const reportSummary = isCarbonAccountReportMethod(profile.method, profile.metrics?.methodId)
     ? renderReportMethodSummaryReadonly(getReportMethodFields({
       ...supplementView,
       reportDetail: yearProfile?.reportDetail,
