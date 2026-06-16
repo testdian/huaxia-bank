@@ -1476,6 +1476,71 @@ function toggleCandidateProjectExpanded(taskId, candidateId) {
   sessionStorage.setItem(`candidate_project_expanded_${taskId}`, JSON.stringify(Array.from(set)));
 }
 
+const CA_PROJECT_EXPANDED_KEY = 'ca_project_expanded';
+
+function getCaProjectExpandedSet() {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(CA_PROJECT_EXPANDED_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function toggleCaProjectExpanded(accountId) {
+  const set = getCaProjectExpandedSet();
+  if (set.has(accountId)) set.delete(accountId);
+  else set.add(accountId);
+  sessionStorage.setItem(CA_PROJECT_EXPANDED_KEY, JSON.stringify(Array.from(set)));
+}
+
+function getCarbonAccountProjectDetails(acc) {
+  if (!acc?.projectDetails?.length) return [];
+  return acc.projectDetails.map((p, i) => ({
+    ...normalizeProjectDetailFromCandidate({ customerName: acc.customerName }, i),
+    ...p
+  }));
+}
+
+function renderCaProjectDetailRow(acc, colspan = 10) {
+  const details = getCarbonAccountProjectDetails(acc);
+  if (!details.length) return '';
+  return `<tr class="project-detail-row">
+    <td colspan="${colspan}">
+      <div class="project-detail-wrap">
+        <div class="project-detail-title">项目明细（项目信息客户名称）</div>
+        <div class="table-wrap">
+          <table class="data-table project-detail-table">
+            <thead><tr>
+              <th>序号</th><th>项目号</th><th>项目名称</th><th>客户名称</th><th>统一社会信用代码</th>
+              <th>项目所属行业</th><th>项目均贷款余额（万元）</th><th>项目收入（万元）</th>
+            </tr></thead>
+            <tbody>${details.map((p, i) => `<tr>
+              <td>${i + 1}</td>
+              <td>${p.projectNo || '-'}</td>
+              <td>${p.projectName || '-'}</td>
+              <td>${p.customerName || '-'}</td>
+              <td>${p.creditCode || '-'}</td>
+              <td>${p.projectIndustry || '-'}</td>
+              <td>${p.projectAvgLoanBalanceWan ?? '-'}</td>
+              <td>${p.projectRevenueWan ?? '-'}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderCarbonAccountNameCell(acc, expandedSet) {
+  const hasProjects = Array.isArray(acc.projectDetails) && acc.projectDetails.length > 0;
+  if (!hasProjects) return acc.customerName || '-';
+  const expanded = expandedSet.has(acc.id);
+  return `<span class="ca-name-cell">
+    <button type="button" class="candidate-expand-toggle ${expanded ? 'is-expanded' : ''}" data-ca-expand="${acc.id}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>
+    ${acc.customerName || '-'}
+  </span>`;
+}
+
 function renderCandidateProjectDetailRow(c, colspan = 15) {
   const details = getCandidateProjectDetails(c);
   if (!details.length) return '';
