@@ -4,6 +4,32 @@
 const CarbonAccount = {
   ACCOUNT_STATUS_LABEL: { active: '启用', disabled: '停用', cancelled: '注销' },
 
+  /** 企业碳账户「核算方法」展示枚举 */
+  METHOD_LABEL: {
+    REPORT_AUTHORITY: '报告法权威数据',
+    REPORT_OTHER: '报告法其他数据',
+    ENERGY: '能源法数据',
+    PRODUCT_PBOC: '产品法-人行因子数据',
+    PRODUCT_BANK: '产品法-我行因子数据',
+    ECONOMY_REVENUE: '经济活动法-营收法数据',
+    ECONOMY_LOAN: '经济活动法-贷款数据'
+  },
+
+  /** 演示：产品法因子来源（行业×项目/非项目，待客户确认正式规则） */
+  PRODUCT_FACTOR_PROVIDER_MOCK: {
+    default: { project: 'pboc', non_project: 'bank' },
+    byIndustry: {
+      电力: { project: 'pboc', non_project: 'pboc' },
+      钢铁: { project: 'bank', non_project: 'pboc' },
+      建材: { project: 'pboc', non_project: 'bank' },
+      石化: { project: 'bank', non_project: 'bank' },
+      有色: { project: 'pboc', non_project: 'bank' },
+      化工: { project: 'bank', non_project: 'pboc' },
+      造纸: { project: 'pboc', non_project: 'pboc' },
+      民航: { project: 'bank', non_project: 'pboc' }
+    }
+  },
+
   /** 当前状态允许的操作（CA003） */
   getAccountStatusActions(status) {
     const s = status || 'active';
@@ -167,17 +193,19 @@ const CarbonAccount = {
 
     if (account.annualProfiles?.[yearStr]) {
       const p = account.annualProfiles[yearStr];
-      return {
+      return this._finalizeMetrics(d, account, yearStr, {
         entityEmission: p.entityEmission,
-        method: p.method || '-',
+        method: p.methodLabel || p.method || '-',
         methodId: p.methodId || null,
+        methodLabel: p.methodLabel,
         customerNo: p.customerNo || customerNo,
         source: p.source,
         formal,
         task,
         supplement: null,
-        calc: null
-      };
+        calc: null,
+        reportDetail: p.reportDetail
+      });
     }
 
     const recs = (d.carbonAccountRecords || []).filter(r =>
@@ -185,7 +213,7 @@ const CarbonAccount = {
     );
     if (recs.length) {
       const r = recs[recs.length - 1];
-      return {
+      return this._finalizeMetrics(d, account, yearStr, {
         entityEmission: r.entityEmission,
         method: r.method || '-',
         methodId: this.mapMethodId(r.method),
@@ -195,14 +223,14 @@ const CarbonAccount = {
         task,
         supplement: null,
         calc: null
-      };
+      });
     }
 
     const calc = (d.calculations || []).find(c =>
       c.formalId === account.formalId && c.taskId === account.taskId
     );
     if (calc?.entityEmission != null && (!task?.year || String(task.year) === yearStr)) {
-      return {
+      return this._finalizeMetrics(d, account, yearStr, {
         entityEmission: calc.entityEmission,
         method: calc.method || '-',
         methodId: calc.methodId || this.mapMethodId(calc.method),
@@ -212,11 +240,11 @@ const CarbonAccount = {
         task,
         supplement: null,
         calc
-      };
+      });
     }
 
     if (formal?.gelanEntityEmission != null && task && String(task.year) === yearStr) {
-      return {
+      return this._finalizeMetrics(d, account, yearStr, {
         entityEmission: formal.gelanEntityEmission,
         method: '报告法',
         methodId: 'report',
@@ -225,8 +253,12 @@ const CarbonAccount = {
         formal,
         task,
         supplement: null,
-        calc
-      };
+        calc,
+        reportDetail: formal.gelanPrefill ? {
+          source: formal.gelanPrefill.reportSource || '其他',
+          ...formal.gelanPrefill
+        } : null
+      });
     }
 
     const supp = (d.supplements || []).find(s =>
@@ -236,7 +268,7 @@ const CarbonAccount = {
     if (supp && typeof Store !== 'undefined') {
       const m = Store.matchMethod(supp);
       const entityEmission = Store.calcEntityEmission(supp);
-      return {
+      return this._finalizeMetrics(d, account, yearStr, {
         entityEmission,
         method: m?.name || '-',
         methodId: m?.id || null,
@@ -246,10 +278,10 @@ const CarbonAccount = {
         task,
         supplement: supp,
         calc
-      };
+      });
     }
 
-    return {
+    return this._finalizeMetrics(d, account, yearStr, {
       entityEmission: null,
       method: '-',
       methodId: null,
@@ -259,7 +291,7 @@ const CarbonAccount = {
       task,
       supplement: null,
       calc
-    };
+    });
   },
 
   mapMethodId(methodName) {
@@ -268,6 +300,95 @@ const CarbonAccount = {
       x.name === methodName || x.id === methodName
     );
     return m?.id || null;
+  },
+
+  getReportDataSource(ctx) {
+    const reportDetail = ctx.reportDetail;
+    const supp = ctx.supplement;
+    const formal = ctx.formal;
+    const calc = ctx.calc;
+    if (reportDetail?.source) return reportDetail.source;
+    if (supp?.fieldData?.report?.source) return supp.fieldData.report.source;
+    if (formal?.gelanPrefill?.reportSource) return formal.gelanPrefill.reportSource;
+    if (calc?.source === 'gelan' || formal?.gelanEntityEmission != null) {
+      return typeof GELAN_REPORT_DATA_SOURCE !== 'undefined' ? GELAN_REPORT_DATA_SOURCE : '其他';
+    }
+    if (supp?.disclosureChannel && supp?.methodId === 'report') return supp.disclosureChannel;
+    return null;
+  },
+
+  resolveReportMethodLabel(reportSource) {
+    const other = typeof GELAN_REPORT_DATA_SOURCE !== 'undefined' ? GELAN_REPORT_DATA_SOURCE : '其他';
+    if (!reportSource || reportSource === other) return this.METHOD_LABEL.REPORT_OTHER;
+    return this.METHOD_LABEL.REPORT_AUTHORITY;
+  },
+
+  resolveProductMethodLabel(formal, account) {
+    const industry = formal?.industryMajor || account?.industryMajor || '';
+    const bizType = formal?.bizType || account?.bizType || 'non_project';
+    const key = bizType === 'project' ? 'project' : 'non_project';
+    const map = this.PRODUCT_FACTOR_PROVIDER_MOCK.byIndustry[industry]
+      || this.PRODUCT_FACTOR_PROVIDER_MOCK.default;
+    return map[key] === 'pboc'
+      ? this.METHOD_LABEL.PRODUCT_PBOC
+      : this.METHOD_LABEL.PRODUCT_BANK;
+  },
+
+  /** 企业碳账户核算方法展示名（七类枚举） */
+  resolveAccountMethodLabel(d, ctx) {
+    if (ctx.methodLabel) return ctx.methodLabel;
+    const formal = ctx.formal;
+    const account = ctx.account;
+    const calc = ctx.calc;
+    let methodId = ctx.methodId || calc?.methodId || null;
+    if (!methodId && ctx.supplement && typeof Store !== 'undefined') {
+      methodId = Store.matchMethod(ctx.supplement)?.id || null;
+    }
+    if (ctx.source === 'gelan' || calc?.source === 'gelan' || formal?.gelanEntityEmission != null) {
+      return this.resolveReportMethodLabel(this.getReportDataSource(ctx));
+    }
+    if (methodId === 'report' || calc?.methodId === 'report') {
+      return this.resolveReportMethodLabel(this.getReportDataSource(ctx));
+    }
+    if (methodId === 'energy') return this.METHOD_LABEL.ENERGY;
+    if (methodId === 'product') return this.resolveProductMethodLabel(formal, account);
+    if (methodId === 'economy' || calc?.source === 'economy_direct') {
+      return this.METHOD_LABEL.ECONOMY_REVENUE;
+    }
+    if (methodId === 'economy_fallback') return this.METHOD_LABEL.ECONOMY_LOAN;
+    return ctx.method || '-';
+  },
+
+  _finalizeMetrics(d, account, yearStr, metrics) {
+    const calc = metrics.calc || (d.calculations || []).find(c =>
+      c.formalId === account.formalId && c.taskId === account.taskId
+    );
+    const reportDetail = metrics.reportDetail
+      || account.annualProfiles?.[yearStr]?.reportDetail
+      || calc?.reportDetail
+      || null;
+    const supplement = metrics.supplement || (d.supplements || []).find(s =>
+      s.formalId === account.formalId && s.taskId === account.taskId
+    );
+    const formal = metrics.formal || (d.formalList || []).find(f => f.id === account.formalId);
+    const methodLabel = this.resolveAccountMethodLabel(d, {
+      ...metrics,
+      account,
+      calc,
+      supplement,
+      reportDetail,
+      formal,
+      methodId: metrics.methodId || calc?.methodId
+    });
+    return {
+      ...metrics,
+      calc,
+      supplement,
+      reportDetail,
+      formal,
+      methodLabel,
+      method: methodLabel
+    };
   },
 
   /** 企业碳账户列表行：主账户每年一行，项目贷款追加子账户行 */
@@ -307,7 +428,7 @@ const CarbonAccount = {
             customerName: p.customerName || p.projectName || acc.customerName,
             creditCode: p.creditCode || acc.creditCode || '-',
             customerNo: p.customerNo || metrics.customerNo || '-',
-            method: subProfile.method || metrics.method || '-',
+            method: subProfile.methodLabel || subProfile.method || metrics.methodLabel || metrics.method || '-',
             entityEmission: subProfile.entityEmission ?? metrics.entityEmission,
             account: acc,
             project: p,
@@ -334,10 +455,19 @@ const CarbonAccount = {
     const customerNo = this.resolveCustomerNo(d, acc, formal, null);
     if (!acc.annualProfiles) acc.annualProfiles = {};
     const reportDetail = payload.reportDetail || null;
+    const methodLabel = this.resolveAccountMethodLabel(d, {
+      methodId: payload.methodId,
+      formal,
+      calc: payload,
+      reportDetail,
+      source: payload.source,
+      account: acc
+    });
     acc.annualProfiles[year] = {
       entityEmission: payload.entityEmission,
-      method: payload.method || '报告法',
+      method: methodLabel,
       methodId: payload.methodId || 'report',
+      methodLabel,
       customerNo,
       source: payload.source || 'gelan',
       updatedAt: new Date().toLocaleString('zh-CN'),
@@ -353,8 +483,9 @@ const CarbonAccount = {
         annualProfiles: {
           [year]: {
             entityEmission: payload.entityEmission,
-            method: payload.method || '报告法',
+            method: methodLabel,
             methodId: payload.methodId || 'report',
+            methodLabel,
             source: payload.source || 'gelan',
             reportDetail
           }
