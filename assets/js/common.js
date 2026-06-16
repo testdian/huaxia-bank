@@ -293,18 +293,47 @@ function formatNum(n) {
   return Number(n).toLocaleString('zh-CN');
 }
 
+/** 【业务调整】主流程：新建任务 → 确认核算清单 → 开立碳账户 → 投融资碳核算 */
 const WORKFLOW_STEP = {
   TASK_CREATE: 0,
-  CANDIDATES: 1,
-  FORMAL: 2,
-  DATA_COLLECTION: 3,
-  CALCULATION: 4,
-  REPORT: 5
+  LIST_CONFIRM: 1,
+  CARBON_ACCOUNT: 2,
+  CARBON_ACCOUNTING: 3
 };
 
 if (typeof window !== 'undefined') window.WORKFLOW_STEP = WORKFLOW_STEP;
 
-const WORKFLOW_STEP_NAMES = ['范畴确定', '清单识别', '对象边界', '数据采集', '排放计算', '生成报告'];
+const WORKFLOW_STEP_NAMES = ['新建任务', '确认核算清单', '开立碳账户', '投融资碳核算'];
+
+/** 【业务调整】旧版六步 workflowStep 迁移为四步（v16→v17） */
+function migrateLegacyWorkflowStep(task) {
+  if (!task || task._workflowV4) return task?.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM;
+  const old = task.workflowStep ?? 0;
+  let step = WORKFLOW_STEP.TASK_CREATE;
+  if (old <= 0) step = WORKFLOW_STEP.TASK_CREATE;
+  else if (old <= 2) step = WORKFLOW_STEP.LIST_CONFIRM;
+  else if (task.carbonAccountsOpened) step = WORKFLOW_STEP.CARBON_ACCOUNTING;
+  else if (task.milestone?.formalLocked) step = WORKFLOW_STEP.LIST_CONFIRM;
+  else step = WORKFLOW_STEP.LIST_CONFIRM;
+  if (task.carbonAccountsOpened && step < WORKFLOW_STEP.CARBON_ACCOUNT) {
+    step = WORKFLOW_STEP.CARBON_ACCOUNT;
+  }
+  if ((old >= 3 || task.dataCollectSubmitted) && task.carbonAccountsOpened) {
+    step = WORKFLOW_STEP.CARBON_ACCOUNTING;
+  }
+  task.workflowStep = step;
+  task._workflowV4 = true;
+  return step;
+}
+
+/** 【业务调整】碳账户手动编辑：仅高权限（总行绿金部）；分行/客户经理只读 */
+function canEditCarbonAccount(roleKey) {
+  return roleKey === 'hq';
+}
+
+function canViewCarbonAccountModule(roleKey) {
+  return roleKey === 'hq' || roleKey === 'branch';
+}
 
 function getWorkflowStepRoute(stepIndex, taskId, options = {}) {
   const tid = taskId || Store.get().currentTaskId;
@@ -316,7 +345,7 @@ function getWorkflowStepRoute(stepIndex, taskId, options = {}) {
     const qs = p.toString();
     return view ? `#/task-view${qs ? '?' + qs : ''}` : `#/task-edit${qs ? '?' + qs : ''}`;
   }
-  const paths = ['#/task-edit', '#/candidates', '#/formal', '#/data-collect', '#/calculation', '#/reports'];
+  const paths = ['#/task-edit', '#/formal', '#/carbon-account-open', '#/data-collect'];
   const path = paths[stepIndex] || paths[0];
   const p = new URLSearchParams();
   if (tid) p.set('taskId', tid);
@@ -343,20 +372,22 @@ function getWorkflowStepFromRoute() {
     '#/task-view': WORKFLOW_STEP.TASK_CREATE,
     '#/task-create': WORKFLOW_STEP.TASK_CREATE,
     '#/task-edit': WORKFLOW_STEP.TASK_CREATE,
-    '#/candidates': WORKFLOW_STEP.CANDIDATES,
-    '#/formal': WORKFLOW_STEP.FORMAL,
-    '#/boundary': WORKFLOW_STEP.FORMAL,
-    '#/data-collect': WORKFLOW_STEP.DATA_COLLECTION,
-    '#/calculation': WORKFLOW_STEP.CALCULATION,
-    '#/reports': WORKFLOW_STEP.REPORT
+    '#/candidates': WORKFLOW_STEP.LIST_CONFIRM,
+    '#/formal': WORKFLOW_STEP.LIST_CONFIRM,
+    '#/boundary': WORKFLOW_STEP.LIST_CONFIRM,
+    '#/carbon-account-open': WORKFLOW_STEP.CARBON_ACCOUNT,
+    '#/data-collect': WORKFLOW_STEP.CARBON_ACCOUNTING,
+    '#/calculation': WORKFLOW_STEP.CARBON_ACCOUNTING,
+    '#/reports': WORKFLOW_STEP.CARBON_ACCOUNTING,
+    '#/results': WORKFLOW_STEP.CARBON_ACCOUNTING
   };
   return map[base];
 }
 
 function workflowStepIsDone(i, ctx) {
-  const { progressStep, taskProgressStep } = ctx;
+  const { progressStep, taskProgressStep, taskResultsConfirmed } = ctx;
+  if (taskResultsConfirmed) return true;
   const doneThrough = taskProgressStep != null ? taskProgressStep : progressStep;
-  if (doneThrough >= WORKFLOW_STEP.REPORT) return true;
   return i <= doneThrough;
 }
 
@@ -370,7 +401,7 @@ function demoSteps(current, options = {}) {
   const { taskId, clickable = false, maxStep, viewMode = isTaskViewMode(), taskProgressStep } = options;
   const maxIdx = WORKFLOW_STEP_NAMES.length - 1;
   const progressStep = maxStep != null ? maxStep : current;
-  const maxClickIdx = progressStep >= WORKFLOW_STEP.REPORT
+  const maxClickIdx = progressStep >= WORKFLOW_STEP.CARBON_ACCOUNTING
     ? maxIdx
     : Math.max(0, Math.min(progressStep, maxIdx));
   const activeIdx = Math.max(0, Math.min(current, maxIdx));
@@ -397,11 +428,12 @@ function demoSteps(current, options = {}) {
 
 function getTaskMaxWorkflowStep(task) {
   if (!task) return WORKFLOW_STEP.TASK_CREATE;
-  if (getTaskListStatus(task) === 'completed') return WORKFLOW_STEP.REPORT;
-  return Math.max(task.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP.TASK_CREATE);
+  migrateLegacyWorkflowStep(task);
+  if (getTaskListStatus(task) === 'completed') return WORKFLOW_STEP.CARBON_ACCOUNTING;
+  return Math.max(task.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM, WORKFLOW_STEP.TASK_CREATE);
 }
 
-/** 数据补录模块页面不展示核算六步流程条 */
+/** 数据补录模块页面不展示核算主流程条 */
 function shouldShowWorkflowSteps() {
   const base = (typeof location !== 'undefined' ? location.hash : '').split('?')[0];
   const hideOn = ['#/branch-board', '#/manager-tasks', '#/supplement-fill', '#/approval-review'];
@@ -410,30 +442,33 @@ function shouldShowWorkflowSteps() {
 
 function workflowStepsBar(task, stepOverride) {
   if (!shouldShowWorkflowSteps()) return '';
-  const step = stepOverride ?? getWorkflowStepFromRoute() ?? task?.workflowStep ?? WORKFLOW_STEP.CANDIDATES;
+  migrateLegacyWorkflowStep(task);
+  const step = stepOverride ?? getWorkflowStepFromRoute() ?? task?.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM;
   const taskProgress = getTaskMaxWorkflowStep(task);
   const maxStep = getTaskListStatus(task) === 'completed'
-    ? WORKFLOW_STEP.REPORT
+    ? WORKFLOW_STEP.CARBON_ACCOUNTING
     : Math.max(taskProgress, step, WORKFLOW_STEP.TASK_CREATE);
   return demoSteps(step, {
     taskId: task?.id,
     clickable: !!task?.id,
     maxStep,
     taskProgressStep: taskProgress,
+    taskResultsConfirmed: !!task?.resultsConfirmed,
     viewMode: isTaskViewMode()
   });
 }
 
-/** 任务当前所在步骤名称（6 步流程） */
+/** 任务当前所在步骤名称（四步主流程） */
 function getTaskStepLabel(task) {
-  const step = task?.workflowStep ?? WORKFLOW_STEP.CANDIDATES;
+  migrateLegacyWorkflowStep(task);
+  const step = task?.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM;
   const idx = Math.max(0, Math.min(step, WORKFLOW_STEP_NAMES.length - 1));
   return WORKFLOW_STEP_NAMES[idx];
 }
 
 /** 任务列表状态：核算中 / 已完成 */
 function getTaskListStatus(task) {
-  if (task.status === 'closed' || task.status === 'completed' || (task.workflowStep ?? 0) >= WORKFLOW_STEP.REPORT) {
+  if (task.status === 'closed' || task.status === 'completed' || task.resultsConfirmed) {
     return 'completed';
   }
   return 'accounting';
@@ -540,7 +575,8 @@ function filterTasks(tasks, filters) {
     if (f.year && String(t.year) !== String(f.year)) return false;
     if (f.industryScope && t.industryScope !== f.industryScope) return false;
     if (f.progress !== '' && f.progress != null) {
-      const step = Math.max(0, Math.min(t.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP_NAMES.length - 1));
+      migrateLegacyWorkflowStep(t);
+      const step = Math.max(0, Math.min(t.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM, WORKFLOW_STEP_NAMES.length - 1));
       if (String(step) !== String(f.progress)) return false;
     }
     if (f.status) {
@@ -905,6 +941,7 @@ function canHqAdminRejectSupplement(supp, roleKey, task) {
 
 function isSupplementEditableByManager(s) {
   if (!s) return false;
+  if (s.economyDirectAdjust && isEconomyDirectDocEditable(s)) return true;
   if (['pending', 'in_progress', 'returned'].includes(s.status)) return true;
   if (s.status === 'completed') {
     const stage = s.auditStage || 'pending_fill';
@@ -988,13 +1025,22 @@ function getFormalForSupplement(s) {
   return Store.get().formalList.find(f => f.id === s.formalId);
 }
 
-/** 数据采集为经济法直算且仍下发补录任务时，经济活动法 Tab 仅可查看 */
-function isEconomyTabLockedForSupplement(s) {
-  if (!s?.formalId || !s.dispatchedAt) return false;
+/** 【业务调整】经济法直算完成后，客户经理可修改核算单据口径（不影响生产营收） */
+function isEconomyDirectDocEditable(s) {
   const formal = getFormalForSupplement(s);
   if (!formal) return false;
-  const mode = formal.collectMode || resolveCollectMode(formal.loanType || s.loanType);
-  return mode === 'economy_direct';
+  const mode = formal.collectMode || resolveCollectMode(formal.loanType || s?.loanType);
+  return mode === 'economy_direct' && formal.economyDirectStatus === 'done';
+}
+
+function canEditEconomyDirectDoc(s) {
+  return Store.get().currentRole === 'manager' && isEconomyDirectDocEditable(s);
+}
+
+/** 经济法 Tab 锁定：直算完成后仅客户经理可编辑单据口径，其他角色只读 */
+function isEconomyTabLockedForSupplement(s) {
+  if (!isEconomyDirectDocEditable(s)) return false;
+  return !canEditEconomyDirectDoc(s);
 }
 
 function getEconomyDirectViewData(s) {
@@ -1006,9 +1052,11 @@ function getEconomyDirectViewData(s) {
     entityEmission,
     economyDirectStatus: formal.economyDirectStatus,
     economyDirectAt: formal.economyDirectAt,
-    economyValue: s.economyValue ?? s.revenue ?? formal.operatingRevenue ?? '',
-    economyFactor: calc?.industryFactor ?? s.economyFactor ?? 2.35,
-    economyBasis: s.economyBasis || 'revenue'
+    productionRevenue: formal.productionRevenueSnapshot,
+    productionAssets: formal.productionAssetsSnapshot,
+    economyValue: s.economyDocValue ?? s.economyValue ?? s.revenue ?? formal.productionRevenueSnapshot ?? formal.operatingRevenue ?? '',
+    economyFactor: s.economyDocFactor ?? calc?.industryFactor ?? s.economyFactor ?? 2.35,
+    economyBasis: (s.economyDocBasis ?? s.economyBasis) || 'revenue'
   };
 }
 
@@ -1206,15 +1254,18 @@ function renderSupplementFillBody(s, options = {}) {
     if (t === 'economy' && economyLocked) cls += ' tab-panel-locked';
     return cls;
   };
-  const directView = economyLocked ? getEconomyDirectViewData(s) : null;
+  const directView = isEconomyDirectDocEditable(s) ? getEconomyDirectViewData(s) : null;
   const basis = directView?.economyBasis || s.economyBasis || 'revenue';
-  const economyValue = directView?.economyValue ?? s.economyValue ?? s.revenue ?? '';
-  const economyFactor = directView?.economyFactor ?? s.economyFactor ?? 2.35;
+  const economyValue = directView?.economyValue ?? s.economyDocValue ?? s.economyValue ?? s.revenue ?? '';
+  const economyFactor = directView?.economyFactor ?? s.economyDocFactor ?? s.economyFactor ?? 2.35;
   const fallbackFactor = s.fallbackFactor ?? s.economyFactor ?? 2.46;
   const methodTabs = getSupplementMethodTabs(s);
-  const economyLockTip = economyLocked
-    ? `<div class="locked-tip">该笔业务在数据采集环节已选择<strong>经济法直算</strong>，经济活动法数据由系统直算生成，此处<strong>不可编辑</strong>，仅供查看。${directView?.economyDirectStatus === 'done' ? `直算时间：${directView.economyDirectAt || '—'}。` : '（直算尚未完成）'}${directView?.entityEmission != null ? ` 主体排放：${formatNum(directView.entityEmission)} tCO₂e。` : ''}</div>`
-    : '';
+  const prodRev = directView?.productionRevenue;
+  const economyLockTip = canEditEconomyDirectDoc(s)
+    ? `<div class="demo-tip" style="border-color:#409eff;background:#ecf5ff;color:#337ecc">经济法直算已完成。您可调整本核算单据的测算基数/因子，修改<strong>仅作用于当前碳核算单据</strong>，不影响生产系统原始营收${prodRev != null ? `（生产营收：${formatNum(prodRev)} 万元）` : ''}。</div>`
+    : (economyLocked && directView
+      ? `<div class="locked-tip">该笔业务已<strong>经济法直算</strong>完成，经济活动法数据仅供查看。${directView.economyDirectAt ? `直算时间：${directView.economyDirectAt}。` : ''}${directView.entityEmission != null ? ` 主体排放：${formatNum(directView.entityEmission)} tCO₂e。` : ''}</div>`
+      : '');
 
   return `
     <div class="card"><div class="card-header"><h3>企业基本信息</h3></div>
@@ -1408,17 +1459,34 @@ function candidateIndustryLabel(c) {
   return c.industryMajor || '-';
 }
 
-/** 解析核算类型 id（优先记录字段，其次业务品种映射表） */
+function hasNonEmptyAccountingValue(v) {
+  return !(v == null || v === '' || v === '-');
+}
+
+function getProjectDetailsForAccounting(c) {
+  if (Array.isArray(c?.projectDetails) && c.projectDetails.length) return c.projectDetails;
+  if (c?.projectInfo && typeof c.projectInfo === 'object') return [c.projectInfo];
+  return [];
+}
+
+function hasProjectIndustryAndRevenue(c) {
+  const details = getProjectDetailsForAccounting(c);
+  return details.some(p => hasNonEmptyAccountingValue(p?.projectIndustry) && hasNonEmptyAccountingValue(p?.projectRevenueWan));
+}
+
+function hasEntityIndustryAndRevenue(c) {
+  const industry = c?.industryMajor || c?.gbIndustryName || c?.industryLabel;
+  const revenue = c?.operatingRevenue ?? c?.revenue;
+  return hasNonEmptyAccountingValue(industry) && hasNonEmptyAccountingValue(revenue);
+}
+
+/** 解析核算类型 id（项目法优先，主体法兜底，否则待补录） */
 function resolveAccountingType(c) {
   if (!c) return null;
-  const explicit = c.accountingType;
-  if (explicit && GUIDE.ACCOUNTING_TYPES.some(t => t.id === explicit)) return explicit;
   const isProject = candidateIsProjectType(c);
   if (!isProject) return 'non_project';
-  const hasProjectDetails = Array.isArray(c.projectDetails) && c.projectDetails.length > 0;
-  const hasProjectInfo = hasProjectDetails || c.projectInfoAvailable === true || !!c.projectInfo;
-  if (hasProjectInfo) return 'project_as_project';
-  if (c.projectInfoAvailable === false) return 'project_as_non_project';
+  if (hasProjectIndustryAndRevenue(c)) return 'project_as_project';
+  if (hasEntityIndustryAndRevenue(c)) return 'project_as_non_project';
   return 'project_pending';
 }
 

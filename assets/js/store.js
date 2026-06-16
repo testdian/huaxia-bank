@@ -1,6 +1,6 @@
 /** localStorage 数据层 + 指引口径计算 */
 const Store = {
-  KEY: 'hxb_carbon_demo_v16',
+  KEY: 'hxb_carbon_demo_v17',
   INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
 
   _ensureInterfaces() {
@@ -84,11 +84,7 @@ const Store = {
     try {
       const d = JSON.parse(raw);
       if (!Array.isArray(d.candidates) || !Array.isArray(d.formalList)) return;
-      const hasPending = d.candidates.some(c =>
-        c?.bizType === 'project' &&
-        (!Array.isArray(c.projectDetails) || c.projectDetails.length === 0) &&
-        c.projectInfoAvailable !== false
-      );
+      const hasPending = d.candidates.some(c => c?.bizType === 'project' && resolveAccountingType(c) === 'project_pending');
       if (hasPending) return;
 
       const targetCandidates = d.candidates
@@ -99,11 +95,19 @@ const Store = {
       targetCandidates.forEach(c => {
         c.projectDetails = [];
         c.projectInfoAvailable = null;
+        c.industryMajor = null;
+        c.industryLabel = '-';
+        c.operatingRevenue = null;
+        c.revenue = null;
         c.accountingType = 'project_pending';
         const relatedFormals = d.formalList.filter(f => f.customerId === c.id);
         relatedFormals.forEach(f => {
           f.projectDetails = [];
           f.projectInfoAvailable = null;
+          f.industryMajor = null;
+          f.industryLabel = '-';
+          f.operatingRevenue = null;
+          f.revenue = null;
           f.accountingType = 'project_pending';
         });
       });
@@ -126,6 +130,29 @@ const Store = {
     }
     this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
+    this._migrateWorkflowV4();
+  },
+
+  /** 【业务调整】四步主流程 + 碳账户开立标记迁移 */
+  _migrateWorkflowV4() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      (d.tasks || []).forEach(t => {
+        if (!t._workflowV4 && typeof migrateLegacyWorkflowStep === 'function') {
+          migrateLegacyWorkflowStep(t);
+          changed = true;
+        }
+        if ((t.workflowStep ?? 0) >= 2 && !t.carbonAccountsOpened && t.milestone?.formalLocked) {
+          t.carbonAccountsOpened = true;
+          t.carbonAccountsOpenedAt = t.carbonAccountsOpenedAt || '2025-03-01 10:00:00';
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
   },
 
   get() {
@@ -456,7 +483,7 @@ const Store = {
         task.syncYear = year;
         task.syncRecordTotal = totalInInterface;
         task.syncBatchCount = successBatchCount || undefined;
-        task.workflowStep = Math.max(task.workflowStep ?? 0, WORKFLOW_STEP.CANDIDATES);
+        task.workflowStep = Math.max(task.workflowStep ?? 0, WORKFLOW_STEP.LIST_CONFIRM);
         task.progress = Math.max(task.progress || 0, 15);
         task.candidateFilterRules = getDefaultCandidateFilterRules(task);
       }
@@ -549,7 +576,7 @@ const Store = {
       const t = d.tasks.find(x => x.id === taskId);
       if (t) {
         t.formalCount = d.formalList.filter(f => f.taskId === taskId).length;
-        t.workflowStep = WORKFLOW_STEP.FORMAL;
+        t.workflowStep = WORKFLOW_STEP.LIST_CONFIRM;
         t.progress = Math.max(t.progress || 0, 30);
       }
     });
@@ -570,7 +597,11 @@ const Store = {
     if (m.id === 'report') return Number(s.reportedEmission) || 0;
     if (m.id === 'energy') return Number(s.energyTotalEmission) || 0;
     if (m.id === 'product') return Number(s.productTotalEmission) || 0;
-    if (m.id === 'economy') return Number(s.economyValue) * Number(s.economyFactor || 2.35);
+    if (m.id === 'economy') {
+      const val = s.economyDocValue != null ? s.economyDocValue : s.economyValue;
+      const factor = s.economyDocFactor != null ? s.economyDocFactor : s.economyFactor;
+      return Number(val) * Number(factor || 2.35);
+    }
     return 0;
   },
 
@@ -633,7 +664,7 @@ const Store = {
       });
       const t = d.tasks.find(x => x.id === taskId);
       if (t) {
-        t.workflowStep = WORKFLOW_STEP.CALCULATION;
+        t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNTING;
         t.progress = Math.min(90, Math.max(t.progress || 0, 70));
         t.dqr = Store.calcDQR(taskId);
         if (t.milestone) t.milestone.calculationDone = true;
@@ -871,8 +902,11 @@ const Store = {
         const attributedEmission = f.bizType === 'project'
           ? Math.round(entityEmission * (avgBalance / (Number(f.totalInvestment) || 500000)))
           : Math.round(entityEmission * (avgBalance / totalAssets));
+        f.productionRevenueSnapshot = revenue;
+        f.productionAssetsSnapshot = totalAssets;
         f.economyDirectStatus = 'done';
         f.economyDirectAt = new Date().toLocaleString('zh-CN');
+        this._ensureEconomyAdjustSupplement(d, taskId, f, { revenue, factor, totalAssets, avgBalance });
         const payload = {
           taskId, formalId: f.id, customerName: f.customerName,
           bizType: f.bizType, method: '经济活动法', methodId: 'economy',
@@ -1029,6 +1063,7 @@ const Store = {
     item.approvalStatus = 'none';
   },
 
+  /** 【业务调整】四步主流程进度同步 */
   syncTaskWorkflow(d, taskId) {
     const t = d.tasks.find(x => x.id === taskId);
     if (!t) return;
@@ -1040,30 +1075,36 @@ const Store = {
 
     const hasConfirmed = formal.some(f => f.status === 'confirmed');
     if (hasConfirmed) {
-      t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.DATA_COLLECTION);
+      t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.LIST_CONFIRM);
       t.progress = Math.max(t.progress || 0, 35);
       if (t.milestone) t.milestone.formalLocked = true;
     }
 
+    if (t.carbonAccountsOpened) {
+      t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.CARBON_ACCOUNT);
+      t.progress = Math.max(t.progress || 0, 45);
+      if (t.milestone) t.milestone.carbonAccountsOpened = true;
+    }
+
+    if (!t.carbonAccountsOpened) return;
+
     if (supps.length) {
-      t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.DATA_COLLECTION);
-      t.progress = Math.max(t.progress || 0, 40);
+      t.progress = Math.max(t.progress || 0, 50);
       if (t.milestone) t.milestone.supplementDispatched = true;
     }
 
     const allReady = this.isDataCollectionComplete(taskId);
-
     if (allReady) {
-      t.workflowStep = WORKFLOW_STEP.CALCULATION;
+      t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNTING;
       t.progress = Math.max(t.progress || 0, 65);
       if (t.milestone) t.milestone.supplementApproved = true;
-    } else if (t.workflowStep >= WORKFLOW_STEP.CALCULATION) {
-      t.workflowStep = WORKFLOW_STEP.DATA_COLLECTION;
+    } else if (t.workflowStep >= WORKFLOW_STEP.CARBON_ACCOUNTING && !allReady) {
+      t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNT;
     }
 
     const calcs = d.calculations.filter(c => c.taskId === taskId);
     if (allReady && calcs.length && calcs.every(c => c.status === 'done')) {
-      t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.CALCULATION);
+      t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNTING;
       t.progress = Math.max(t.progress || 0, 80);
       if (t.milestone) t.milestone.calculationDone = true;
     }
@@ -1165,15 +1206,23 @@ const Store = {
       const formal = d.formalList.find(f => f.id === s.formalId);
       const candidate = d.candidates.find(c => c.id === (s.customerId || formal?.customerId));
       if (s.bizType === 'project') {
-        const hasSyncedProject = (Array.isArray(candidate?.projectDetails) && candidate.projectDetails.length > 0)
-          || (Array.isArray(formal?.projectDetails) && formal.projectDetails.length > 0);
         const hasSupplementProject = Array.isArray(s.projectDetails) && s.projectDetails.length > 0;
-        let accountingType = 'project_pending';
-        if (hasSyncedProject || hasSupplementProject || s.projectInfoAvailable === true) {
-          accountingType = 'project_as_project';
-        } else if (s.projectInfoAvailable === false && payload.complete) {
-          accountingType = 'project_as_non_project';
-        }
+        const accountingBase = {
+          ...(candidate || {}),
+          ...(formal || {}),
+          ...s,
+          bizType: 'project',
+          projectDetails: hasSupplementProject
+            ? s.projectDetails
+            : (Array.isArray(formal?.projectDetails) && formal.projectDetails.length
+              ? formal.projectDetails
+              : (Array.isArray(candidate?.projectDetails) ? candidate.projectDetails : [])),
+          operatingRevenue: s.revenue ?? s.operatingRevenue ?? formal?.operatingRevenue ?? candidate?.operatingRevenue ?? candidate?.revenue,
+          revenue: s.revenue ?? s.operatingRevenue ?? candidate?.revenue ?? formal?.operatingRevenue
+        };
+        const accountingType = typeof resolveAccountingType === 'function'
+          ? resolveAccountingType(accountingBase)
+          : 'project_pending';
         if (accountingType) {
           s.accountingType = accountingType;
           if (formal) formal.accountingType = accountingType;
@@ -1197,7 +1246,7 @@ const Store = {
     return this.update(d => {
       d.tasks.unshift({
         ...task,
-        workflowStep: task.workflowStep ?? WORKFLOW_STEP.CANDIDATES,
+        workflowStep: task.workflowStep ?? WORKFLOW_STEP.LIST_CONFIRM,
         progress: task.progress ?? 10
       });
       d.currentTaskId = task.id;
@@ -1245,7 +1294,7 @@ const Store = {
         if (t) {
           if (!t.milestone) t.milestone = {};
           t.milestone.formalLocked = true;
-          t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.DATA_COLLECTION);
+          t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.LIST_CONFIRM);
           t.progress = Math.max(t.progress || 0, 35);
         }
       }
@@ -1306,8 +1355,158 @@ const Store = {
       });
       const t = d.tasks.find(x => x.id === taskId);
       if (t?.milestone) t.milestone.reportGenerated = true;
-      if (t) t.workflowStep = WORKFLOW_STEP.REPORT;
+      if (t) t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNTING;
     });
+  },
+
+  /** 【业务调整】经济法直算后为客户经理创建单据调整入口 */
+  _ensureEconomyAdjustSupplement(d, taskId, f, snap) {
+    if (d.supplements.some(s => s.formalId === f.id && s.taskId === taskId)) return;
+    d.supplements.push({
+      id: 'S_ECO_' + f.id.replace(/\W/g, ''),
+      taskId,
+      formalId: f.id,
+      customerId: f.customerId,
+      customerName: f.customerName,
+      loanType: f.loanType,
+      bizType: f.bizType,
+      industryMajor: f.industryMajor,
+      branch: f.branch || f.tier1Branch || '北京分行',
+      manager: f.manager || '王磊',
+      status: 'in_progress',
+      method: '经济活动法',
+      methodId: 'economy',
+      fieldsTotal: 12,
+      fieldsDone: 8,
+      deadline: d.tasks.find(t => t.id === taskId)?.deadline || '2025-09-30',
+      approvalStatus: 'none',
+      branchReviewStatus: 'none',
+      hqReviewStatus: 'none',
+      auditStage: 'pending_fill',
+      reviewRound: 0,
+      economyDocValue: snap.revenue,
+      economyDocFactor: snap.factor,
+      economyDocBasis: 'revenue',
+      dispatchedAt: new Date().toLocaleString('zh-CN'),
+      dispatchedBy: '系统（经济法直算）',
+      economyDirectAdjust: true
+    });
+  },
+
+  /** 【业务调整】客户经理修改经济法直算单据口径（不影响生产营收） */
+  saveEconomyDocOverride(supplementId, payload) {
+    let ok = false;
+    this.update(d => {
+      const s = d.supplements.find(x => x.id === supplementId);
+      const f = s ? d.formalList.find(x => x.id === s.formalId) : null;
+      if (!s || !f || f.economyDirectStatus !== 'done') return;
+      s.economyDocValue = Number(payload.economyValue);
+      s.economyDocFactor = Number(payload.economyFactor) || 2.35;
+      s.economyDocBasis = payload.economyBasis || 'revenue';
+      s.economyValue = s.economyDocValue;
+      s.economyFactor = s.economyDocFactor;
+      s.economyBasis = s.economyDocBasis;
+      s.methodId = 'economy';
+      s.method = '经济活动法';
+      const entityEmission = Math.round(s.economyDocValue * s.economyDocFactor);
+      const avgBalance = Number(s.avgLoanBalance) || Number(f.avgMonthlyBalance) * 12 || 36000;
+      const totalAssets = Number(f.productionAssetsSnapshot) || Number(s.totalAssets) || 800000;
+      const attributedEmission = f.bizType === 'project'
+        ? Math.round(entityEmission * (avgBalance / (Number(f.totalInvestment) || 500000)))
+        : Math.round(entityEmission * (avgBalance / totalAssets));
+      let calc = d.calculations.find(c => c.formalId === f.id && c.taskId === s.taskId);
+      const calcPayload = {
+        taskId: s.taskId,
+        formalId: f.id,
+        customerName: f.customerName,
+        bizType: f.bizType,
+        method: '经济活动法',
+        methodId: 'economy',
+        entityEmission,
+        attributedEmission,
+        avgBalance,
+        totalAssets,
+        industryFactor: s.economyDocFactor,
+        qualityGrade: 4,
+        quality: '四级',
+        source: 'economy_direct_doc_override',
+        status: 'done',
+        calculatedAt: new Date().toLocaleString('zh-CN')
+      };
+      if (calc) Object.assign(calc, calcPayload);
+      else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...calcPayload });
+      ok = true;
+      this.syncTaskWorkflow(d, s.taskId);
+    });
+    return ok;
+  },
+
+  /** 【业务调整】确认核算清单后批量开立碳账户，并模拟调用格澜数据 */
+  openTaskCarbonAccounts(taskId) {
+    const task = this.getTask(taskId);
+    if (!task) return { ok: false, message: '任务不存在' };
+    const formals = this.getFormalList(taskId).filter(f => f.status === 'confirmed');
+    if (!formals.length) return { ok: false, message: '请先确认并锁定核算清单' };
+    let opened = 0;
+    let gelanOk = 0;
+    this.update(d => {
+      d.carbonAccounts = d.carbonAccounts || [];
+      formals.forEach(f => {
+        const row = CarbonAccount.resolveLedgerRow(d, f, null);
+        if (!row.creditCode || !row.loanAccount) return;
+        const acc = CarbonAccount.upsertAccount(d, row);
+        f.carbonAccountId = acc.id;
+        f.carbonAccountOpenedAt = new Date().toLocaleString('zh-CN');
+        opened++;
+        const gelan = CarbonAccount.fetchGelanReportDataMock(row, task);
+        if (gelan.ok) {
+          acc.gelanStatus = 'success';
+          acc.gelanPrefill = gelan.data;
+          acc.gelanFetchedAt = new Date().toLocaleString('zh-CN');
+          f.gelanReportPrefill = gelan.data;
+          gelanOk++;
+        } else {
+          acc.gelanStatus = gelan.reason || 'empty';
+          acc.gelanPrefill = null;
+        }
+      });
+      const t = d.tasks.find(x => x.id === taskId);
+      if (t) {
+        t.carbonAccountsOpened = true;
+        t.carbonAccountsOpenedAt = new Date().toLocaleString('zh-CN');
+        t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNT;
+        t.progress = Math.max(t.progress || 0, 45);
+        if (!t.milestone) t.milestone = {};
+        t.milestone.carbonAccountsOpened = true;
+      }
+      this.syncTaskWorkflow(d, taskId);
+    });
+    return {
+      ok: true,
+      opened,
+      gelanOk,
+      message: `已开立 ${opened} 个碳账户，格澜数据预填 ${gelanOk} 笔`
+    };
+  },
+
+  /** 【业务调整】高权限手动维护碳账户档案 */
+  updateCarbonAccountProfile(accountId, fields, roleKey) {
+    if (!canEditCarbonAccount(roleKey)) {
+      return { ok: false, message: '当前角色无碳账户编辑权限（仅总行高权限）' };
+    }
+    let ok = false;
+    this.update(d => {
+      const acc = (d.carbonAccounts || []).find(a => a.id === accountId);
+      if (!acc) return;
+      if (fields.customerName != null) acc.customerName = fields.customerName;
+      if (fields.industryMajor != null) acc.industryMajor = fields.industryMajor;
+      if (fields.remark != null) acc.remark = fields.remark;
+      if (fields.manualEntityEmission != null) acc.manualEntityEmission = fields.manualEntityEmission;
+      acc.manualEditedAt = new Date().toLocaleString('zh-CN');
+      acc.manualEditedBy = d.currentUser;
+      ok = true;
+    });
+    return ok ? { ok: true, message: '碳账户已更新' } : { ok: false, message: '未找到账户' };
   },
 
   confirmCalculationResults(taskId) {
@@ -1323,7 +1522,7 @@ const Store = {
       if (t) {
         t.resultsConfirmed = true;
         t.resultsConfirmedAt = new Date().toLocaleString('zh-CN');
-        t.workflowStep = WORKFLOW_STEP.REPORT;
+        t.workflowStep = WORKFLOW_STEP.CARBON_ACCOUNTING;
         t.progress = Math.max(t.progress || 0, 85);
         if (t.milestone) {
           t.milestone.calculationDone = true;
