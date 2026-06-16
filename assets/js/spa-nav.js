@@ -3,7 +3,7 @@ const SPA_NAV = [
   {
     hash: '#/tasks',
     label: '核算任务管理',
-    match: ['#/tasks', '#/task-create', '#/task-detail', '#/task-view', '#/task-edit', '#/candidates', '#/formal', '#/boundary', '#/carbon-account-open', '#/data-collect', '#/calculation', '#/results', '#/reports']
+    match: ['#/tasks', '#/task-create', '#/task-detail', '#/task-view', '#/task-edit', '#/candidates', '#/formal', '#/boundary', '#/data-collect', '#/calculation', '#/results', '#/reports']
   },
   {
     hash: '#/branch-board',

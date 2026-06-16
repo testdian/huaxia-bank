@@ -28,7 +28,6 @@ load('assets/js/demo-seed.js');
 load('assets/js/supplement-fields.js');
 global.MOCK_SEED = DemoSeed.build();
 load('assets/js/common.js');
-load('assets/js/carbon-account.js');
 load('assets/js/store.js');
 
 const taskId = 'T2025001';
@@ -75,16 +74,12 @@ Store.update(d => {
   d.candidates.filter(c => c.taskId === newId).slice(0, 4).forEach(c => { c.included = true; });
 });
 Store.generateFormalFromCandidates(newId);
-assert(Store.getTask(newId).workflowStep === WORKFLOW_STEP.LIST_CONFIRM, '生成正式清单后处于确认核算清单');
+assert(Store.getTask(newId).workflowStep === WORKFLOW_STEP.FORMAL, '生成正式清单后处于第3步');
 const formalIds = Store.getFormalList(newId).map(f => f.id);
 Store.confirmFormalItems(newId, formalIds);
 const afterLock = Store.getTask(newId);
-assert(afterLock.workflowStep === WORKFLOW_STEP.LIST_CONFIRM, '锁定后仍处于确认核算清单，待开立碳账户');
+assert(afterLock.workflowStep === WORKFLOW_STEP.DATA_COLLECTION, '锁定后 workflowStep=3（第4步数据采集）');
 assert(afterLock.milestone?.formalLocked, 'milestone.formalLocked');
-const openR = Store.openTaskCarbonAccounts(newId);
-assert(openR.ok, '开立碳账户成功');
-assert(Store.getTask(newId).carbonAccountsOpened, 'carbonAccountsOpened');
-assert(Store.getTask(newId).workflowStep === WORKFLOW_STEP.CARBON_ACCOUNT, '开立后处于碳账户步骤');
 const ecoPending = Store.getFormalList(newId).filter(f => {
   const mode = f.collectMode || resolveCollectMode(f.loanType);
   return f.status === 'confirmed' && mode === 'economy_direct' && f.economyDirectStatus !== 'done';
@@ -94,8 +89,8 @@ if (ecoPending.length) {
   assert(n === ecoPending.length, '经济法直算一键处理全部待直算记录');
   const ecoDone = Store.getFormalList(newId).find(f => f.economyDirectStatus === 'done');
   if (ecoDone) {
-    const supp = Store.get().supplements.find(s => s.formalId === ecoDone.id);
-    assert(supp && supp.economyDirectAdjust, '经济法直算后生成单据调整入口');
+    const d = Store.dispatchSupplements(newId, [ecoDone.id]);
+    assert(d === 1, '经济法直算后仍可下发补录任务');
   }
 }
 
@@ -248,7 +243,7 @@ const viewHtml = demoSteps(0, {
   taskProgressStep: progressStep,
   viewMode: true
 });
-assert(progressStep === WORKFLOW_STEP.CARBON_ACCOUNTING, '演示任务进度为投融资碳核算');
+assert(progressStep === 4, '演示任务进度为排放计算');
 assert(countStepsWithState(viewHtml, 'done') === progressStep + 1, '查看页：已完成步骤均为绿色');
 assert(countStepsWithState(viewHtml, 'active') === 0, '查看模式无 active 步骤');
 assert(countStepsWithState(viewHtml, 'wait') === WORKFLOW_STEP_NAMES.length - progressStep - 1, '未完成步骤为 wait');
@@ -262,10 +257,10 @@ const doneHtml = demoSteps(0, {
   taskProgressStep: doneProgress,
   viewMode: true
 });
-assert(countStepsWithState(doneHtml, 'done') === WORKFLOW_STEP_NAMES.length, '已完成任务查看：四步均为绿色');
+assert(countStepsWithState(doneHtml, 'done') === 6, '已完成任务查看：六步均为绿色');
 
 globalThis.location = { hash: '#/data-collect?taskId=T2025001&view=1' };
-const dcHtml = demoSteps(WORKFLOW_STEP.CARBON_ACCOUNTING, {
+const dcHtml = demoSteps(WORKFLOW_STEP.DATA_COLLECTION, {
   taskId: progressTask.id,
   clickable: true,
   maxStep: progressStep,

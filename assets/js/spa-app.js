@@ -7,7 +7,7 @@ const ROUTE_TITLES = {
   '#/task-detail': '任务详情',
   '#/candidates': '候选业务清单',
   '#/formal': '正式清单确认',
-  '#/carbon-account-open': '开立碳账户',
+  '#/boundary': '核算对象与边界',
   '#/data-collect': '数据采集',
   '#/branch-board': '数据补录',
   '#/manager-tasks': '客户经理任务',
@@ -47,15 +47,6 @@ function route() {
     location.hash = getDefaultRouteForRole(roleKey);
     return;
   }
-  if (['#/data-collect', '#/calculation', '#/reports', '#/results'].includes(base)) {
-    const tid = Store.get().currentTaskId;
-    const t = Store.getTask(tid);
-    if (!isTaskViewMode() && tid && t && !t.carbonAccountsOpened) {
-      toast('请先在「开立碳账户」环节完成账户开立', 'warning');
-      location.hash = '#/carbon-account-open?taskId=' + encodeURIComponent(tid);
-      return;
-    }
-  }
   if (base === '#/calculation') {
     const tid = Store.get().currentTaskId;
     if (!isTaskViewMode() && tid && !Store.isDataCollectionComplete(tid)) {
@@ -67,7 +58,7 @@ function route() {
   if (base === '#/reports') {
     const tid = Store.get().currentTaskId;
     const t = Store.getTask(tid);
-    if (!isTaskViewMode() && tid && t && !t.resultsConfirmed) {
+    if (!isTaskViewMode() && tid && t && (t.workflowStep ?? 0) < WORKFLOW_STEP.REPORT && !t.resultsConfirmed) {
       toast('请先在排放计算页点击「确认结果」', 'warning');
       location.hash = '#/calculation?taskId=' + encodeURIComponent(tid);
       return;
@@ -133,7 +124,7 @@ function bindPageEvents(base, ctx) {
         status: 'running', progress: 10, candidateCount: 0, formalCount: 0,
         supplementDone: 0, supplementTotal: 0, approvalStatus: 'none',
         syncedFromInterface: false,
-        workflowStep: WORKFLOW_STEP.LIST_CONFIRM,
+        workflowStep: WORKFLOW_STEP.CANDIDATES,
         createdAt: new Date().toISOString().slice(0, 10),
         createdBy: Store.get().currentUser
       });
@@ -287,8 +278,8 @@ function bindPageEvents(base, ctx) {
         return;
       }
       Store.confirmFormalItems(taskId, toLock.map(f => f.id));
-      toast(`已锁定 ${toLock.length} 笔，请前往「开立碳账户」`, 'success');
-      location.hash = `#/carbon-account-open?taskId=${encodeURIComponent(taskId)}`;
+      toast(`已锁定 ${toLock.length} 笔，进入数据采集环节`, 'success');
+      location.hash = `#/data-collect?taskId=${encodeURIComponent(taskId)}`;
     });
   }
 
@@ -434,24 +425,8 @@ function bindPageEvents(base, ctx) {
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
       const tab = qs('#methodTabs .tab.active', root)?.dataset.tab || 'report';
-      if (tab === 'economy' && isEconomyDirectDocEditable(s) && canEditEconomyDirectDoc(s)) {
-        const payload = {
-          economyValue: Number(qs('#f_economy_value', root)?.value),
-          economyFactor: Number(qs('#f_economy_factor', root)?.value),
-          economyBasis: qs('#f_economy_basis', root)?.value || 'revenue'
-        };
-        if (!payload.economyValue || !payload.economyFactor) {
-          toast('请填写完整的测算基数与行业因子', 'warning');
-          return;
-        }
-        Store.saveEconomyDocOverride(sid, payload);
-        toast('核算单据口径已更新（不影响生产系统原始营收）', 'success');
-        if (complete) location.hash = '#/manager-tasks?taskId=' + taskId;
-        else route();
-        return;
-      }
       if (tab === 'economy' && isEconomyTabLockedForSupplement(s)) {
-        toast('当前角色不可修改经济法直算结果', 'warning');
+        toast('该笔业务已选择经济法直算，请择其他方法填报', 'warning');
         return;
       }
       const payload = SUPPLEMENT_FIELDS.collectFormData(tab, root, s);
@@ -526,26 +501,6 @@ function bindPageEvents(base, ctx) {
       }
       toast('结果已确认，排放记录已归集至企业碳账户', 'success');
       location.hash = '#/reports?taskId=' + encodeURIComponent(taskId);
-    });
-  }
-
-  if (base === '#/carbon-account-open' && !viewOnly) {
-    qs('#openCarbonAccountsBtn')?.addEventListener('click', () => {
-      const r = Store.openTaskCarbonAccounts(taskId);
-      if (!r?.ok) {
-        toast(r?.message || '开立失败', 'warning');
-        return;
-      }
-      toast(r.message, 'success');
-      route();
-    });
-    qs('#goCarbonAccountingBtn')?.addEventListener('click', () => {
-      const t = Store.getTask(taskId);
-      if (!t?.carbonAccountsOpened) {
-        toast('请先完成碳账户开立', 'warning');
-        return;
-      }
-      location.hash = '#/data-collect?taskId=' + encodeURIComponent(taskId);
     });
   }
 
@@ -640,19 +595,6 @@ function bindPageEvents(base, ctx) {
       sessionStorage.removeItem('ca_detail_filters_' + accountId);
       setListPage('ca_records_' + accountId, 1);
       route();
-    });
-    qs('#caProfileSaveBtn')?.addEventListener('click', () => {
-      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
-      const accountId = params.get('id');
-      const roleKey = Store.get().currentRole;
-      const r = Store.updateCarbonAccountProfile(accountId, {
-        customerName: qs('#ca_edit_name')?.value,
-        industryMajor: qs('#ca_edit_industry')?.value,
-        remark: qs('#ca_edit_remark')?.value,
-        manualEntityEmission: qs('#ca_edit_entity')?.value ? Number(qs('#ca_edit_entity').value) : null
-      }, roleKey);
-      toast(r?.message || '保存失败', r?.ok ? 'success' : 'warning');
-      if (r?.ok) route();
     });
     qs('#caExportBtn')?.addEventListener('click', () => {
       const params = new URLSearchParams((location.hash.split('?')[1] || ''));
