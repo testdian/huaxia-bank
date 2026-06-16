@@ -374,7 +374,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
   const hasMissingEntity = Store.hasMissingEntityEmission(taskId);
   return `
     <h1 class="page-title">数据采集</h1>
-    <p class="page-desc">${initiatorLabel} · 贴现/保理须客户经理补录确定核算方法，其他类型默认「经济活动法-营收法数据」可系统直算；已直算记录仍可下发补录任务</p>
+    <p class="page-desc">${initiatorLabel} · 进入本页时核算方法均为「—」；可先【调取格澜数据】获取报告法其他数据，再对剩余记录【经济法直算】填充主体排放与核算方法；已直算记录仍可下发补录任务</p>
     ${workflowStepsBar(ctx.task)}
     ${collectDone
       ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'

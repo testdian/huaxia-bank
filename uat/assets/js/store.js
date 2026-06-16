@@ -1018,6 +1018,7 @@ const Store = {
         const mode = f?.collectMode || resolveCollectMode(f?.loanType);
         if (!f || f.status !== 'confirmed' || mode === 'mandatory') return;
         if (f.economyDirectStatus === 'done') return;
+        if (this._formalHasEntityEmission(d, taskId, f)) return;
         const c = d.candidates.find(x => x.id === f.customerId);
         const revenue = Number(c?.revenue) || Number(c?.avgMonthlyBalance) * 12 || 500000;
         const totalAssets = Number(c?.totalAssets) || 800000;

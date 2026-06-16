@@ -856,21 +856,25 @@ function resolveFormalAccountingMethodContext(d, formal, taskId) {
   };
 }
 
-/** 数据采集列表「核算方法」展示名（七类枚举，与碳账户一致） */
+/** 数据采集列表「核算方法」展示名（七类枚举，与碳账户一致；未采集前为 —） */
 function resolveFormalAccountingMethodLabel(formal, taskId, d) {
   d = d || (typeof Store !== 'undefined' ? Store.get() : null);
-  const mode = formal.collectMode || resolveCollectMode(formal.loanType);
-  if (!d || typeof CarbonAccount === 'undefined') {
-    return mode === 'economy_direct' ? '经济活动法-营收法数据' : '—';
-  }
+  if (!formal || !d || typeof CarbonAccount === 'undefined') return '—';
+
   const ctx = resolveFormalAccountingMethodContext(d, formal, taskId);
-  const hasData = ctx.calc || ctx.supplement || formal.gelanEntityEmission != null
-    || formal.economyDirectStatus === 'done';
-  if (!hasData) {
-    if (mode === 'economy_direct') return CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
-    return '—';
+  const supp = ctx.supplement;
+  const calc = ctx.calc;
+
+  if (formal.gelanEntityEmission != null || calc?.source === 'gelan') {
+    return CarbonAccount.resolveAccountMethodLabel(d, ctx) || CarbonAccount.METHOD_LABEL.REPORT_OTHER;
   }
-  return CarbonAccount.resolveAccountMethodLabel(d, ctx) || '—';
+  if (formal.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
+    return CarbonAccount.resolveAccountMethodLabel(d, ctx) || CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
+  }
+  if (supp && (supp.auditStage === 'approved' || (supp.status === 'completed' && supp.auditStage !== 'pending_fill'))) {
+    return CarbonAccount.resolveAccountMethodLabel(d, ctx) || '—';
+  }
+  return '—';
 }
 
 function formalAccountingMethodBadge(formal, taskId, d) {
