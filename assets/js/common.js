@@ -715,6 +715,26 @@ function formatFormalEntityEmission(taskId, formalId) {
   return v != null ? formatNum(v) : '—';
 }
 
+/** 模拟调用格澜数据接口，返回报告法主体排放（部分客户有数据） */
+function fetchGelanEntityDataMock(row, task) {
+  const code = String(row?.creditCode || '');
+  if (!code || code.length < 4) return { ok: false, reason: 'invalid' };
+  const tail = parseInt(code.replace(/\D/g, '').slice(-2) || '0', 10);
+  if (tail % 5 === 0) return { ok: false, reason: 'no_data' };
+  const year = task?.year || new Date().getFullYear();
+  return {
+    ok: true,
+    data: {
+      entityEmission: Math.round(8500 + tail * 163),
+      disclosureChannel: 'ESG报告',
+      reportYear: year - 1,
+      thirdPartyVerified: true,
+      source: '格澜数据',
+      fetchedAt: new Date().toLocaleString('zh-CN')
+    }
+  };
+}
+
 function renderCalculationListCells(f, calc, taskId) {
   return `
     ${renderCandidateListCells(formalLedgerRow(f, taskId))}

@@ -347,6 +347,26 @@ function bindPageEvents(base, ctx) {
       route();
     });
 
+    qs('#fetchGelanBtn')?.addEventListener('click', () => {
+      const pendingIds = Store.getFormalList(taskId)
+        .filter(f => f.status === 'confirmed' && Store.getFormalEntityEmission(taskId, f.id) == null)
+        .map(f => f.id);
+      if (!pendingIds.length) {
+        toast('当前没有可调取格澜数据的记录（需已锁定且主体排放为空）', 'warning');
+        return;
+      }
+      const r = Store.fetchGelanEntityEmissions(taskId, pendingIds);
+      if (!r?.withData && !r?.noData) {
+        toast('格澜数据调取失败', 'warning');
+        return;
+      }
+      toast(
+        `格澜数据调取完成：${r.withData} 笔已获取主体排放，${r.noData} 笔无数据`,
+        r.withData ? 'success' : 'warning'
+      );
+      route();
+    });
+
     qs('#economyDirectBtn')?.addEventListener('click', () => {
       const economyIds = Store.getFormalList(taskId)
         .filter(f => {
