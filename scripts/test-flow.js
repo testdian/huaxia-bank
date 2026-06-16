@@ -82,6 +82,8 @@ assert(lockR.locked === formalIds.length, '锁定全部正式清单');
 assert(lockR.provisioned > 0, '确认锁定后生成企业碳账户');
 const gelanR = Store.fetchGelanEntityEmissions(newId);
 assert(gelanR.withData > 0, '格澜调取返回部分主体排放');
+const gelanCa = Store.getCarbonAccounts().find(a => a.taskId === newId && a.annualProfiles?.['2026']);
+assert(gelanCa?.annualProfiles?.['2026']?.entityEmission != null, '格澜调取同步至企业碳账户主体排放');
 const provisionedAccounts = Store.getCarbonAccounts().filter(a =>
   a.taskId === newId && a.provisionSource === 'formal_lock'
 );

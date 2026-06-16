@@ -1043,10 +1043,13 @@ function renderCaYearSwitcher(years, selected, tabsId = 'caListYearTabs') {
   </div>`;
 }
 
-function renderCaAccountActions(acc, roleKey, accountingYear) {
+function renderCaAccountActions(row, roleKey, accountingYear) {
+  const acc = row.account || row;
+  const accountId = row.accountId || acc.id;
   const yearQ = accountingYear ? `&year=${encodeURIComponent(accountingYear)}` : '';
-  const view = `<a href="#/carbon-account?id=${encodeURIComponent(acc.id)}${yearQ}" class="btn-link">查看</a>`;
-  if (roleKey !== 'hq') return `<span class="actions">${view}</span>`;
+  const subQ = row.isSubAccount && row.projectNo ? `&sub=${encodeURIComponent(row.projectNo)}` : '';
+  const view = `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&tab=profile" class="btn-link">查看</a>`;
+  if (row.isSubAccount || roleKey !== 'hq') return `<span class="actions">${view}</span>`;
   const ops = CarbonAccount.getAccountStatusActions(acc.status);
   const btns = ops.map(o =>
     `<button type="button" class="btn-link ca-account-status-btn" data-id="${acc.id}" data-action="${o.next}">${o.label}</button>`
@@ -1083,52 +1086,66 @@ function carbonAccountTabs(active) {
 
 SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
   const roleKey = Store.get().currentRole;
+  const d = Store.get();
   const { accounts, records: allRecords } = Store.getCarbonContext(roleKey, ctx.role);
   const listKey = 'carbon_accounts';
   const filters = getCaListFilters();
-  const { year: accountingYear, years } = CarbonAccount.resolveAccountingYear(allRecords, filters.accountingYear);
+  const { year: accountingYear, years } = CarbonAccount.resolveListYear(d, accounts, allRecords, filters.accountingYear);
   if (accountingYear && filters.accountingYear !== accountingYear) {
     filters.accountingYear = accountingYear;
     sessionStorage.setItem('ca_list_filters', JSON.stringify(filters));
   }
-  const yearRecords = accountingYear
-    ? CarbonAccount.filterRecords(allRecords, { year: accountingYear })
-    : allRecords.slice();
-  let list = accounts.map(a => CarbonAccount.enrichAccount(a, yearRecords));
+  let visibleAccounts = accounts;
   if (accountingYear) {
-    list = list.filter(a => (a.visibleRecordCount || 0) > 0 || a.provisionSource === 'formal_lock');
+    visibleAccounts = accounts.filter(a => {
+      const recs = allRecords.filter(r => r.accountId === a.id && String(r.year) === String(accountingYear));
+      if (recs.length) return true;
+      if (a.annualProfiles?.[accountingYear]) return true;
+      if (a.provisionSource === 'formal_lock') {
+        const task = d.tasks.find(t => t.id === a.taskId);
+        return task && String(task.year) === String(accountingYear);
+      }
+      return false;
+    });
   }
-  const caExpanded = getCaProjectExpandedSet();
+  let listRows = accountingYear
+    ? CarbonAccount.buildAccountListRows(d, visibleAccounts, accountingYear)
+    : [];
   const kw = (filters.keyword || '').trim().toLowerCase();
   if (kw) {
-    list = list.filter(a =>
-      (a.customerName || '').toLowerCase().includes(kw) ||
-      (a.creditCode || '').includes(kw) ||
-      (a.loanAccount || '').includes(kw)
+    listRows = listRows.filter(r =>
+      (r.customerName || '').toLowerCase().includes(kw) ||
+      (r.creditCode || '').includes(kw) ||
+      (r.customerNo || '').toLowerCase().includes(kw)
     );
   }
-  if (filters.branch) list = list.filter(a => a.primaryBranch === filters.branch);
-  if (filters.status) list = list.filter(a => a.status === filters.status);
-  const view = paginateData(listKey, list);
-  const totalEmission = yearRecords.reduce((s, r) => s + (Number(r.attributedEmission) || 0), 0);
+  if (filters.branch) {
+    listRows = listRows.filter(r => r.account?.primaryBranch === filters.branch);
+  }
+  if (filters.status) {
+    listRows = listRows.filter(r => (r.account?.status || 'active') === filters.status);
+  }
+  const view = paginateData(listKey, listRows);
+  const mainRows = listRows.filter(r => !r.isSubAccount);
+  const totalEntity = mainRows.reduce((s, r) => s + (Number(r.entityEmission) || 0), 0);
   const branchHint = roleKey === 'branch'
     ? `当前视角：${ctx.role.branch}辖内数据（含辖内各经办行）`
     : '当前视角：全行数据';
   return `
     <h1 class="page-title">企业碳账户</h1>
-    <p class="page-desc">法人+贷款号建档 · 对象边界【确认锁定】后按清单客户生成 · ${branchHint}</p>
-    <div class="demo-tip">【业务规则】在核算任务「对象边界」步骤点击【确认锁定】后，本模块自动生成正式清单内全部客户名称的碳账户；有项目明细的可展开查看项目信息中的客户名称。核算【确认结果】后排放记录再归集至对应账户。${roleKey === 'hq' ? '总行可对账户执行启用、停用、注销（CA003）。' : ''}</div>
+    <p class="page-desc">按核算年度展示 · 对象边界【确认锁定】后建档 · 格澜/补录/直算数据同步主体排放 · ${branchHint}</p>
+    <div class="demo-tip">【业务规则】每个客户每年一条数据；名下有项目贷款的，项目作为子账户单独列示。核算任务中【调取格澜数据】后，对应客户主体排放将同步至本模块。${roleKey === 'hq' ? '总行可对主账户执行启用、停用、注销（CA003）。' : ''}</div>
     <div class="ca-year-toolbar">${renderCaYearSwitcher(years, accountingYear)}</div>
     <div class="stats-row stats-row--compact">
-      <div class="stat-card"><div class="label">可见账户</div><div class="value">${list.length}</div></div>
-      <div class="stat-card accent"><div class="label">可见归因排放</div><div class="value">${formatNum(totalEmission)}</div><div class="sub">tCO₂e</div></div>
-      <div class="stat-card"><div class="label">归集排放记录</div><div class="value">${yearRecords.length}</div><div class="sub">笔${accountingYear ? ' · ' + accountingYear + '年' : ''}</div></div>
+      <div class="stat-card"><div class="label">可见账户</div><div class="value">${mainRows.length}</div><div class="sub">${accountingYear ? accountingYear + '年' : ''}</div></div>
+      <div class="stat-card accent"><div class="label">主体排放合计</div><div class="value">${formatNum(totalEntity)}</div><div class="sub">tCO2e</div></div>
+      <div class="stat-card"><div class="label">含项目子账户</div><div class="value">${listRows.filter(r => r.isSubAccount).length}</div><div class="sub">笔</div></div>
     </div>
     <div class="card">
       <div class="card-header"><h3>账户列表</h3></div>
       <div class="filter-panel" style="padding:12px 16px">
         <div class="filter-extra carbon-account-filter-grid">
-          <div class="form-item"><label>企业/贷款号</label><input id="ca_kw" placeholder="名称、信用代码、贷款号" value="${filters.keyword || ''}"></div>
+          <div class="form-item"><label>企业/客户号</label><input id="ca_kw" placeholder="名称、信用代码、客户号" value="${filters.keyword || ''}"></div>
           <div class="form-item"><label>一级分行</label>
             <select id="ca_branch"><option value="">全部</option>
             ${[...new Set(accounts.map(a => a.primaryBranch).filter(Boolean))].map(b =>
@@ -1153,28 +1170,18 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       </div>
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
-          <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>贷款号</th>
-          <th>行业</th><th>主办分行</th><th>可见记录</th><th>主体排放(tCO2e)</th><th>状态</th><th>操作</th>
+          <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>客户号</th>
+          <th>核算方法</th><th>主体排放(tCO2e)</th><th>操作</th>
         </tr></thead>
-        <tbody>${view.rows.length ? view.rows.map((a, i) => {
-          const mainRow = `<tr>
+        <tbody>${view.rows.length ? view.rows.map((r, i) => `<tr class="${r.isSubAccount ? 'ca-sub-account-row' : ''}">
           <td>${view.startIndex + i + 1}</td>
-          <td>${renderCarbonAccountNameCell(a, caExpanded)}</td>
-          <td><code style="font-size:12px">${a.creditCode}</code></td>
-          <td>${a.loanAccount}</td>
-          <td>${a.industryMajor || '-'}</td>
-          <td>${a.primaryBranch || '-'}</td>
-          <td>${a.visibleRecordCount || 0}</td>
-          <td>${formatNum(a.visibleEntityEmission)}</td>
-          <td>${renderCaAccountStatusBadge(a)}</td>
-          <td>${renderCaAccountActions(a, roleKey, accountingYear)}</td>
-        </tr>`;
-          const expanded = caExpanded.has(a.id);
-          if (expanded && a.projectDetails?.length) {
-            return mainRow + renderCaProjectDetailRow(a, 10);
-          }
-          return mainRow;
-        }).join('') : `<tr><td colspan="10" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在对象边界步骤【确认锁定】正式清单。'}</td></tr>`}
+          <td>${r.isSubAccount ? `<span class="ca-sub-account-label">└ 项目子账户 · ${r.project?.projectName || r.projectNo || '—'}</span>` : (r.customerName || '-')}</td>
+          <td><code style="font-size:12px">${r.creditCode || '-'}</code></td>
+          <td>${r.customerNo || '-'}</td>
+          <td>${r.method || '-'}</td>
+          <td>${r.entityEmission != null ? formatNum(r.entityEmission) : '—'}</td>
+          <td>${renderCaAccountActions(r, roleKey, accountingYear)}</td>
+        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在对象边界步骤【确认锁定】正式清单。'}</td></tr>`}
         </tbody></table></div>
       ${renderPagination(listKey, view)}
     </div>`;
@@ -1184,7 +1191,9 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   const params = new URLSearchParams((location.hash.split('?')[1] || ''));
   const accountId = params.get('id');
   const tab = params.get('tab') || 'profile';
+  const subProjectNo = params.get('sub') || '';
   const roleKey = Store.get().currentRole;
+  const d = Store.get();
   const acc = Store.getCarbonAccount(accountId);
   if (!acc) {
     return `<h1 class="page-title">企业碳账户</h1><p class="page-desc">未找到账户</p>
@@ -1199,6 +1208,7 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   const detailFilters = getCaDetailFilters(accountId);
   const records = CarbonAccount.filterRecords(accountRecords, detailFilters);
   const enriched = CarbonAccount.enrichAccount(acc, accountRecords);
+  const profileRow = resolveCarbonAccountProfileRow(d, acc, scopeYear, subProjectNo);
   const byBiz = CarbonAccount.aggregateBy(accountRecords, r => r.bizLabel);
   const byIndustry = CarbonAccount.aggregateBy(accountRecords, r => r.industryMajor);
   const byYear = CarbonAccount.aggregateBy(accountRecords, r => String(r.year));
@@ -1206,24 +1216,14 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   const byBranch = CarbonAccount.aggregateBy(accountRecords, r => r.handlingBranch);
   const trend = CarbonAccount.trendByYear(accountRecordsAll);
   const intensityTrend = CarbonAccount.trendIntensityByYear(accountRecordsAll);
-  const { years: detailYears } = CarbonAccount.resolveAccountingYear(accountRecordsAll, scopeYear);
+  const { years: detailYears } = CarbonAccount.resolveListYear(d, [acc], accountRecordsAll, scopeYear);
   const listKey = 'ca_records_' + accountId;
   const view = paginateData(listKey, records);
 
   let panel = '';
   if (tab === 'profile') {
-    panel = `<div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body form-grid">
-      <div class="form-item"><label>企业名称</label><input value="${acc.customerName || ''}" readonly></div>
-      <div class="form-item"><label>统一社会信用代码</label><input value="${acc.creditCode || ''}" readonly></div>
-      <div class="form-item"><label>贷款号</label><input value="${acc.loanAccount || ''}" readonly></div>
-      <div class="form-item"><label>行业</label><input value="${acc.industryMajor || ''}" readonly></div>
-      <div class="form-item"><label>主办分行</label><input value="${acc.primaryBranch || ''}" readonly></div>
-      <div class="form-item"><label>开户时间</label><input value="${acc.openedAt || '-'}" readonly></div>
-      <div class="form-item"><label>账户状态</label><input value="${CarbonAccount.ACCOUNT_STATUS_LABEL[acc.status] || acc.status || '启用'}" readonly></div>
-      <div class="form-item"><label>最近状态变更</label><input value="${acc.statusChangedAt || '-'}" readonly></div>
-      <div class="form-item full"><label>说明</label><p style="font-size:13px;color:#909399;margin:0">账户主键为法人+贷款号；辖内汇总按一级分行过滤，明细可查看经办行。总行可在列表页对账户执行启用/停用/注销。</p></div>
-    </div></div>
-    ${renderCaStatusHistoryPanel(acc)}`;
+    panel = renderCarbonAccountProfilePanel(d, acc, scopeYear, subProjectNo) +
+      renderCaStatusHistoryPanel(acc);
   } else if (tab === 'summary') {
     panel = `<div class="ca-summary-grid">
       <div class="card"><div class="card-header"><h3>项目 / 非项目</h3><span class="ca-chart-type-tag">环图</span></div><div class="card-body">${renderCaDonutChart(byBiz)}</div></div>
@@ -1272,16 +1272,17 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   }
 
   const yearDesc = scopeYear ? `核算年度 ${scopeYear}` : '全部年度';
+  const subDesc = subProjectNo ? ` · 项目子账户 ${subProjectNo}` : '';
   return `
     <div class="page-head-bar">
       <div class="page-head-main">
-        <h1 class="page-title">碳账户 · ${acc.customerName}</h1>
-        <p class="page-desc">${acc.creditCode} · 贷款号 ${acc.loanAccount} · ${yearDesc}</p>
+        <h1 class="page-title">碳账户 · ${profileRow.customerName}</h1>
+        <p class="page-desc">${profileRow.creditCode} · 客户号 ${profileRow.customerNo} · ${yearDesc}${subDesc}</p>
       </div>
       ${renderCaYearSwitcher(detailYears, scopeYear, 'caDetailYearTabs')}
     </div>
     <div class="stats-row">
-      <div class="stat-card accent"><div class="label">可见归因排放</div><div class="value">${formatNum(enriched.visibleAttributedEmission)}</div><div class="sub">tCO₂e</div></div>
+      <div class="stat-card accent"><div class="label">主体排放</div><div class="value">${profileRow.entityEmission != null ? formatNum(profileRow.entityEmission) : '—'}</div><div class="sub">tCO2e · ${profileRow.method || '-'}</div></div>
       <div class="stat-card"><div class="label">可见记录</div><div class="value">${enriched.visibleRecordCount}</div><div class="sub">笔</div></div>
       <div class="stat-card"><div class="label">主办分行</div><div class="value" style="font-size:16px">${acc.primaryBranch || '-'}</div></div>
     </div>

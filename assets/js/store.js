@@ -942,6 +942,9 @@ const Store = {
         let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
         if (calc) Object.assign(calc, payload);
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
+        if (typeof CarbonAccount !== 'undefined') {
+          CarbonAccount.syncEntityFromFormalEmission(d, taskId, f, payload);
+        }
         withData++;
       });
       skipped = d.formalList.filter(f =>
@@ -984,6 +987,9 @@ const Store = {
         let calc = d.calculations.find(x => x.formalId === f.id);
         if (calc) Object.assign(calc, payload);
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
+        if (typeof CarbonAccount !== 'undefined') {
+          CarbonAccount.syncEntityFromFormalEmission(d, taskId, f, payload);
+        }
         count++;
       });
       this.syncTaskWorkflow(d, taskId);
