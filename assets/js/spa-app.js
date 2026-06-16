@@ -543,8 +543,7 @@ function bindPageEvents(base, ctx) {
       const prev = readCaListFilters();
       sessionStorage.setItem('ca_list_filters', JSON.stringify({
         ...prev,
-        keyword: qs('#ca_kw')?.value || '',
-        status: qs('#ca_status')?.value || ''
+        keyword: qs('#ca_kw')?.value || ''
       }));
       setListPage('carbon_accounts', 1);
       route();

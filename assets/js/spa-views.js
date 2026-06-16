@@ -1119,9 +1119,6 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       (r.customerNo || '').toLowerCase().includes(kw)
     );
   }
-  if (filters.status) {
-    listRows = listRows.filter(r => (r.account?.status || 'active') === filters.status);
-  }
   const view = paginateData(listKey, listRows);
   const mainRows = listRows.filter(r => !r.isSubAccount);
   const totalEntity = mainRows.reduce((s, r) => s + (Number(r.entityEmission) || 0), 0);
