@@ -397,9 +397,12 @@ const CarbonAccount = {
     (accounts || []).forEach(acc => {
       const metrics = this.resolveYearMetrics(d, acc, year);
       const formal = metrics.formal;
-      const projects = Array.isArray(acc.projectDetails) && acc.projectDetails.length
+      const cand = (d.candidates || []).find(c =>
+        c.id === (formal?.customerId || acc.customerId)
+      );
+      const projects = (Array.isArray(acc.projectDetails) && acc.projectDetails.length
         ? acc.projectDetails
-        : [];
+        : resolveFormalProjectDetails(formal || acc, cand));
       rows.push({
         rowId: `${acc.id}|${year}|main`,
         accountId: acc.id,
@@ -448,7 +451,8 @@ const CarbonAccount = {
     acc.formalId = formal.id;
     acc.taskId = taskId;
     acc.provisionSource = acc.provisionSource || 'formal_lock';
-    acc.projectDetails = Array.isArray(formal.projectDetails) ? formal.projectDetails.slice() : (acc.projectDetails || []);
+    const cand = (d.candidates || []).find(c => c.id === formal.customerId);
+    acc.projectDetails = resolveFormalProjectDetails(formal, cand);
     acc.bizType = formal.bizType || row.bizType || acc.bizType;
     const task = (d.tasks || []).find(t => t.id === taskId);
     const year = String(task?.year || new Date().getFullYear());
@@ -710,7 +714,9 @@ const CarbonAccount = {
       acc.provisionedAt = acc.provisionedAt || openedAt;
       acc.customerName = row.customerName;
       acc.primaryBranch = row.tier1Branch || acc.primaryBranch;
-      acc.projectDetails = Array.isArray(f.projectDetails) ? f.projectDetails.slice() : [];
+      const cand = (d.candidates || []).find(c => c.id === f.customerId);
+      acc.projectDetails = resolveFormalProjectDetails(f, cand);
+      acc.bizType = f.bizType || acc.bizType;
       acc.accountingType = f.accountingType || null;
       acc.loanType = row.loanType;
       count++;

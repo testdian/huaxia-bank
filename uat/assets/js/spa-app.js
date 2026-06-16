@@ -297,7 +297,7 @@ function bindPageEvents(base, ctx) {
     qs('#dataCollectFilterBtn')?.addEventListener('click', () => {
       saveDataCollectFilters(taskId, {
         keyword: qs('#dcf_keyword')?.value || '',
-        collectMode: qs('#dcf_collectMode')?.value || '',
+        accountingMethod: qs('#dcf_accountingMethod')?.value || '',
         status: qs('#dcf_status')?.value || ''
       });
       route();

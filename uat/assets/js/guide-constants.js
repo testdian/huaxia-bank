@@ -103,6 +103,14 @@ window.GUIDE = {
     { max: 4.0, label: '较好' },
     { max: Infinity, label: '一般' }
   ],
+  /** 表3 数据质量评级结果划分标准（DQR → 对应等次） */
+  DQR_GRADE_BANDS: [
+    { max: 1.5, grade: 'A' },
+    { max: 2.0, grade: 'B+' },
+    { max: 3.0, grade: 'B' },
+    { max: 4.0, grade: 'B-' },
+    { max: Infinity, grade: 'C' }
+  ],
   /** 企业信息采集字段（附录采集表） */
   ENTITY_FIELDS: {
     basic: ['customerName', 'creditCode', 'gbIndustryCode', 'gbIndustryName', 'industryMajor', 'accountingYear', 'totalAssets', 'revenue', 'avgLoanBalance'],

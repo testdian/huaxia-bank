@@ -360,7 +360,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <td>${f.customerName}</td>
       <td>${f.loanType || cand?.loanType || '—'}</td>
       <td>${candidateAccountingTypeLabel(f)}</td>
-      <td>${collectModeBadge(mode)}</td>
+      <td>${formalAccountingMethodBadge(f, taskId)}</td>
       <td>${f.manager || supp?.manager || cand?.manager || '—'}</td>
       <td>${entityCol}</td>
       <td>${dispatchCol}</td>
@@ -374,7 +374,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
   const hasMissingEntity = Store.hasMissingEntityEmission(taskId);
   return `
     <h1 class="page-title">数据采集</h1>
-    <p class="page-desc">${initiatorLabel} · 贴现/保理默认必收数，其他类型可经济法直算；已直算记录仍可下发补录任务</p>
+    <p class="page-desc">${initiatorLabel} · 贴现/保理须客户经理补录确定核算方法，其他类型默认「经济活动法-营收法数据」可系统直算；已直算记录仍可下发补录任务</p>
     ${workflowStepsBar(ctx.task)}
     ${collectDone
       ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'
@@ -384,13 +384,13 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
     <div class="toolbar">
       <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放补录任务</button>
       <button class="btn" id="fetchGelanBtn"${vma} title="模拟调用格澜数据接口，为已锁定且尚无主体排放的客户获取报告法主体排放">调取格澜数据</button>
-      <button class="btn btn-success" id="economyDirectBtn"${vma} title="对全部已锁定、收数方式为经济法直算且未完成直算的记录一键计算">经济法直算</button>
+      <button class="btn btn-success" id="economyDirectBtn"${vma} title="对全部已锁定、核算方法为经济活动法-营收法数据且未完成直算的记录一键计算">经济法直算</button>
       <button class="btn btn-primary" id="submitAllDataBtn"${viewOnly ? vma : (allHaveEntity ? '' : ' disabled title="请待全部记录计算出主体排放"')}>一键提交数据</button>
       <button class="btn" id="zeroMissingBtn"${viewOnly ? vma : (hasMissingEntity ? '' : ' disabled title="当前无缺失主体排放的记录"')}>数据为0</button>
     </div>
     <div class="stats-row">
       <div class="stat-card"><div class="label">已锁定</div><div class="value">${stats.locked}</div></div>
-      <div class="stat-card"><div class="label">必收数笔数</div><div class="value">${stats.mandatory}</div></div>
+      <div class="stat-card"><div class="label">须补录笔数</div><div class="value">${stats.mandatory}</div></div>
       <div class="stat-card"><div class="label">已派发</div><div class="value">${stats.dispatched}</div></div>
       <div class="stat-card accent"><div class="label">待填报/直算</div><div class="value">${stats.pendingFill + list.filter(f => f.economyDirectStatus !== 'done' && (f.collectMode || resolveCollectMode(f.loanType)) === 'economy_direct' && f.status === 'confirmed').length}</div></div>
       <div class="stat-card"><div class="label">经济法已直算</div><div class="value">${stats.economyDirect}</div></div>
@@ -402,11 +402,9 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         <fieldset class="view-mode-fieldset"${viewOnly ? ' disabled' : ''}>
         <div class="filter-extra task-filter-grid">
           <div class="form-item"><label>客户名称</label><input id="dcf_keyword" placeholder="模糊搜索" value="${filters.keyword || ''}"></div>
-          <div class="form-item"><label>收数方式</label>
-            <select id="dcf_collectMode">
-              <option value="">全部</option>
-              <option value="mandatory" ${filters.collectMode === 'mandatory' ? 'selected' : ''}>必收数</option>
-              <option value="economy_direct" ${filters.collectMode === 'economy_direct' ? 'selected' : ''}>经济法直算</option>
+          <div class="form-item"><label>核算方法</label>
+            <select id="dcf_accountingMethod">
+              ${renderFormalAccountingMethodFilterOptions(filters.accountingMethod || '')}
             </select>
           </div>
           <div class="form-item"><label>状态</label>
@@ -424,7 +422,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="dispatchCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          <th>客户</th><th>贷款类型</th><th>核算类型</th><th>收数方式</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
+          <th>客户</th><th>贷款类型</th><th>核算类型</th><th>核算方法</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
         </tr></thead>
         <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="11" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
       </table></div></div>`;
@@ -738,6 +736,8 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
   const calcs = Store.getCalculations(taskId);
   const total = calcs.filter(c => c.attributedEmission != null).reduce((s, c) => s + (c.attributedEmission || 0), 0);
   const doneCount = calcs.filter(c => c.status === 'done' || c.entityEmission != null).length;
+  const dqr = Store.calcDQR(taskId) || ctx.task.dqr;
+  const dqrGrade = dqr?.grade || resolveDqrGrade(dqr?.dqr);
   const industries = computeIndustryStatsFromCalcs(taskId);
   const industryView = paginateData(industryKey, industries);
   const rows = Store.getFormalList(taskId)
@@ -753,6 +753,8 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
     </div>
     <div class="stats-row">
       <div class="stat-card accent"><div class="label">总归因排放量</div><div class="value">${formatNum(total)}</div><div class="sub">吨 CO₂e</div></div>
+      <div class="stat-card"><div class="label">数据质量评级</div><div class="value">${dqr ? dqr.dqr : '—'}</div><div class="sub">DQR（加权平均）</div></div>
+      <div class="stat-card"><div class="label">对应等次</div><div class="value">${dqrGrade || '—'}</div><div class="sub">${dqr ? '表3划分标准' : '待计算'}</div></div>
       <div class="stat-card"><div class="label">已计算</div><div class="value">${doneCount}</div><div class="sub">/ ${calcs.length} 笔</div></div>
     </div>
     <div class="card"><div class="card-header"><h3>分行业归因排放</h3></div><div class="card-body table-wrap"><table class="data-table">
@@ -774,6 +776,7 @@ SPA_VIEWS['#/results'] = function(ctx) {
   const list = Store.getCalculations(ctx.task.id);
   const total = list.filter(c => c.attributedEmission != null).reduce((s, c) => s + (c.attributedEmission || 0), 0);
   const dqr = Store.calcDQR(ctx.task.id) || ctx.task.dqr;
+  const dqrGrade = dqr?.grade || resolveDqrGrade(dqr?.dqr);
   const industries = computeIndustryStatsFromCalcs(ctx.task.id);
   const industryKey = 'results_industry_' + ctx.task.id;
   const detailKey = 'results_detail_' + ctx.task.id;
@@ -785,6 +788,8 @@ SPA_VIEWS['#/results'] = function(ctx) {
     ${workflowStepsBar(ctx.task)}
     <div class="stats-row">
       <div class="stat-card accent"><div class="label">总归因排放量</div><div class="value">${formatNum(total)}</div><div class="sub">吨 CO₂e</div></div>
+      <div class="stat-card"><div class="label">数据质量评级</div><div class="value">${dqr ? dqr.dqr : '—'}</div><div class="sub">DQR（加权平均）</div></div>
+      <div class="stat-card"><div class="label">对应等次</div><div class="value">${dqrGrade || '—'}</div><div class="sub">${dqr ? '表3划分标准' : '待计算'}</div></div>
       <div class="stat-card"><div class="label">已计算</div><div class="value">${list.filter(c => c.status === 'done' || c.entityEmission != null).length}</div><div class="sub">/ ${list.length} 笔</div></div>
     </div>
     <div class="card"><div class="card-header"><h3>分行业归因排放</h3></div><div class="card-body table-wrap"><table class="data-table">
@@ -1140,13 +1145,6 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       <div class="filter-panel" style="padding:12px 16px">
         <div class="filter-extra carbon-account-filter-grid">
           <div class="form-item"><label>企业/客户号</label><input id="ca_kw" placeholder="名称、信用代码、客户号" value="${filters.keyword || ''}"></div>
-          <div class="form-item"><label>状态</label>
-            <select id="ca_status"><option value="">全部</option>
-            <option value="active" ${filters.status === 'active' ? 'selected' : ''}>启用</option>
-            <option value="disabled" ${filters.status === 'disabled' ? 'selected' : ''}>停用</option>
-            <option value="cancelled" ${filters.status === 'cancelled' ? 'selected' : ''}>注销</option>
-            </select>
-          </div>
           <div class="form-item filter-actions"><label>&nbsp;</label>
             <div class="filter-action-btns">
               <button class="btn btn-primary" id="caFilterBtn">查询</button>

@@ -49,6 +49,21 @@ const economy = Store.getFormalList(taskId).filter(f => f.collectMode === 'econo
 assert(mandatory.length > 0, '存在必收数（贴现/保理）记录');
 assert(economy.length > 0, '存在经济法直算记录');
 
+console.log('\n--- 企业碳账户项目子账户 ---');
+const dSeed = Store.get();
+const taskYear = String(task.year);
+const projectFormals = Store.getFormalList(taskId).filter(f =>
+  f.status === 'confirmed' && Array.isArray(f.projectDetails) && f.projectDetails.length
+);
+assert(projectFormals.length > 0, '演示数据：项目贷款正式清单含 projectDetails');
+const caWithProject = dSeed.carbonAccounts.filter(a =>
+  Array.isArray(a.projectDetails) && a.projectDetails.length
+);
+assert(caWithProject.length > 0, '演示数据：碳账户含项目明细');
+const subRows = CarbonAccount.buildAccountListRows(dSeed, caWithProject, taskYear)
+  .filter(r => r.isSubAccount);
+assert(subRows.length > 0, '企业碳账户列表可展示项目子账户行');
+
 console.log('\n--- 新建任务：锁定正式清单 → 第4步（数据采集）---');
 Store.reset();
 const newId = 'T_NEW_' + Date.now();
@@ -117,6 +132,17 @@ if (ecoId) {
   Store.runEconomyDirectCalc(taskId, [ecoId]);
   const f = Store.getFormalList(taskId).find(x => x.id === ecoId);
   assert(f.economyDirectStatus === 'done', '经济法直算完成');
+  assert(
+    resolveFormalAccountingMethodLabel(f, taskId) === CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE,
+    '经济法直算路径展示经济活动法-营收法数据'
+  );
+}
+const ecoPendingRow = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done');
+if (ecoPendingRow) {
+  assert(
+    resolveFormalAccountingMethodLabel(ecoPendingRow, taskId) === CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE,
+    '待直算记录默认展示经济活动法-营收法数据'
+  );
 }
 
 console.log('\n--- 必收数派发与分级审核 ---');

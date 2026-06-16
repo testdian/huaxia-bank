@@ -842,14 +842,70 @@ function resolveCollectMode(loanType) {
   return requiresMandatoryCollect(loanType) ? 'mandatory' : 'economy_direct';
 }
 
+/** 数据采集行核算方法上下文（与碳账户 resolveAccountMethodLabel 对齐） */
+function resolveFormalAccountingMethodContext(d, formal, taskId) {
+  const supp = (d.supplements || []).find(s => s.formalId === formal.id && s.taskId === taskId);
+  const calc = (d.calculations || []).find(c => c.formalId === formal.id && c.taskId === taskId);
+  return {
+    formal,
+    supplement: supp,
+    calc,
+    methodId: calc?.methodId,
+    source: calc?.source || (formal.gelanEntityEmission != null ? 'gelan' : null),
+    reportDetail: calc?.reportDetail || formal.gelanPrefill || null
+  };
+}
+
+/** 数据采集列表「核算方法」展示名（七类枚举，与碳账户一致） */
+function resolveFormalAccountingMethodLabel(formal, taskId, d) {
+  d = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  const mode = formal.collectMode || resolveCollectMode(formal.loanType);
+  if (!d || typeof CarbonAccount === 'undefined') {
+    return mode === 'economy_direct' ? '经济活动法-营收法数据' : '—';
+  }
+  const ctx = resolveFormalAccountingMethodContext(d, formal, taskId);
+  const hasData = ctx.calc || ctx.supplement || formal.gelanEntityEmission != null
+    || formal.economyDirectStatus === 'done';
+  if (!hasData) {
+    if (mode === 'economy_direct') return CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
+    return '—';
+  }
+  return CarbonAccount.resolveAccountMethodLabel(d, ctx) || '—';
+}
+
+function formalAccountingMethodBadge(formal, taskId, d) {
+  const label = resolveFormalAccountingMethodLabel(formal, taskId, d);
+  if (label === '—') return '<span class="badge badge-draft">—</span>';
+  if (label.includes('报告法')) return `<span class="badge badge-success">${label}</span>`;
+  if (label.includes('能源')) return `<span class="badge badge-warning">${label}</span>`;
+  if (label.includes('产品') || label.includes('经济活动')) {
+    return `<span class="badge badge-primary">${label}</span>`;
+  }
+  return `<span class="badge">${label}</span>`;
+}
+
+function renderFormalAccountingMethodFilterOptions(selected) {
+  const opts = [{ value: '', label: '全部' }];
+  if (typeof CarbonAccount !== 'undefined') {
+    Object.values(CarbonAccount.METHOD_LABEL).forEach(label => opts.push({ value: label, label }));
+  }
+  return opts.map(o =>
+    `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
+/** @deprecated 内部收数路径仍用 collectMode；界面展示请用 resolveFormalAccountingMethodLabel */
 function collectModeLabel(mode) {
-  return mode === 'mandatory' ? '必收数' : '经济法直算';
+  if (typeof CarbonAccount !== 'undefined' && mode === 'economy_direct') {
+    return CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
+  }
+  return mode === 'mandatory' ? '—' : '经济活动法-营收法数据';
 }
 
 function collectModeBadge(mode) {
   return mode === 'mandatory'
-    ? '<span class="badge badge-warning">必收数</span>'
-    : '<span class="badge badge-primary">经济法直算</span>';
+    ? '<span class="badge badge-warning">—</span>'
+    : `<span class="badge badge-primary">${typeof CarbonAccount !== 'undefined' ? CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE : '经济活动法-营收法数据'}</span>`;
 }
 
 const DATA_COLLECT_STATUS_OPTIONS = [
@@ -907,7 +963,10 @@ function filterDataCollectList(list, filters, taskId) {
   return list.filter(formal => {
     const supp = supplements.find(s => s.formalId === formal.id);
     if (f.keyword && !(formal.customerName || '').toLowerCase().includes(f.keyword.trim().toLowerCase())) return false;
-    if (f.collectMode) {
+    if (f.accountingMethod) {
+      const label = resolveFormalAccountingMethodLabel(formal, taskId, Store.get());
+      if (label !== f.accountingMethod) return false;
+    } else if (f.collectMode) {
       const mode = formal.collectMode || resolveCollectMode(formal.loanType);
       if (mode !== f.collectMode) return false;
     }
@@ -1467,6 +1526,7 @@ function candidateBorrowerType(c) {
 }
 
 function candidateProductType(c) {
+  if (!c) return '-';
   return c.productType || c.loanType || '-';
 }
 
@@ -1498,7 +1558,8 @@ function candidateAccountingTypeLabel(c) {
 }
 
 function candidateIsProjectType(c) {
-  return c?.bizType === 'project'
+  if (!c) return false;
+  return c.bizType === 'project'
     || ['项目贷款', '一般性固定资产贷款', '出口退税账户托管贷款'].includes(candidateProductType(c));
 }
 
@@ -1525,6 +1586,29 @@ function getCandidateProjectDetails(c) {
     return c.projectDetails.map((p, i) => ({ ...normalizeProjectDetailFromCandidate(c, i), ...p }));
   }
   return [normalizeProjectDetailFromCandidate(c)];
+}
+
+/** 正式清单/碳账户：解析项目明细（优先 formal → 候选 → 由 projectName 合成） */
+function resolveFormalProjectDetails(formal, cand) {
+  if (Array.isArray(formal?.projectDetails) && formal.projectDetails.length) {
+    return formal.projectDetails.map((p, i) => ({
+      ...normalizeProjectDetailFromCandidate({ ...formal, ...(cand || {}), customerName: p.customerName || formal.customerName }, i),
+      ...p
+    }));
+  }
+  if (Array.isArray(cand?.projectDetails) && cand.projectDetails.length) {
+    return cand.projectDetails.map((p, i) => ({
+      ...normalizeProjectDetailFromCandidate(cand, i),
+      ...p
+    }));
+  }
+  const isProject = formal?.bizType === 'project' || formal?.objectType === '项目' ||
+    cand?.bizType === 'project' || candidateIsProjectType(formal) || candidateIsProjectType(cand);
+  if (!isProject) return [];
+  const projectName = formal?.projectName || cand?.projectName;
+  if (!projectName) return [];
+  const base = { ...cand, ...formal, projectName, customerName: formal?.customerName || cand?.customerName };
+  return [normalizeProjectDetailFromCandidate(base, 0)];
 }
 
 function getCandidateProjectExpandedSet(taskId) {
@@ -2263,6 +2347,14 @@ function bindListPagination(onBeforeChange) {
       }
     };
   });
+}
+
+/** 表3：DQR 数值 → 对应等次（A / B+ / B / B- / C） */
+function resolveDqrGrade(dqr) {
+  const v = Number(dqr);
+  if (dqr == null || dqr === '' || Number.isNaN(v)) return null;
+  const bands = GUIDE.DQR_GRADE_BANDS || [];
+  return bands.find(b => v <= b.max)?.grade || 'C';
 }
 
 function qualityGradeBadge(grade) {

@@ -17,6 +17,35 @@ const DemoSeed = {
     return s.biz === 'project' ? '项目贷款' : '流动资金贷款';
   },
 
+  /** 正式清单贷款账号（候选缺失时生成稳定演示值） */
+  _formalLoanAccount(s, cand, i) {
+    if (cand?.loanAccount) return cand.loanAccount;
+    const seed = String(s.cid || s.id || i + 1).replace(/\D/g, '');
+    return '622' + seed.slice(-13).padStart(13, '0');
+  },
+
+  /** 项目贷款正式清单/碳账户用的项目明细（与 candidate-sync 字段一致） */
+  _projectDetailsForFormal(s, cand) {
+    if (Array.isArray(cand?.projectDetails) && cand.projectDetails.length) {
+      return cand.projectDetails.map(p => ({ ...p }));
+    }
+    if (s.biz !== 'project' || !s.project) return [];
+    const idNum = String(s.id || '').replace(/\D/g, '').slice(-4) || '0001';
+    return [{
+      projectNo: `PRJ2024${idNum.padStart(4, '0')}`,
+      projectName: s.project,
+      projectProvince: (s.loc || '').replace(/[市县区].*$/, '') || '-',
+      projectIndustry: s.major || cand?.industryMajor || '-',
+      customerNo: cand?.projectDetails?.[0]?.customerNo || `KH${String(s.cid || idNum).replace(/\D/g, '').slice(-6).padStart(6, '0')}`,
+      customerName: s.name,
+      creditCode: cand?.creditCode || '',
+      nationalIndustryCodeLv4: cand?.gbIndustryCode || s.code || '-',
+      projectAvgLoanBalanceWan: cand?.avgMonthlyBalance ?? '-',
+      projectRevenueWan: cand?.operatingRevenue ?? '-',
+      projectTotalInvestmentWan: s.inv ?? cand?.projectTotalInvestmentWan ?? '-'
+    }];
+  },
+
   build() {
     const taskId = 'T2025001';
     const candidates = CandidateSync.generateBatch(taskId, 48);
@@ -398,7 +427,7 @@ const DemoSeed = {
       tier1Branch: cand?.tier1Branch || cand?.branch,
       handlingBranch: cand?.handlingBranch,
       branch: cand?.tier1Branch || cand?.branch,
-      loanAccount: cand?.loanAccount,
+      loanAccount: this._formalLoanAccount(s, cand, i),
       disbursementAmount: cand?.disbursementAmount,
       disbursementDate: cand?.disbursementDate,
       borrowerType: cand?.borrowerType,
@@ -406,6 +435,13 @@ const DemoSeed = {
       operatingRevenue: cand?.operatingRevenue,
       manager: cand?.manager,
       totalInvestment: s.inv,
+      projectDetails: this._projectDetailsForFormal(s, cand),
+      accountingType: cand?.accountingType || (s.biz === 'project'
+        ? (this._projectDetailsForFormal(s, cand).length ? 'project_as_project' : 'project_pending')
+        : 'non_project'),
+      projectInfoAvailable: s.biz === 'project'
+        ? (this._projectDetailsForFormal(s, cand).length ? true : null)
+        : null,
       status: i < 28 ? 'confirmed' : 'draft',
       economyDirectStatus: collectMode === 'economy_direct' && i < 20 ? 'done' : null,
       economyDirectAt: collectMode === 'economy_direct' && i < 20 ? '2025-03-01 10:00:00' : null,
@@ -563,15 +599,33 @@ const DemoSeed = {
       if (!c) {
         c = {
           id: p.id, taskId, creditCode: '91110000MA' + p.id.slice(-6) + 'X',
+          loanAccount: '622' + String(p.id).replace(/\D/g, '').slice(-13).padStart(13, '0'),
           loanType: '项目贷款', productType: '一般性固定资产贷款', bizType: 'project',
           avgMonthlyBalance: 1200 + Math.random() * 800, operatingRevenue: 8000,
           handlingBranch: p.tier1Branch.replace('分行', '') + '营业部', status: 'confirmed', excluded: false
         };
         candidates.push(c);
       }
+      const projectDetails = (c.projectDetails && c.projectDetails.length) ? c.projectDetails : [{
+        projectNo: `PRJ2024${p.id.slice(-4)}`,
+        projectName: `${p.customerName.replace(/有限公司|股份有限公司/g, '')}配套工程`,
+        projectProvince: p.tier1Branch.replace('分行', ''),
+        projectIndustry: '电力',
+        customerNo: `KH${p.id.slice(-6)}`,
+        customerName: p.customerName,
+        creditCode: c.creditCode || ('91110000MA' + p.id.slice(-6) + 'X'),
+        nationalIndustryCodeLv4: p.gbIndustryCode,
+        projectAvgLoanBalanceWan: c.avgMonthlyBalance ?? 1200,
+        projectRevenueWan: c.operatingRevenue ?? 8000,
+        projectTotalInvestmentWan: 500000
+      }];
       Object.assign(c, p, {
         industryMajor: '电力', bizType: 'project', loanType: '项目贷款',
-        productType: '一般性固定资产贷款', excluded: false, excludeReason: null
+        productType: '一般性固定资产贷款', excluded: false, excludeReason: null,
+        loanAccount: c.loanAccount || ('622' + String(p.id).replace(/\D/g, '').slice(-13).padStart(13, '0')),
+        projectDetails,
+        accountingType: 'project_as_project',
+        projectInfoAvailable: true
       });
     });
   },
