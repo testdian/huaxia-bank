@@ -84,6 +84,7 @@ const gelanR = Store.fetchGelanEntityEmissions(newId);
 assert(gelanR.withData > 0, '格澜调取返回部分主体排放');
 const gelanCa = Store.getCarbonAccounts().find(a => a.taskId === newId && a.annualProfiles?.['2026']);
 assert(gelanCa?.annualProfiles?.['2026']?.entityEmission != null, '格澜调取同步至企业碳账户主体排放');
+assert(gelanCa?.annualProfiles?.['2026']?.reportDetail?.scope1Emission != null, '格澜报告法范围一排放同步至碳账户');
 const provisionedAccounts = Store.getCarbonAccounts().filter(a =>
   a.taskId === newId && a.provisionSource === 'formal_lock'
 );

@@ -910,7 +910,7 @@ const Store = {
           return;
         }
         const c = d.candidates.find(x => x.id === f.customerId);
-        const entityEmission = gelan.data.entityEmission;
+        const entityEmission = gelan.data.ghgTotalEmission ?? gelan.data.entityEmission;
         const totalAssets = Number(c?.totalAssets) || 800000;
         const avgBalance = Number(c?.avgMonthlyBalance) || Number(f.avgMonthlyBalance) || 3000;
         const attributedEmission = f.bizType === 'project'
@@ -919,6 +919,14 @@ const Store = {
         f.gelanStatus = 'success';
         f.gelanEntityEmission = entityEmission;
         f.gelanPrefill = gelan.data;
+        const reportDetail = {
+          carbonDataYear: gelan.data.carbonDataYear ?? gelan.data.reportYear,
+          ghgTotalEmission: entityEmission,
+          emission: entityEmission,
+          scope1Emission: gelan.data.scope1Emission,
+          scope2Emission: gelan.data.scope2Emission,
+          unitTotalCo2Emission: gelan.data.unitTotalCo2Emission
+        };
         const payload = {
           taskId,
           formalId: f.id,
@@ -937,7 +945,8 @@ const Store = {
           source: 'gelan',
           status: 'pending',
           approvalStatus: 'none',
-          calculatedAt: gelan.data.fetchedAt
+          calculatedAt: gelan.data.fetchedAt,
+          reportDetail
         };
         let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
         if (calc) Object.assign(calc, payload);

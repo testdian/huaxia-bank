@@ -333,13 +333,15 @@ const CarbonAccount = {
     const year = String(task?.year || new Date().getFullYear());
     const customerNo = this.resolveCustomerNo(d, acc, formal, null);
     if (!acc.annualProfiles) acc.annualProfiles = {};
+    const reportDetail = payload.reportDetail || null;
     acc.annualProfiles[year] = {
       entityEmission: payload.entityEmission,
       method: payload.method || '报告法',
       methodId: payload.methodId || 'report',
       customerNo,
       source: payload.source || 'gelan',
-      updatedAt: new Date().toLocaleString('zh-CN')
+      updatedAt: new Date().toLocaleString('zh-CN'),
+      reportDetail
     };
     acc.customerNo = customerNo;
     if (acc.projectDetails.length) {
@@ -353,7 +355,8 @@ const CarbonAccount = {
             entityEmission: payload.entityEmission,
             method: payload.method || '报告法',
             methodId: payload.methodId || 'report',
-            source: payload.source || 'gelan'
+            source: payload.source || 'gelan',
+            reportDetail
           }
         }
       }));
