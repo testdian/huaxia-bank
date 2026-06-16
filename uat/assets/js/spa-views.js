@@ -1154,7 +1154,7 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>贷款号</th>
-          <th>行业</th><th>主办分行</th><th>可见记录</th><th>可见归因排放(tCO₂e)</th><th>状态</th><th>操作</th>
+          <th>行业</th><th>主办分行</th><th>可见记录</th><th>主体排放</th><th>状态</th><th>操作</th>
         </tr></thead>
         <tbody>${view.rows.length ? view.rows.map((a, i) => {
           const mainRow = `<tr>
@@ -1165,7 +1165,7 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
           <td>${a.industryMajor || '-'}</td>
           <td>${a.primaryBranch || '-'}</td>
           <td>${a.visibleRecordCount || 0}</td>
-          <td>${formatNum(a.visibleAttributedEmission)}</td>
+          <td>${formatNum(a.visibleEntityEmission)}</td>
           <td>${renderCaAccountStatusBadge(a)}</td>
           <td>${renderCaAccountActions(a, roleKey, accountingYear)}</td>
         </tr>`;
