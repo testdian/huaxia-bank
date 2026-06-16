@@ -371,7 +371,10 @@ function bindPageEvents(base, ctx) {
       const economyIds = Store.getFormalList(taskId)
         .filter(f => {
           const mode = f.collectMode || resolveCollectMode(f.loanType);
-          return f.status === 'confirmed' && mode === 'economy_direct' && f.economyDirectStatus !== 'done';
+          if (f.status !== 'confirmed' || mode !== 'economy_direct' || f.economyDirectStatus === 'done') {
+            return false;
+          }
+          return Store.getFormalEntityEmission(taskId, f.id) == null;
         })
         .map(f => f.id);
       if (!economyIds.length) {

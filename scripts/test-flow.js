@@ -97,6 +97,13 @@ assert(lockR.locked === formalIds.length, '锁定全部正式清单');
 assert(lockR.provisioned > 0, '确认锁定后生成企业碳账户');
 const gelanR = Store.fetchGelanEntityEmissions(newId);
 assert(gelanR.withData > 0, '格澜调取返回部分主体排放');
+const gelanFormal = Store.getFormalList(newId).find(f => f.gelanEntityEmission != null);
+if (gelanFormal) {
+  assert(
+    resolveFormalAccountingMethodLabel(gelanFormal, newId) === CarbonAccount.METHOD_LABEL.REPORT_OTHER,
+    '格澜调取后数据采集列表展示报告法其他数据'
+  );
+}
 const gelanCa = Store.getCarbonAccounts().find(a => a.taskId === newId && a.annualProfiles?.['2026']);
 assert(gelanCa?.annualProfiles?.['2026']?.entityEmission != null, '格澜调取同步至企业碳账户主体排放');
 assert(gelanCa?.annualProfiles?.['2026']?.reportDetail?.scope1Emission != null, '格澜报告法范围一排放同步至碳账户');
@@ -113,11 +120,12 @@ assert(afterLock.workflowStep === WORKFLOW_STEP.DATA_COLLECTION, '锁定后 work
 assert(afterLock.milestone?.formalLocked, 'milestone.formalLocked');
 const ecoPending = Store.getFormalList(newId).filter(f => {
   const mode = f.collectMode || resolveCollectMode(f.loanType);
-  return f.status === 'confirmed' && mode === 'economy_direct' && f.economyDirectStatus !== 'done';
+  return f.status === 'confirmed' && mode === 'economy_direct' && f.economyDirectStatus !== 'done'
+    && Store.getFormalEntityEmission(newId, f.id) == null;
 });
 if (ecoPending.length) {
   const n = Store.runEconomyDirectCalc(newId, ecoPending.map(f => f.id));
-  assert(n === ecoPending.length, '经济法直算一键处理全部待直算记录');
+  assert(n === ecoPending.length, '经济法直算处理尚无主体排放的待直算记录');
   const ecoDone = Store.getFormalList(newId).find(f => f.economyDirectStatus === 'done');
   if (ecoDone) {
     const d = Store.dispatchSupplements(newId, [ecoDone.id]);
@@ -126,8 +134,8 @@ if (ecoPending.length) {
 }
 
 console.log('\n--- 经济法直算 ---');
-const ecoId = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done')?.id
-  || economy.find(f => f.status === 'confirmed')?.id;
+const ecoId = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done'
+  && Store.getFormalEntityEmission(taskId, f.id) == null)?.id;
 if (ecoId) {
   Store.runEconomyDirectCalc(taskId, [ecoId]);
   const f = Store.getFormalList(taskId).find(x => x.id === ecoId);
@@ -137,11 +145,12 @@ if (ecoId) {
     '经济法直算路径展示经济活动法-营收法数据'
   );
 }
-const ecoPendingRow = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done');
+const ecoPendingRow = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done'
+  && Store.getFormalEntityEmission(taskId, f.id) == null);
 if (ecoPendingRow) {
   assert(
-    resolveFormalAccountingMethodLabel(ecoPendingRow, taskId) === CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE,
-    '待直算记录默认展示经济活动法-营收法数据'
+    resolveFormalAccountingMethodLabel(ecoPendingRow, taskId) === '—',
+    '待直算记录初始核算方法为空'
   );
 }
 

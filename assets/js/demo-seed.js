@@ -443,8 +443,8 @@ const DemoSeed = {
         ? (this._projectDetailsForFormal(s, cand).length ? true : null)
         : null,
       status: i < 28 ? 'confirmed' : 'draft',
-      economyDirectStatus: collectMode === 'economy_direct' && i < 20 ? 'done' : null,
-      economyDirectAt: collectMode === 'economy_direct' && i < 20 ? '2025-03-01 10:00:00' : null,
+      economyDirectStatus: null,
+      economyDirectAt: null,
       lockedAt: i < 28 ? '2025-02-15' : null
     }; });
   },
