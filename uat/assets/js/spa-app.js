@@ -557,12 +557,6 @@ function bindPageEvents(base, ctx) {
       setListPage('carbon_accounts', 1);
       route();
     });
-    qsa('.candidate-expand-toggle[data-ca-expand]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        toggleCaProjectExpanded(btn.dataset.caExpand);
-        route();
-      });
-    });
     qsa('.ca-account-status-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const accountId = btn.dataset.id;

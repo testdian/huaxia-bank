@@ -609,6 +609,18 @@ tr.row-excluded .badge { opacity: .85; }
   background: #f8fbff;
   padding: 10px 12px;
 }
+.ca-sub-account-row td {
+  background: #fafcff;
+}
+.ca-sub-account-label {
+  display: inline-block;
+  padding-left: 8px;
+  color: #606266;
+  font-size: 13px;
+}
+.ca-profile-supplement .method-tabs-bar .tab {
+  pointer-events: none;
+}
 .project-detail-wrap {
   border: 1px solid #dbe7ff;
   border-radius: 6px;

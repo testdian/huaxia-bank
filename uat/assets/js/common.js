@@ -989,6 +989,7 @@ function reviewLevelLabel(level) {
 }
 
 function supplementActiveTab(s) {
+  if (s?.activeMethodTab) return s.activeMethodTab;
   const id = s?.methodId;
   if (id === 'energy') return 'energy';
   if (id === 'product') {
@@ -1559,6 +1560,125 @@ function renderCarbonAccountNameCell(acc, expandedSet) {
     <button type="button" class="candidate-expand-toggle ${expanded ? 'is-expanded' : ''}" data-ca-expand="${acc.id}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>
     ${acc.customerName || '-'}
   </span>`;
+}
+
+/** 碳账户档案页：解析展示用客户号、方法、主体排放及补录视图 */
+function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
+  const yearStr = String(year || '');
+  let metrics = typeof CarbonAccount !== 'undefined'
+    ? CarbonAccount.resolveYearMetrics(d, acc, yearStr)
+    : { customerNo: '-', method: '-', entityEmission: null };
+  if (subProjectNo) {
+    const sub = (acc.projectSubAccounts || []).find(x => String(x.projectNo) === String(subProjectNo));
+    const project = (acc.projectDetails || []).find(p => String(p.projectNo) === String(subProjectNo));
+    const subProfile = sub?.annualProfiles?.[yearStr] || {};
+    metrics = {
+      ...metrics,
+      customerNo: project?.customerNo || sub?.customerNo || metrics.customerNo,
+      customerName: project?.customerName || project?.projectName || acc.customerName,
+      creditCode: project?.creditCode || acc.creditCode,
+      entityEmission: subProfile.entityEmission ?? metrics.entityEmission,
+      method: subProfile.method || metrics.method,
+      methodId: subProfile.methodId || metrics.methodId
+    };
+  }
+  return {
+    customerName: metrics.customerName || acc.customerName || '-',
+    creditCode: metrics.creditCode || acc.creditCode || '-',
+    customerNo: metrics.customerNo || '-',
+    method: metrics.method || '-',
+    entityEmission: metrics.entityEmission,
+    metrics
+  };
+}
+
+/** 构建碳账户档案页「客户经理补录数据」只读视图对象 */
+function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
+  const formal = (d.formalList || []).find(f => f.id === acc.formalId);
+  const profile = resolveCarbonAccountProfileRow(d, acc, year, subProjectNo);
+  const supp = (d.supplements || []).find(s => s.formalId === acc.formalId && s.taskId === acc.taskId);
+  if (supp) {
+    const m = Store.matchMethod(supp);
+    return {
+      ...supp,
+      methodId: supp.methodId || m?.id || profile.metrics?.methodId || 'report',
+      activeMethodTab: supplementActiveTab({ ...supp, methodId: supp.methodId || m?.id })
+    };
+  }
+  const calc = profile.metrics?.calc || (d.calculations || []).find(c =>
+    c.formalId === acc.formalId && c.taskId === acc.taskId
+  );
+  const base = {
+    formalId: acc.formalId,
+    taskId: acc.taskId,
+    customerName: profile.customerName,
+    creditCode: profile.creditCode,
+    loanType: formal?.loanType || acc.loanType,
+    bizType: formal?.bizType || acc.bizType,
+    industryMajor: acc.industryMajor,
+    avgLoanBalance: calc?.avgBalance,
+    revenue: calc?.avgBalance,
+    totalAssets: calc?.totalAssets
+  };
+  if (calc?.source === 'gelan' || formal?.gelanEntityEmission != null) {
+    const emission = profile.entityEmission ?? formal?.gelanEntityEmission;
+    return {
+      ...base,
+      methodId: 'report',
+      activeMethodTab: 'report',
+      reportedEmission: emission,
+      disclosureChannel: formal?.gelanPrefill?.disclosureChannel || 'ESG报告',
+      thirdPartyVerified: formal?.gelanPrefill?.thirdPartyVerified !== false,
+      fieldData: {
+        report: {
+          emission,
+          source: '格澜数据',
+          verified: 'yes',
+          attachments: []
+        }
+      }
+    };
+  }
+  if (calc?.methodId === 'economy' || formal?.economyDirectStatus === 'done') {
+    return {
+      ...base,
+      methodId: 'economy',
+      activeMethodTab: 'report',
+      economyValue: calc?.avgBalance,
+      economyFactor: calc?.industryFactor || 2.35,
+      economyBasis: 'revenue',
+      collectMode: 'economy_direct',
+      economyDirectStatus: formal?.economyDirectStatus,
+      economyDirectAt: formal?.economyDirectAt,
+      entityEmission: profile.entityEmission
+    };
+  }
+  return {
+    ...base,
+    methodId: profile.metrics?.methodId || 'report',
+    activeMethodTab: supplementActiveTab({ methodId: profile.metrics?.methodId || 'report' }),
+    reportedEmission: profile.entityEmission
+  };
+}
+
+function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo) {
+  const profile = resolveCarbonAccountProfileRow(d, acc, year, subProjectNo);
+  const supplementView = buildCarbonAccountSupplementView(d, acc, year, subProjectNo);
+  const subHint = subProjectNo
+    ? `<div class="demo-tip" style="margin-bottom:12px">当前为项目子账户 · 项目号 ${subProjectNo}</div>`
+    : '';
+  return `${subHint}
+    <div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body form-grid">
+      <div class="form-item"><label>企业名称</label><input value="${profile.customerName}" readonly></div>
+      <div class="form-item"><label>统一社会信用代码</label><input value="${profile.creditCode}" readonly></div>
+      <div class="form-item"><label>客户号</label><input value="${profile.customerNo}" readonly></div>
+      <div class="form-item"><label>核算方法</label><input value="${profile.method}" readonly></div>
+      <div class="form-item"><label>主体排放(tCO2e)</label><input value="${profile.entityEmission != null ? formatNum(profile.entityEmission) : '—'}" readonly></div>
+    </div></div>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理补录数据</h3>
+      <span style="font-size:12px;color:#909399">按核算方法展示对应填报内容（只读）</span></div>
+      <div class="card-body ca-profile-supplement">${renderSupplementFillBody(supplementView, { readonly: true })}</div>
+    </div>`;
 }
 
 function renderCandidateProjectDetailRow(c, colspan = 15) {

@@ -120,6 +120,247 @@ const CarbonAccount = {
     };
   },
 
+  /** 列表可选年度：排放记录年度 + 账户建档任务年度 + 年度快照 */
+  getListYears(d, accounts, records) {
+    const years = new Set(this.getAvailableYears(records));
+    (accounts || []).forEach(a => {
+      Object.keys(a.annualProfiles || {}).forEach(y => years.add(String(y)));
+      if (a.taskId) {
+        const t = (d.tasks || []).find(x => x.id === a.taskId);
+        if (t?.year) years.add(String(t.year));
+      }
+    });
+    return [...years].sort((a, b) => a.localeCompare(b));
+  },
+
+  resolveListYear(d, accounts, records, preferred) {
+    const years = this.getListYears(d, accounts, records);
+    if (!years.length) return { year: null, years: [] };
+    if (preferred && preferred !== 'all' && years.includes(String(preferred))) {
+      return { year: String(preferred), years };
+    }
+    return { year: years[years.length - 1], years };
+  },
+
+  resolveCustomerNo(d, account, formal, projectDetail) {
+    if (projectDetail?.customerNo) return projectDetail.customerNo;
+    if (account?.customerNo) return account.customerNo;
+    const pd = formal?.projectDetails?.[0] || account?.projectDetails?.[0];
+    if (pd?.customerNo) return pd.customerNo;
+    const profiles = account?.annualProfiles || {};
+    const profileYears = Object.keys(profiles).sort();
+    if (profileYears.length && profiles[profileYears[profileYears.length - 1]]?.customerNo) {
+      return profiles[profileYears[profileYears.length - 1]].customerNo;
+    }
+    const cand = (d.candidates || []).find(c => c.id === (formal?.customerId || account?.customerId));
+    if (cand?.projectDetails?.[0]?.customerNo) return cand.projectDetails[0].customerNo;
+    if (cand?.creditCode) return 'KH' + String(cand.creditCode.replace(/\D/g, '')).slice(-6);
+    return '-';
+  },
+
+  /** 解析账户在指定年度的核算方法、客户号与主体排放 */
+  resolveYearMetrics(d, account, year) {
+    const yearStr = String(year || '');
+    const formal = (d.formalList || []).find(f => f.id === account.formalId);
+    const task = (d.tasks || []).find(t => t.id === account.taskId);
+    const customerNo = this.resolveCustomerNo(d, account, formal, null);
+
+    if (account.annualProfiles?.[yearStr]) {
+      const p = account.annualProfiles[yearStr];
+      return {
+        entityEmission: p.entityEmission,
+        method: p.method || '-',
+        methodId: p.methodId || null,
+        customerNo: p.customerNo || customerNo,
+        source: p.source,
+        formal,
+        task,
+        supplement: null,
+        calc: null
+      };
+    }
+
+    const recs = (d.carbonAccountRecords || []).filter(r =>
+      r.accountId === account.id && String(r.year) === yearStr
+    );
+    if (recs.length) {
+      const r = recs[recs.length - 1];
+      return {
+        entityEmission: r.entityEmission,
+        method: r.method || '-',
+        methodId: this.mapMethodId(r.method),
+        customerNo,
+        source: 'record',
+        formal,
+        task,
+        supplement: null,
+        calc: null
+      };
+    }
+
+    const calc = (d.calculations || []).find(c =>
+      c.formalId === account.formalId && c.taskId === account.taskId
+    );
+    if (calc?.entityEmission != null && (!task?.year || String(task.year) === yearStr)) {
+      return {
+        entityEmission: calc.entityEmission,
+        method: calc.method || '-',
+        methodId: calc.methodId || this.mapMethodId(calc.method),
+        customerNo,
+        source: calc.source || 'calc',
+        formal,
+        task,
+        supplement: null,
+        calc
+      };
+    }
+
+    if (formal?.gelanEntityEmission != null && task && String(task.year) === yearStr) {
+      return {
+        entityEmission: formal.gelanEntityEmission,
+        method: '报告法',
+        methodId: 'report',
+        customerNo,
+        source: 'gelan',
+        formal,
+        task,
+        supplement: null,
+        calc
+      };
+    }
+
+    const supp = (d.supplements || []).find(s =>
+      s.formalId === account.formalId && s.taskId === account.taskId &&
+      (s.auditStage === 'approved' || s.status === 'completed')
+    );
+    if (supp && typeof Store !== 'undefined') {
+      const m = Store.matchMethod(supp);
+      const entityEmission = Store.calcEntityEmission(supp);
+      return {
+        entityEmission,
+        method: m?.name || '-',
+        methodId: m?.id || null,
+        customerNo,
+        source: 'supplement',
+        formal,
+        task,
+        supplement: supp,
+        calc
+      };
+    }
+
+    return {
+      entityEmission: null,
+      method: '-',
+      methodId: null,
+      customerNo,
+      source: null,
+      formal,
+      task,
+      supplement: null,
+      calc
+    };
+  },
+
+  mapMethodId(methodName) {
+    if (!methodName) return null;
+    const m = (typeof GUIDE !== 'undefined' ? GUIDE.METHODS : []).find(x =>
+      x.name === methodName || x.id === methodName
+    );
+    return m?.id || null;
+  },
+
+  /** 企业碳账户列表行：主账户每年一行，项目贷款追加子账户行 */
+  buildAccountListRows(d, accounts, year) {
+    const rows = [];
+    (accounts || []).forEach(acc => {
+      const metrics = this.resolveYearMetrics(d, acc, year);
+      const formal = metrics.formal;
+      const projects = Array.isArray(acc.projectDetails) && acc.projectDetails.length
+        ? acc.projectDetails
+        : [];
+      rows.push({
+        rowId: `${acc.id}|${year}|main`,
+        accountId: acc.id,
+        isSubAccount: false,
+        year: String(year),
+        customerName: acc.customerName || '-',
+        creditCode: acc.creditCode || '-',
+        customerNo: metrics.customerNo || '-',
+        method: metrics.method || '-',
+        entityEmission: metrics.entityEmission,
+        account: acc,
+        metrics
+      });
+      const isProjectLoan = acc.bizType === 'project' || formal?.bizType === 'project' ||
+        projects.length > 0;
+      if (isProjectLoan && projects.length) {
+        projects.forEach((p, idx) => {
+          const subStore = (acc.projectSubAccounts || []).find(x => x.projectNo === p.projectNo);
+          const subProfile = subStore?.annualProfiles?.[String(year)] || {};
+          rows.push({
+            rowId: `${acc.id}|${year}|sub|${p.projectNo || idx}`,
+            accountId: acc.id,
+            isSubAccount: true,
+            projectNo: p.projectNo || ('P' + (idx + 1)),
+            year: String(year),
+            customerName: p.customerName || p.projectName || acc.customerName,
+            creditCode: p.creditCode || acc.creditCode || '-',
+            customerNo: p.customerNo || metrics.customerNo || '-',
+            method: subProfile.method || metrics.method || '-',
+            entityEmission: subProfile.entityEmission ?? metrics.entityEmission,
+            account: acc,
+            project: p,
+            metrics: { ...metrics, ...subProfile }
+          });
+        });
+      }
+    });
+    return rows;
+  },
+
+  /** 格澜/直算等写入任务数据后，同步更新企业碳账户年度主体排放 */
+  syncEntityFromFormalEmission(d, taskId, formal, payload) {
+    if (!formal) return null;
+    const row = this.resolveLedgerRow(d, formal, payload);
+    const acc = this.upsertAccount(d, row);
+    acc.formalId = formal.id;
+    acc.taskId = taskId;
+    acc.provisionSource = acc.provisionSource || 'formal_lock';
+    acc.projectDetails = Array.isArray(formal.projectDetails) ? formal.projectDetails.slice() : (acc.projectDetails || []);
+    acc.bizType = formal.bizType || row.bizType || acc.bizType;
+    const task = (d.tasks || []).find(t => t.id === taskId);
+    const year = String(task?.year || new Date().getFullYear());
+    const customerNo = this.resolveCustomerNo(d, acc, formal, null);
+    if (!acc.annualProfiles) acc.annualProfiles = {};
+    acc.annualProfiles[year] = {
+      entityEmission: payload.entityEmission,
+      method: payload.method || '报告法',
+      methodId: payload.methodId || 'report',
+      customerNo,
+      source: payload.source || 'gelan',
+      updatedAt: new Date().toLocaleString('zh-CN')
+    };
+    acc.customerNo = customerNo;
+    if (acc.projectDetails.length) {
+      acc.projectSubAccounts = acc.projectDetails.map(p => ({
+        projectNo: p.projectNo,
+        customerNo: p.customerNo,
+        customerName: p.customerName,
+        creditCode: p.creditCode || row.creditCode,
+        annualProfiles: {
+          [year]: {
+            entityEmission: payload.entityEmission,
+            method: payload.method || '报告法',
+            methodId: payload.methodId || 'report',
+            source: payload.source || 'gelan'
+          }
+        }
+      }));
+    }
+    return acc;
+  },
+
   aggregateBy(records, keyFn) {
     const map = {};
     records.forEach(r => {
