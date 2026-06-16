@@ -1119,9 +1119,6 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       (r.customerNo || '').toLowerCase().includes(kw)
     );
   }
-  if (filters.branch) {
-    listRows = listRows.filter(r => r.account?.primaryBranch === filters.branch);
-  }
   if (filters.status) {
     listRows = listRows.filter(r => (r.account?.status || 'active') === filters.status);
   }
@@ -1146,13 +1143,6 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       <div class="filter-panel" style="padding:12px 16px">
         <div class="filter-extra carbon-account-filter-grid">
           <div class="form-item"><label>企业/客户号</label><input id="ca_kw" placeholder="名称、信用代码、客户号" value="${filters.keyword || ''}"></div>
-          <div class="form-item"><label>一级分行</label>
-            <select id="ca_branch"><option value="">全部</option>
-            ${[...new Set(accounts.map(a => a.primaryBranch).filter(Boolean))].map(b =>
-              `<option value="${b}" ${filters.branch === b ? 'selected' : ''}>${b}</option>`
-            ).join('')}
-            </select>
-          </div>
           <div class="form-item"><label>状态</label>
             <select id="ca_status"><option value="">全部</option>
             <option value="active" ${filters.status === 'active' ? 'selected' : ''}>启用</option>
