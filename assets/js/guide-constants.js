@@ -106,7 +106,7 @@ window.GUIDE = {
   /** 企业信息采集字段（附录采集表） */
   ENTITY_FIELDS: {
     basic: ['customerName', 'creditCode', 'gbIndustryCode', 'gbIndustryName', 'industryMajor', 'accountingYear', 'totalAssets', 'revenue', 'avgLoanBalance'],
-    report: ['reportedEmission', 'disclosureChannel', 'thirdPartyVerified'],
+    report: ['reportedEmission', 'reportCarbonDataYear', 'reportScope1Emission', 'reportScope2Emission', 'reportUnitTotalCo2Emission', 'disclosureChannel', 'thirdPartyVerified'],
     energy: ['energyRows'],
     product: ['productRows'],
     economy: ['economyBasis', 'economyValue', 'economyFactor']

@@ -722,10 +722,19 @@ function fetchGelanEntityDataMock(row, task) {
   const tail = parseInt(code.replace(/\D/g, '').slice(-2) || '0', 10);
   if (tail % 5 === 0) return { ok: false, reason: 'no_data' };
   const year = task?.year || new Date().getFullYear();
+  const ghgTotalEmission = Math.round(8500 + tail * 163);
+  const scope1Emission = Math.round(ghgTotalEmission * 0.58);
+  const scope2Emission = Math.round(ghgTotalEmission * 0.42);
+  const isPower = String(row?.industryMajor || '').includes('电力');
   return {
     ok: true,
     data: {
-      entityEmission: Math.round(8500 + tail * 163),
+      entityEmission: ghgTotalEmission,
+      ghgTotalEmission,
+      carbonDataYear: year - 1,
+      scope1Emission,
+      scope2Emission,
+      unitTotalCo2Emission: isPower ? Math.round(ghgTotalEmission * 0.15) : null,
       disclosureChannel: 'ESG报告',
       reportYear: year - 1,
       thirdPartyVerified: true,
@@ -733,6 +742,40 @@ function fetchGelanEntityDataMock(row, task) {
       fetchedAt: new Date().toLocaleString('zh-CN')
     }
   };
+}
+
+/** 归集报告法扩展字段（补录 / 格澜 / 碳账户年度快照） */
+function getReportMethodFields(source) {
+  if (typeof SUPPLEMENT_FIELDS !== 'undefined' && source && !source.gelanPrefill && !source.reportDetail) {
+    return SUPPLEMENT_FIELDS.reportFieldValues(source);
+  }
+  const r = source?.fieldData?.report || source?.reportDetail || source?.gelanPrefill || source?.annualProfiles || {};
+  const yearKey = source?.year ? String(source.year) : null;
+  const profile = yearKey && source?.annualProfiles?.[yearKey]?.reportDetail
+    ? source.annualProfiles[yearKey].reportDetail
+    : null;
+  const merged = profile || r;
+  return {
+    carbonDataYear: merged.carbonDataYear ?? source?.reportCarbonDataYear ?? merged.reportYear ?? '',
+    ghgTotalEmission: merged.ghgTotalEmission ?? merged.emission ?? source?.reportedEmission ?? source?.entityEmission ?? '',
+    scope1Emission: merged.scope1Emission ?? source?.reportScope1Emission ?? '',
+    scope2Emission: merged.scope2Emission ?? source?.reportScope2Emission ?? '',
+    unitTotalCo2Emission: merged.unitTotalCo2Emission ?? source?.reportUnitTotalCo2Emission ?? ''
+  };
+}
+
+function formatReportFieldNum(v) {
+  return v != null && v !== '' && !Number.isNaN(Number(v)) ? formatNum(v) : '—';
+}
+
+function renderReportMethodSummaryReadonly(fields) {
+  const f = fields || {};
+  return `
+    <div class="form-item"><label>碳数据年份</label><input value="${f.carbonDataYear || '—'}" readonly></div>
+    <div class="form-item"><label>核算周期内碳排放量（温室气体排放总量，tCO2e）</label><input value="${formatReportFieldNum(f.ghgTotalEmission)}" readonly></div>
+    <div class="form-item"><label>范围一的排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.scope1Emission)}" readonly></div>
+    <div class="form-item"><label>范围二的排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.scope2Emission)}" readonly></div>
+    <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.unitTotalCo2Emission)}" readonly></div>`;
 }
 
 function renderCalculationListCells(f, calc, taskId) {
@@ -1622,21 +1665,31 @@ function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
   };
   if (calc?.source === 'gelan' || formal?.gelanEntityEmission != null) {
     const emission = profile.entityEmission ?? formal?.gelanEntityEmission;
+    const gelan = formal?.gelanPrefill || {};
+    const reportExt = {
+      carbonDataYear: gelan.carbonDataYear ?? gelan.reportYear,
+      ghgTotalEmission: gelan.ghgTotalEmission ?? emission,
+      emission: gelan.ghgTotalEmission ?? emission,
+      scope1Emission: gelan.scope1Emission,
+      scope2Emission: gelan.scope2Emission,
+      unitTotalCo2Emission: gelan.unitTotalCo2Emission,
+      source: '格澜数据',
+      verified: 'yes',
+      attachments: []
+    };
     return {
       ...base,
       methodId: 'report',
       activeMethodTab: 'report',
       reportedEmission: emission,
-      disclosureChannel: formal?.gelanPrefill?.disclosureChannel || 'ESG报告',
-      thirdPartyVerified: formal?.gelanPrefill?.thirdPartyVerified !== false,
-      fieldData: {
-        report: {
-          emission,
-          source: '格澜数据',
-          verified: 'yes',
-          attachments: []
-        }
-      }
+      reportCarbonDataYear: reportExt.carbonDataYear,
+      reportScope1Emission: reportExt.scope1Emission,
+      reportScope2Emission: reportExt.scope2Emission,
+      reportUnitTotalCo2Emission: reportExt.unitTotalCo2Emission,
+      disclosureChannel: gelan.disclosureChannel || 'ESG报告',
+      thirdPartyVerified: gelan.thirdPartyVerified !== false,
+      gelanPrefill: gelan,
+      fieldData: { report: reportExt }
     };
   }
   if (calc?.methodId === 'economy' || formal?.economyDirectStatus === 'done') {
@@ -1664,6 +1717,15 @@ function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
 function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo) {
   const profile = resolveCarbonAccountProfileRow(d, acc, year, subProjectNo);
   const supplementView = buildCarbonAccountSupplementView(d, acc, year, subProjectNo);
+  const yearProfile = acc.annualProfiles?.[String(year || '')];
+  const reportSummary = (profile.method === '报告法' || profile.metrics?.methodId === 'report')
+    ? renderReportMethodSummaryReadonly(getReportMethodFields({
+      ...supplementView,
+      reportDetail: yearProfile?.reportDetail,
+      entityEmission: profile.entityEmission,
+      year
+    }))
+    : '';
   const subHint = subProjectNo
     ? `<div class="demo-tip" style="margin-bottom:12px">当前为项目子账户 · 项目号 ${subProjectNo}</div>`
     : '';
@@ -1674,6 +1736,7 @@ function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo) {
       <div class="form-item"><label>客户号</label><input value="${profile.customerNo}" readonly></div>
       <div class="form-item"><label>核算方法</label><input value="${profile.method}" readonly></div>
       <div class="form-item"><label>主体排放(tCO2e)</label><input value="${profile.entityEmission != null ? formatNum(profile.entityEmission) : '—'}" readonly></div>
+      ${reportSummary}
     </div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理补录数据</h3>
       <span style="font-size:12px;color:#909399">按核算方法展示对应填报内容（只读）</span></div>

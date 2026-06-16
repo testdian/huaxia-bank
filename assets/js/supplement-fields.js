@@ -64,6 +64,50 @@ window.SUPPLEMENT_FIELDS = {
     return s.fieldData || {};
   },
 
+  /** 报告法扩展字段（格澜/补录/碳账户共用） */
+  reportFieldValues(s) {
+    const d = this.fieldData(s).report || {};
+    return {
+      carbonDataYear: d.carbonDataYear ?? s.reportCarbonDataYear ?? s.gelanPrefill?.carbonDataYear ?? '',
+      ghgTotalEmission: d.ghgTotalEmission ?? d.emission ?? s.reportedEmission ?? s.gelanPrefill?.ghgTotalEmission ?? '',
+      scope1Emission: d.scope1Emission ?? s.reportScope1Emission ?? s.gelanPrefill?.scope1Emission ?? '',
+      scope2Emission: d.scope2Emission ?? s.reportScope2Emission ?? s.gelanPrefill?.scope2Emission ?? '',
+      unitTotalCo2Emission: d.unitTotalCo2Emission ?? s.reportUnitTotalCo2Emission ?? s.gelanPrefill?.unitTotalCo2Emission ?? ''
+    };
+  },
+
+  renderReportExtendedFields(s, dis) {
+    const r = this.reportFieldValues(s);
+    return `
+      <div class="form-item"><label>碳数据年份</label>${this.numInput('f_report_carbon_year', r.carbonDataYear, dis, '1')}</div>
+      <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
+        ${this.numInput('f_report_emission', r.ghgTotalEmission, dis, '0.01')}</div>
+      <div class="form-item"><label>范围一的排放总量（tCO2e）</label>${this.numInput('f_report_scope1', r.scope1Emission, dis, '0.01')}</div>
+      <div class="form-item"><label>范围二的排放总量（tCO2e）</label>${this.numInput('f_report_scope2', r.scope2Emission, dis, '0.01')}</div>
+      <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput('f_report_unit_total', r.unitTotalCo2Emission, dis, '0.01')}</div>`;
+  },
+
+  collectReportExtendedFields(rootEl) {
+    const carbonDataYear = numVal('#f_report_carbon_year', rootEl);
+    const ghgTotalEmission = numVal('#f_report_emission', rootEl);
+    return {
+      carbonDataYear: carbonDataYear != null ? Math.round(carbonDataYear) : null,
+      ghgTotalEmission,
+      emission: ghgTotalEmission,
+      scope1Emission: numVal('#f_report_scope1', rootEl),
+      scope2Emission: numVal('#f_report_scope2', rootEl),
+      unitTotalCo2Emission: numVal('#f_report_unit_total', rootEl)
+    };
+  },
+
+  applyReportFieldsToPayload(report, payload) {
+    payload.reportedEmission = report.emission ?? report.ghgTotalEmission;
+    payload.reportCarbonDataYear = report.carbonDataYear;
+    payload.reportScope1Emission = report.scope1Emission;
+    payload.reportScope2Emission = report.scope2Emission;
+    payload.reportUnitTotalCo2Emission = report.unitTotalCo2Emission;
+  },
+
   val(data, key, fallback = '') {
     const v = data?.[key];
     return v == null ? fallback : v;
@@ -157,8 +201,7 @@ window.SUPPLEMENT_FIELDS = {
               <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
               <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
             </select></div>
-          <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（tCO₂）</label>
-            ${this.numInput('f_report_emission', d.emission ?? s.reportedEmission, dis, '0.01')}</div>
+          ${this.renderReportExtendedFields(s, dis)}
           ${this.renderAttachmentSection('report', attachments, dis)}
         </div>
       </div>`;
@@ -170,7 +213,7 @@ window.SUPPLEMENT_FIELDS = {
     const attachments = this.fieldData(s).report?.attachments || [];
     return `
       <div class="${panelCls}" data-panel="${panelId}"><div class="form-grid">
-        <div class="form-item"><label>碳排放量(tCO₂)</label>${this.numInput('f_report_emission', s.reportedEmission, dis)}</div>
+        ${this.renderReportExtendedFields(s, dis)}
         <div class="form-item"><label>披露渠道</label>
           <select id="f_channel" ${dis}>${['ESG报告', '年报', '核查报告'].map(c =>
             `<option ${channel === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
@@ -423,19 +466,25 @@ window.SUPPLEMENT_FIELDS = {
       }
     }
     if (tab === 'report') {
+      const reportExt = this.collectReportExtendedFields(rootEl);
       if (tpl?.methods?.report) {
         const report = {
           source: qs('#f_report_source', rootEl)?.value,
           verified: qs('#f_report_verified', rootEl)?.value === 'yes',
-          emission: numVal('#f_report_emission', rootEl),
-          attachments: supplement.fieldData?.report?.attachments || []
+          attachments: supplement.fieldData?.report?.attachments || [],
+          ...reportExt
         };
         payload.fieldData.report = report;
-        payload.reportedEmission = report.emission;
+        this.applyReportFieldsToPayload(report, payload);
         payload.disclosureChannel = report.source;
         payload.thirdPartyVerified = report.verified;
       } else {
-        payload.reportedEmission = numVal('#f_report_emission', rootEl);
+        payload.fieldData.report = {
+          ...(supplement.fieldData?.report || {}),
+          ...reportExt,
+          attachments: supplement.fieldData?.report?.attachments || []
+        };
+        this.applyReportFieldsToPayload(reportExt, payload);
         payload.disclosureChannel = qs('#f_channel', rootEl)?.value;
         payload.thirdPartyVerified = qs('#f_verified', rootEl)?.value === 'yes';
       }
