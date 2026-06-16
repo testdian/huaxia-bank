@@ -125,7 +125,7 @@ window.SUPPLEMENT_FIELDS = {
       </div>` : ''}
       <div class="form-item"><label>总资产(万元)</label>${this.numInput('f_total_assets', s.totalAssets, dis)}</div>
       <div class="form-item"><label>营业收入(万元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
-      <div class="form-item"><label>投融资日均/月均余额(万元)</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
+      <div class="form-item"><label>月均信贷余额（万元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
   },
 
   renderAttachmentSection(tabId, attachments, dis) {
