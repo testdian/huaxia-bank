@@ -237,7 +237,7 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
 
   return `
     <h1 class="page-title">候选业务清单</h1>
-    <p class="page-desc">（二）清单识别 · 同步台账后筛选目标业务，勾选拟纳入项并生成正式清单</p>
+    <p class="page-desc">（二）确认核算清单 · 同步台账后筛选目标业务，勾选拟纳入项并生成正式清单</p>
     ${workflowStepsBar(ctx.task)}
     ${syncTip}
     <div class="toolbar">
@@ -287,7 +287,7 @@ SPA_VIEWS['#/formal'] = function(ctx) {
   }).join('');
   return `
     <h1 class="page-title">正式清单确认</h1>
-    <p class="page-desc">对象边界 · 确认核算对象与边界后锁定，再前往「数据采集」发放补录任务</p>
+    <p class="page-desc">确认核算清单 · 锁定后进入「开立碳账户」环节</p>
     ${workflowStepsBar(task)}
     <div class="toolbar">
       <button class="btn btn-primary" id="confirmFormalBtn"${vma}>确认锁定</button>
@@ -300,6 +300,49 @@ SPA_VIEWS['#/formal'] = function(ctx) {
           <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>状态</th>
         </tr></thead>
         <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="15" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
+      </table></div></div>`;
+};
+
+/** 【业务调整】主流程第3步：开立碳账户（格澜数据预填） */
+SPA_VIEWS['#/carbon-account-open'] = function(ctx) {
+  const taskId = ctx.task.id;
+  const task = Store.getTask(taskId) || ctx.task;
+  const viewOnly = isTaskViewMode();
+  const vma = viewModeDisabledAttr();
+  const list = Store.getFormalList(taskId).filter(f => f.status === 'confirmed');
+  const opened = !!task.carbonAccountsOpened;
+  const rowsHtml = list.map(f => {
+    const acc = f.carbonAccountId ? Store.getCarbonAccount(f.carbonAccountId) : null;
+    const gelan = acc ? CarbonAccount.formatGelanStatus(acc) : '<span class="badge badge-draft">未开立</span>';
+    const prefill = f.gelanReportPrefill?.reportedEmission != null
+      ? `${formatNum(f.gelanReportPrefill.reportedEmission)} tCO₂e（报告法）`
+      : (acc?.gelanStatus === 'no_data' ? '格澜无数据' : '—');
+    return `<tr>
+      <td>${f.customerName}</td>
+      <td><code style="font-size:12px">${f.creditCode || Store.getCandidates(taskId).find(c=>c.id===f.customerId)?.creditCode || '—'}</code></td>
+      <td>${f.loanAccount || '—'}</td>
+      <td>${f.industryMajor || '—'}</td>
+      <td>${f.carbonAccountOpenedAt ? '<span class="badge badge-success">已开立</span>' : '<span class="badge badge-warning">待开立</span>'}</td>
+      <td>${gelan}</td>
+      <td>${prefill}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <h1 class="page-title">开立碳账户</h1>
+    <p class="page-desc">主流程第3步 · 按法人+贷款号为已锁定业务开立碳账户；开立成功后自动调用<strong>格澜数据</strong>查询报告法数据（演示模拟）</p>
+    ${workflowStepsBar(task)}
+    <div class="demo-tip">碳账户基础排放数据在「投融资碳核算」确认结果后自动归集；此处开立为空账户或格澜预填态。账户档案仅<strong>总行高权限</strong>可手动编辑，其他角色只读。</div>
+    ${opened
+      ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">碳账户已开立，可进入「投融资碳核算」开展数据采集与排放计算</div>'
+      : '<div class="demo-tip" style="border-color:#e6a23c;background:#fdf6ec;color:#b88230">请先点击【批量开立碳账户】；无格澜数据或调用失败时保持空账户</div>'}
+    <div class="toolbar">
+      <button class="btn btn-primary" id="openCarbonAccountsBtn"${viewOnly || opened ? vma : (list.length ? '' : ' disabled title="请先锁定正式清单"')}>批量开立碳账户（${list.length} 笔）</button>
+      <button class="btn btn-success" id="goCarbonAccountingBtn"${viewOnly ? vma : (opened ? '' : ' disabled title="请先开立碳账户"')}>进入投融资碳核算</button>
+    </div>
+    <div class="card"><div class="card-header"><h3>待开立清单</h3><span style="font-size:12px;color:#909399">已锁定 ${list.length} 笔</span></div>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>客户</th><th>信用代码</th><th>贷款号</th><th>行业</th><th>账户状态</th><th>格澜接口</th><th>报告法预填</th></tr></thead>
+        <tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center;padding:32px;color:#909399">暂无已锁定记录，请先在「确认核算清单」完成锁定</td></tr>'}</tbody>
       </table></div></div>`;
 };
 
@@ -373,8 +416,8 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
   const allHaveEntity = Store.allConfirmedHaveEntityEmission(taskId);
   const hasMissingEntity = Store.hasMissingEntityEmission(taskId);
   return `
-    <h1 class="page-title">数据采集</h1>
-    <p class="page-desc">${initiatorLabel} · 贴现/保理默认必收数，其他类型可经济法直算；已直算记录仍可下发补录任务</p>
+    <h1 class="page-title">投融资碳核算 · 数据采集</h1>
+    <p class="page-desc">主流程第4步 · ${initiatorLabel} · 贴现/保理默认必收数，其他类型可经济法直算</p>
     ${workflowStepsBar(ctx.task)}
     ${collectDone
       ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'
@@ -1201,17 +1244,23 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
 
   let panel = '';
   if (tab === 'profile') {
-    panel = `<div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body form-grid">
-      <div class="form-item"><label>企业名称</label><input value="${acc.customerName || ''}" readonly></div>
+    const canEdit = canEditCarbonAccount(roleKey);
+    const ro = canEdit ? '' : 'readonly';
+    const gelan = acc.gelanPrefill;
+    panel = `<div class="card"><div class="card-header"><h3>账户档案</h3>${canEdit ? '<span class="badge badge-warning">高权限可编辑</span>' : '<span class="badge badge-draft">只读</span>'}</div><div class="card-body form-grid">
+      <div class="form-item"><label>企业名称</label><input id="ca_edit_name" value="${acc.customerName || ''}" ${ro}></div>
       <div class="form-item"><label>统一社会信用代码</label><input value="${acc.creditCode || ''}" readonly></div>
       <div class="form-item"><label>贷款号</label><input value="${acc.loanAccount || ''}" readonly></div>
-      <div class="form-item"><label>行业</label><input value="${acc.industryMajor || ''}" readonly></div>
+      <div class="form-item"><label>行业</label><input id="ca_edit_industry" value="${acc.industryMajor || ''}" ${ro}></div>
       <div class="form-item"><label>主办分行</label><input value="${acc.primaryBranch || ''}" readonly></div>
       <div class="form-item"><label>开户时间</label><input value="${acc.openedAt || '-'}" readonly></div>
+      <div class="form-item"><label>格澜数据</label><input value="${acc.gelanStatus === 'success' ? '已预填报告法数据' : (acc.gelanStatus === 'no_data' ? '无数据' : '—')}" readonly></div>
+      <div class="form-item"><label>格澜预填排放(tCO₂e)</label><input value="${gelan?.reportedEmission != null ? gelan.reportedEmission : '—'}" readonly></div>
+      <div class="form-item"><label>手动校正主体排放(tCO₂e)</label><input id="ca_edit_entity" type="number" step="0.01" value="${acc.manualEntityEmission ?? ''}" placeholder="高权限可选填" ${ro}></div>
       <div class="form-item"><label>账户状态</label><input value="${CarbonAccount.ACCOUNT_STATUS_LABEL[acc.status] || acc.status || '启用'}" readonly></div>
-      <div class="form-item"><label>最近状态变更</label><input value="${acc.statusChangedAt || '-'}" readonly></div>
-      <div class="form-item full"><label>说明</label><p style="font-size:13px;color:#909399;margin:0">账户主键为法人+贷款号；辖内汇总按一级分行过滤，明细可查看经办行。总行可在列表页对账户执行启用/停用/注销。</p></div>
-    </div></div>
+      <div class="form-item full"><label>备注</label><input id="ca_edit_remark" value="${acc.remark || ''}" ${ro}></div>
+      <div class="form-item full"><label>说明</label><p style="font-size:13px;color:#909399;margin:0">【业务规则】账户主键为法人+贷款号；投融资碳核算【确认结果】后排放记录自动归集至此。仅总行绿金部可手动维护档案字段。</p></div>
+    </div>${canEdit ? '<div style="padding:12px 20px;text-align:right;border-top:1px solid #eee"><button class="btn btn-primary" id="caProfileSaveBtn">保存</button></div>' : ''}</div>
     ${renderCaStatusHistoryPanel(acc)}`;
   } else if (tab === 'summary') {
     panel = `<div class="ca-summary-grid">
