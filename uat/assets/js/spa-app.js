@@ -544,7 +544,6 @@ function bindPageEvents(base, ctx) {
       sessionStorage.setItem('ca_list_filters', JSON.stringify({
         ...prev,
         keyword: qs('#ca_kw')?.value || '',
-        branch: qs('#ca_branch')?.value || '',
         status: qs('#ca_status')?.value || ''
       }));
       setListPage('carbon_accounts', 1);
