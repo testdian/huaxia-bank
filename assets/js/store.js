@@ -127,6 +127,50 @@ const Store = {
     this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
     this._migrateCarbonAccountProvision();
+    this._migrateCarbonAccountProjectDetails();
+  },
+
+  /** 补全项目贷款 projectDetails / loanAccount，并重建碳账户子账户数据 */
+  _migrateCarbonAccountProjectDetails() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof resolveFormalProjectDetails !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._caProjectSubAccountsMigrated) return;
+      (d.formalList || []).forEach((f, i) => {
+        if (!f.loanAccount) {
+          const cand = (d.candidates || []).find(c => c.id === f.customerId);
+          const seed = String(f.customerId || f.id || i + 1).replace(/\D/g, '');
+          f.loanAccount = cand?.loanAccount || ('622' + seed.slice(-13).padStart(13, '0'));
+          if (cand && !cand.loanAccount) cand.loanAccount = f.loanAccount;
+        }
+        if (Array.isArray(f.projectDetails) && f.projectDetails.length) return;
+        const cand = (d.candidates || []).find(c => c.id === f.customerId);
+        const details = resolveFormalProjectDetails(f, cand);
+        if (details.length) {
+          f.projectDetails = details;
+          if (!f.accountingType || f.accountingType === 'project_pending') {
+            f.accountingType = 'project_as_project';
+          }
+          f.projectInfoAvailable = true;
+        }
+      });
+      if (typeof CarbonAccount !== 'undefined') {
+        CarbonAccount.backfillProvisionFromLockedFormals(d);
+      }
+      (d.carbonAccounts || []).forEach(acc => {
+        const formal = (d.formalList || []).find(f => f.id === acc.formalId);
+        if (!formal) return;
+        const details = resolveFormalProjectDetails(formal, (d.candidates || []).find(c => c.id === formal.customerId));
+        if (details.length) {
+          acc.projectDetails = details;
+          acc.bizType = formal.bizType || acc.bizType;
+        }
+      });
+      d._caProjectSubAccountsMigrated = true;
+      delete d._caProjectDetailsMigrated;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
   },
 
   /** 【业务规则】对象边界锁定后补建企业碳账户 */
@@ -626,7 +670,8 @@ const Store = {
     const sum = calcs.reduce((s, c) => s + c.attributedEmission, 0);
     const dqr = calcs.reduce((s, c) => s + c.attributedEmission * (c.qualityGrade || 5), 0) / sum;
     const level = GUIDE.QUALITY_LEVELS.find(l => dqr <= l.max)?.label || '一般';
-    return { dqr: dqr.toFixed(2), level, count: calcs.length };
+    const grade = typeof resolveDqrGrade === 'function' ? resolveDqrGrade(dqr) : null;
+    return { dqr: dqr.toFixed(2), level, grade, count: calcs.length };
   },
 
   runCalculation(taskId) {
@@ -925,7 +970,8 @@ const Store = {
           emission: entityEmission,
           scope1Emission: gelan.data.scope1Emission,
           scope2Emission: gelan.data.scope2Emission,
-          unitTotalCo2Emission: gelan.data.unitTotalCo2Emission
+          unitTotalCo2Emission: gelan.data.unitTotalCo2Emission,
+          source: gelan.data.reportSource || '其他'
         };
         const payload = {
           taskId,
