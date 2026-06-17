@@ -64,6 +64,49 @@ const subRows = CarbonAccount.buildAccountListRows(dSeed, caWithProject, taskYea
   .filter(r => r.isSubAccount);
 assert(subRows.length > 0, '企业碳账户列表可展示项目子账户行');
 
+console.log('\n--- 碳账户档案编辑（隔离核算任务）---');
+{
+  const dCa = Store.get();
+  const caAcc = dCa.carbonAccounts.find(a => a.status === 'active' && a.formalId);
+  if (caAcc) {
+    const taskRef = dCa.tasks.find(t => t.id === caAcc.taskId);
+    const year = String(taskRef?.year || taskYear);
+    const formalBefore = JSON.stringify(dCa.formalList.find(f => f.id === caAcc.formalId));
+    const calcBefore = JSON.stringify(dCa.calculations.find(c => c.formalId === caAcc.formalId && c.taskId === caAcc.taskId));
+    const suppBefore = JSON.stringify(dCa.supplements.find(s => s.formalId === caAcc.formalId && s.taskId === caAcc.taskId));
+    Store.saveCarbonAccountProfile(caAcc.id, year, '', {
+      customerName: caAcc.customerName,
+      creditCode: caAcc.creditCode,
+      customerNo: 'CAEDIT001',
+      methodLabel: CarbonAccount.METHOD_LABEL.ENERGY,
+      entityEmission: 777777,
+      methodId: 'energy',
+      supplementSnapshot: {
+        customerName: caAcc.customerName,
+        methodId: 'energy',
+        activeMethodTab: 'energy',
+        energyTotalEmission: 777777,
+        fieldData: { energy: { attachments: [] } }
+      }
+    }, 'hq');
+    const dAfter = Store.get();
+    const formalAfter = JSON.stringify(dAfter.formalList.find(f => f.id === caAcc.formalId));
+    const calcAfter = JSON.stringify(dAfter.calculations.find(c => c.formalId === caAcc.formalId && c.taskId === caAcc.taskId));
+    const suppAfter = JSON.stringify(dAfter.supplements.find(s => s.formalId === caAcc.formalId && s.taskId === caAcc.taskId));
+    assert(formalBefore === formalAfter, '碳账户编辑不改正式清单');
+    assert(calcBefore === calcAfter, '碳账户编辑不改核算计算');
+    assert(suppBefore === suppAfter, '碳账户编辑不改补录任务');
+    const rowAfter = CarbonAccount.buildAccountListRows(
+      dAfter,
+      [dAfter.carbonAccounts.find(a => a.id === caAcc.id)],
+      year
+    ).find(r => !r.isSubAccount);
+    assert(rowAfter?.entityEmission === 777777, '碳账户编辑后列表主体排放更新');
+    assert(rowAfter?.method === CarbonAccount.METHOD_LABEL.ENERGY, '碳账户编辑后列表核算方法更新');
+    assert(!CarbonAccount._isInvalidDemoCustomerName(rowAfter?.customerName), '碳账户列表企业名称为规范企业名');
+  }
+}
+
 console.log('\n--- 新建任务：锁定正式清单 → 第4步（数据采集）---');
 Store.reset();
 const newId = 'T_NEW_' + Date.now();
@@ -97,6 +140,22 @@ assert(lockR.locked === formalIds.length, '锁定全部正式清单');
 assert(lockR.provisioned > 0, '确认锁定后生成企业碳账户');
 const gelanR = Store.fetchGelanEntityEmissions(newId);
 assert(gelanR.withData > 0, '格澜调取返回部分主体排放');
+Store.getFormalList(newId).forEach(f => {
+  const type = resolveAccountingType(formalLedgerRow(f, newId));
+  if (type === 'project_as_project') {
+    assert(f.gelanEntityEmission == null, '项目（以项目方式计算）不调取格澜主体排放');
+    assert(!isFormalEconomyDirectEligible(f, newId), '项目（以项目方式计算）不适用经济法直算');
+  }
+});
+Store.submitAllCollectData(newId);
+Store.getFormalList(newId).forEach(f => {
+  const label = candidateAccountingTypeLabel(formalLedgerRow(f, newId), { finalizeAccountingType: true });
+  assert(label !== '项目（计算方法待定）', '排放计算阶段不出现计算方法待定');
+  assert(
+    ['非项目', '项目（以项目方式计算）', '项目（以非项目方式计算）'].includes(label),
+    '排放计算阶段核算类型仅为三档终态'
+  );
+});
 const gelanFormal = Store.getFormalList(newId).find(f => f.gelanEntityEmission != null);
 if (gelanFormal) {
   assert(
@@ -118,11 +177,7 @@ assert(provisionedAccounts.length === lockR.provisioned, '碳账户数量与 pro
 const afterLock = Store.getTask(newId);
 assert(afterLock.workflowStep === WORKFLOW_STEP.DATA_COLLECTION, '锁定后 workflowStep=3（第4步数据采集）');
 assert(afterLock.milestone?.formalLocked, 'milestone.formalLocked');
-const ecoPending = Store.getFormalList(newId).filter(f => {
-  const mode = f.collectMode || resolveCollectMode(f.loanType);
-  return f.status === 'confirmed' && mode === 'economy_direct' && f.economyDirectStatus !== 'done'
-    && Store.getFormalEntityEmission(newId, f.id) == null;
-});
+const ecoPending = Store.getFormalList(newId).filter(f => isFormalEconomyDirectEligible(f, newId));
 if (ecoPending.length) {
   const n = Store.runEconomyDirectCalc(newId, ecoPending.map(f => f.id));
   assert(n === ecoPending.length, '经济法直算处理尚无主体排放的待直算记录');

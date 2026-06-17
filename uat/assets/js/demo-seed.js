@@ -46,6 +46,174 @@ const DemoSeed = {
     }];
   },
 
+  /** 格澜 mock：信用代码末两位 %5===0 则无数据；演示用 */
+  _gelanDemoCreditCode(seq, gelanHasData) {
+    const tail = gelanHasData ? (11 + (seq % 4)) : (10 + (seq % 3) * 5);
+    return `91110109MA01${String(seq).padStart(2, '0')}${String(tail).padStart(2, '0')}X`;
+  },
+
+  /** 接口同步候选：非项目且非必收数时交替分配格澜有/无数据信用代码 */
+  _syncCreditCodeForGelan(idx, loanType, bizType) {
+    const mandatory = (GUIDE.MANDATORY_COLLECT_LOAN_TYPES || []).some(t => (loanType || '').includes(t));
+    if (bizType !== 'non_project' || mandatory) {
+      return '91' + String(110000 + idx).slice(0, 6) + 'MA' + String(idx).padStart(4, '0') + 'X';
+    }
+    return this._gelanDemoCreditCode(idx % 100, idx % 2 === 1);
+  },
+
+  /** 数据采集演示切片：锁定后未调格澜，含「格澜有数据 + 格澜无数据待直算」 */
+  buildDataCollectDemoSlice() {
+    const taskId = 'T2026002';
+    const year = 2026;
+    const specs = [
+      { id: 'DC01', name: '华电发电有限公司（格澜有数据）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '北京分行', manager: '王磊' },
+      { id: 'DC02', name: '宝钢炼钢有限公司（格澜有数据）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: true, branch: '上海分行', manager: '陈静' },
+      { id: 'DC03', name: '河钢主体客户（格澜无·待直算）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' },
+      { id: 'DC04', name: '万华化学主体（格澜无·待直算）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '深圳分行', manager: '刘洋' },
+      { id: 'DC05', name: '紫金矿业主体（格澜无·待直算）', loanType: '个人经营性贷款', biz: 'non_project', gelan: false, branch: '杭州分行', manager: '赵敏' },
+      { id: 'DC06', name: '鞍钢炼铁项目（须补录）', loanType: '出口退税账户托管贷款', biz: 'project', gelan: null, branch: '北京分行', manager: '王磊', project: false },
+      { id: 'DC07', name: '国电基建项目（以项目计算）', loanType: '一般性固定资产贷款', biz: 'project', gelan: null, branch: '上海分行', manager: '陈静', project: true },
+      { id: 'DC08', name: '贴现必收客户', loanType: '商票贴现-申请人一般授信（金融市场部）', biz: 'non_project', gelan: null, mandatory: true, branch: '南京分行', manager: '周强' },
+      { id: 'DC09', name: '海螺水泥主体（格澜有数据）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '成都分行', manager: '李娜' },
+      { id: 'DC10', name: '中石化主体（格澜无·待直算）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' }
+    ];
+    const candidates = specs.map((s, i) => {
+      const major = s.biz === 'project' ? (s.project ? '电力' : '钢铁') : ['钢铁', '化工', '有色', '建材', '石化'][i % 5];
+      const code = (CandidateSync.CODE_MAP[major] || ['C3120'])[0];
+      const avgMonthlyBalance = 1200 + i * 180;
+      const projectDetails = s.project ? [{
+        projectNo: `PRJ${year}${String(i + 1).padStart(4, '0')}`,
+        projectName: `${s.name.replace(/（.*?）/, '')}绿色升级`,
+        projectProvince: s.branch.replace('分行', ''),
+        projectIndustry: major,
+        customerNo: `KH${String(200000 + i)}`,
+        customerName: s.name,
+        creditCode: this._gelanDemoCreditCode(50 + i, true),
+        nationalIndustryCodeLv4: code,
+        projectAvgLoanBalanceWan: avgMonthlyBalance,
+        projectRevenueWan: avgMonthlyBalance * 8,
+        projectTotalInvestmentWan: avgMonthlyBalance * 120
+      }] : [];
+      const creditCode = s.gelan === true ? this._gelanDemoCreditCode(i, true)
+        : (s.gelan === false ? this._gelanDemoCreditCode(i, false) : `91310000DC${String(i).padStart(4, '0')}99X`);
+      return {
+        id: 'C' + s.id,
+        taskId,
+        customerName: s.name,
+        customerScale: i % 3 === 0 ? '中型企业' : '大型企业',
+        creditCode,
+        gbIndustryCode: code,
+        gbIndustryName: major,
+        industryMajor: major,
+        industryLabel: `${code} ${major}`,
+        borrowerType: '有限责任公司',
+        productType: s.loanType,
+        loanType: s.loanType,
+        bizType: s.biz,
+        accountingType: s.biz === 'project'
+          ? (s.project ? 'project_as_project' : null)
+          : 'non_project',
+        projectInfoAvailable: s.project ? true : null,
+        tier1Branch: s.branch,
+        handlingBranch: s.branch.replace('分行', '') + '营业部',
+        loanAccount: '622' + String(8800000000000 + i * 9973).slice(0, 13),
+        disbursementAmount: avgMonthlyBalance * 10000 * 10,
+        disbursementDate: `${year}-06-${String(10 + i).padStart(2, '0')}`,
+        operatingRevenue: avgMonthlyBalance * 7,
+        projectTotalInvestmentWan: projectDetails[0]?.projectTotalInvestmentWan,
+        projectDetails,
+        avgMonthlyBalance,
+        totalAssets: avgMonthlyBalance * 90,
+        revenue: avgMonthlyBalance * 7,
+        branch: s.branch,
+        manager: s.manager,
+        excluded: false,
+        included: true,
+        accountingYear: year
+      };
+    });
+    const formalList = specs.map((s, i) => {
+      const cand = candidates[i];
+      const collectMode = this._collectMode(s.loanType);
+      return {
+        id: 'F' + s.id,
+        taskId,
+        customerId: cand.id,
+        customerName: s.name,
+        loanType: s.loanType,
+        productType: s.loanType,
+        collectMode,
+        bizType: s.biz,
+        objectType: s.biz === 'project' ? '项目' : '融资主体',
+        boundary: '范围一+范围二',
+        scope1: true,
+        scope2: true,
+        period: '自然年度',
+        accountingType: cand.accountingType,
+        projectInfoAvailable: cand.projectInfoAvailable,
+        projectDetails: cand.projectDetails,
+        gbIndustryCode: cand.gbIndustryCode,
+        industryMajor: cand.industryMajor,
+        industryLabel: cand.industryLabel,
+        tier1Branch: cand.tier1Branch,
+        handlingBranch: cand.handlingBranch,
+        branch: cand.branch,
+        loanAccount: cand.loanAccount,
+        disbursementAmount: cand.disbursementAmount,
+        disbursementDate: cand.disbursementDate,
+        borrowerType: cand.borrowerType,
+        customerScale: cand.customerScale,
+        avgMonthlyBalance: cand.avgMonthlyBalance,
+        operatingRevenue: cand.operatingRevenue,
+        manager: cand.manager,
+        totalInvestment: cand.projectDetails[0]?.projectTotalInvestmentWan,
+        status: 'confirmed',
+        lockedAt: `${year}-06-15`,
+        economyDirectStatus: null,
+        economyDirectAt: null,
+        gelanEntityEmission: null,
+        gelanStatus: null
+      };
+    });
+    const task = {
+      id: taskId,
+      name: '2026年度（数据采集·格澜+直算演示）',
+      year,
+      industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
+      orgScope: '全行',
+      balanceRule: '月均余额',
+      goal: '监管报送',
+      status: 'running',
+      progress: 35,
+      workflowStep: 3,
+      initiatorOrg: 'hq',
+      syncedFromInterface: true,
+      syncedAt: `${year}-06-01 09:00:00`,
+      syncYear: year,
+      syncRecordTotal: 44160,
+      candidateCount: candidates.length,
+      formalCount: formalList.length,
+      supplementDone: 0,
+      supplementTotal: 0,
+      approvalStatus: 'none',
+      createdAt: `${year}-05-20`,
+      createdBy: '张明（总行绿金部）',
+      deadline: '2027-09-30',
+      milestone: { candidatesSynced: true, formalLocked: true }
+    };
+    return { task, candidates, formalList };
+  },
+
+  patchDataCollectGelanEcoDemo(candidates, formalList, tasks) {
+    const slice = this.buildDataCollectDemoSlice();
+    if (tasks.some(t => t.id === slice.task.id)) return;
+    tasks.push(slice.task);
+    candidates.push(...slice.candidates);
+    formalList.push(...slice.formalList);
+  },
+
   build() {
     const taskId = 'T2025001';
     const candidates = CandidateSync.generateBatch(taskId, 48);
@@ -55,7 +223,7 @@ const DemoSeed = {
     this.patchSupplementTestFormals(candidates, formalList, taskId, testCases);
     const supplements = this.buildSupplements(taskId, formalList, testCases);
     this.patchBranchTaskData(candidates, formalList, supplements);
-    const calculations = this.buildCalculations(taskId, formalList, supplements);
+    const calculations = this.buildCalculations(taskId, formalList, supplements, candidates);
     const reports = this.buildReports(taskId, calculations);
     const approvals = this.buildApprovals(taskId, supplements, formalList, calculations);
     const dqr = this.calcDqrPreview(calculations);
@@ -64,6 +232,8 @@ const DemoSeed = {
       name: '2024年度投融资碳排放核算',
       year: 2024,
       industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
       orgScope: '全行',
       balanceRule: '月均余额',
       balanceThreshold: 500,
@@ -110,6 +280,8 @@ const DemoSeed = {
         name: '2023年度投融资碳排放核算（已完成）',
         year: 2023,
         industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
         orgScope: '全行',
         status: 'closed',
         resultsConfirmed: true,
@@ -130,8 +302,11 @@ const DemoSeed = {
       .filter(b => b.dataYear === mainTask.year && b.status === 'success')
       .reduce((sum, b) => sum + (b.recordCount || 0), 0);
 
+    const tasks = this.buildTasks(mainTask, completedTask);
+    this.patchDataCollectGelanEcoDemo(candidates, formalList, tasks);
+
     return {
-      tasks: this.buildTasks(mainTask, completedTask),
+      tasks,
       candidates,
       formalList,
       supplements,
@@ -159,6 +334,8 @@ const DemoSeed = {
         name: '2024年度（分行发起·补录进行中）',
         year: 2024,
         industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
         orgScope: '北京分行',
         balanceRule: '月均余额',
         goal: '监管报送',
@@ -186,6 +363,8 @@ const DemoSeed = {
         name: '2025年度（待同步台账）',
         year: 2025,
         industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
         orgScope: '全行',
         balanceRule: '月均余额',
         goal: '内部分析',
@@ -208,6 +387,8 @@ const DemoSeed = {
         name: '2026年度（新建·接口拉取演示）',
         year: 2026,
         industryScope: '八大高碳行业',
+      subjectIndustryScope: '八大高碳行业',
+      investIndustryScope: '八大高碳行业',
         orgScope: '全行',
         balanceRule: '月均余额',
         goal: '监管报送',
@@ -437,7 +618,7 @@ const DemoSeed = {
       totalInvestment: s.inv,
       projectDetails: this._projectDetailsForFormal(s, cand),
       accountingType: cand?.accountingType || (s.biz === 'project'
-        ? (this._projectDetailsForFormal(s, cand).length ? 'project_as_project' : 'project_pending')
+        ? (this._projectDetailsForFormal(s, cand).length ? 'project_as_project' : null)
         : 'non_project'),
       projectInfoAvailable: s.biz === 'project'
         ? (this._projectDetailsForFormal(s, cand).length ? true : null)
@@ -456,6 +637,15 @@ const DemoSeed = {
 
   _bizLabel(bizType) {
     return bizType === 'project' ? '项目' : '非项目';
+  },
+
+  /** 补录矩阵测试用例的企业名称（testCaseLabel 仍保留场景标识） */
+  _supplementTestCompanyName(tc, i) {
+    if (typeof CandidateSync !== 'undefined') {
+      return CandidateSync.formatCompanyName(tc.industryMajor, 880 + i);
+    }
+    const mid = tc.industryMajor === '电力' ? '发电' : (tc.industryMajor === '钢铁' ? '炼钢' : '');
+    return `${tc.sheet}${mid}有限公司`;
   },
 
   getSupplementTestSheets() {
@@ -523,10 +713,12 @@ const DemoSeed = {
       const cid = 'C99' + String(i + 1).padStart(4, '0');
       const fid = 'F99' + String(i + 1).padStart(4, '0');
       const isProject = tc.bizType === 'project';
+      const companyName = this._supplementTestCompanyName(tc, i);
       candidates.push({
         id: cid,
         taskId,
-        customerName: `【补录测试】${tc.label}`,
+        customerName: companyName,
+        testCaseLabel: tc.label,
         creditCode: '91310000TEST' + String(i + 1).padStart(4, '0'),
         gbIndustryCode: tc.gbCode,
         gbIndustryName: tc.gbName,
@@ -549,7 +741,8 @@ const DemoSeed = {
         id: fid,
         taskId,
         customerId: cid,
-        customerName: `【补录测试】${tc.label}`,
+        customerName: companyName,
+        testCaseLabel: tc.label,
         loanType: isProject ? '项目贷款' : '流动资金贷款',
         productType: isProject ? '一般性固定资产贷款' : '短期流动资金贷款',
         collectMode: 'mandatory',
@@ -575,8 +768,7 @@ const DemoSeed = {
         operatingRevenue: 5000 + i * 200,
         totalInvestment: isProject ? 300000 + i * 15000 : null,
         status: 'confirmed',
-        lockedAt: '2025-02-20',
-        testCaseLabel: tc.label
+        lockedAt: '2025-02-20'
       });
       tc.formalId = fid;
       tc.customerId = cid;
@@ -825,10 +1017,20 @@ const DemoSeed = {
     return Object.keys(fieldData).length ? { ...s, fieldData } : s;
   },
 
-  buildCalculations(taskId, formalList, supplements) {
+  buildCalculations(taskId, formalList, supplements, candidates) {
     const qualityLabels = ['', '一级(优)', '二级', '三级', '四级', '五级(兜底)'];
+    const splitEmission = (f, entity, d) => {
+      const payload = { entityEmission: entity };
+      if (typeof applyCalculationEmissionSplit === 'function') {
+        applyCalculationEmissionSplit(payload, f, taskId, entity, d || { candidates: candidates || [] });
+      }
+      return payload;
+    };
+    const mockD = { candidates: candidates || [] };
     return formalList.map((f, i) => {
       const s = supplements.find(x => x.formalId === f.id);
+      const acct = f.accountingType
+        || (Array.isArray(f.projectDetails) && f.projectDetails.length ? 'project_as_project' : 'non_project');
       if (f.collectMode === 'economy_direct' && f.economyDirectStatus === 'done') {
         const revenue = 400000 + i * 15000;
         const factor = 2.35;
@@ -838,11 +1040,13 @@ const DemoSeed = {
         const attr = f.bizType === 'project'
           ? Math.round(entity * (balance / (f.totalInvestment || 500000)))
           : Math.round(entity * (balance / assets));
+        const split = splitEmission(f, entity, mockD);
         return {
           id: 'CAL' + String(i + 1).padStart(3, '0'),
           taskId, formalId: f.id, customerName: f.customerName, bizType: f.bizType,
           industryMajor: f.industryMajor, method: '经济活动法', methodId: 'economy',
-          entityEmission: entity, avgBalance: balance, totalAssets: assets,
+          ...split,
+          avgBalance: balance, totalAssets: assets,
           attributedEmission: attr, totalEmission: entity, industryFactor: factor,
           qualityGrade: 4, quality: '四级', source: 'economy_direct',
           status: 'done', approvalStatus: 'none', calculatedAt: f.economyDirectAt || '2025-03-01'
@@ -857,6 +1061,8 @@ const DemoSeed = {
         : Math.round(entity * (balance / (s?.totalAssets || 800000)));
       const grade = m?.qualityGrade || (fallback ? 5 : 3);
       const status = i < 25 ? 'done' : (i === 25 ? 'warning' : 'pending');
+      const split = status === 'pending' ? {} : splitEmission({ ...f, accountingType: acct }, entity, mockD);
+      const projectLegal = acct === 'project_as_project' && i % 4 === 0 ? Math.round(entity * 0.12) : null;
       return {
         id: 'CAL' + String(i + 1).padStart(3, '0'),
         taskId,
@@ -867,6 +1073,8 @@ const DemoSeed = {
         method: fallback ? '其他计算法' : (m?.name || '-'),
         methodId: fallback ? 'economy_fallback' : s?.methodId,
         entityEmission: status === 'pending' ? null : entity,
+        legalEntityEmission: status === 'pending' ? null : (split.legalEntityEmission ?? (acct === 'project_as_project' ? projectLegal : entity)),
+        projectEntityEmission: status === 'pending' ? null : (split.projectEntityEmission ?? (acct === 'project_as_project' ? entity : null)),
         totalEmission: status === 'pending' ? null : entity,
         avgBalance: balance,
         totalAssets: s?.totalAssets,
