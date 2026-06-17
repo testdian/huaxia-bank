@@ -618,8 +618,12 @@ tr.row-excluded .badge { opacity: .85; }
   color: #606266;
   font-size: 13px;
 }
-.ca-profile-supplement .method-tabs-bar .tab {
+.ca-profile-supplement.is-readonly .method-tabs-bar .tab {
   pointer-events: none;
+  cursor: default;
+}
+.ca-profile-supplement:not(.is-readonly) .method-tabs-bar .tab {
+  cursor: pointer;
 }
 .project-detail-wrap {
   border: 1px solid #dbe7ff;
@@ -850,6 +854,10 @@ tr.row-excluded .badge { opacity: .85; }
 }
 .ca-year-toolbar .ca-year-tabs {
   flex-wrap: wrap;
+  margin-bottom: 0;
+}
+.ca-profile-page-actions {
+  margin-top: 16px;
   margin-bottom: 0;
 }
 .ca-year-toolbar .ca-year-tabs .tab {

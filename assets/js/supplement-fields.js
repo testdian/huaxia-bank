@@ -129,9 +129,10 @@ window.SUPPLEMENT_FIELDS = {
     return `<select id="${id}" ${dis}>${opts}</select>`;
   },
 
-  renderBasicInfo(s, dis) {
+  renderBasicInfo(s, dis, basicEditable = false) {
     const ctx = this.getContext(s);
     const formal = ctx.formal;
+    const basicDis = basicEditable ? '' : 'disabled';
     const projectSeed = (Array.isArray(formal?.projectDetails) && formal.projectDetails[0])
       || (Array.isArray(s.projectDetails) && s.projectDetails[0])
       || {};
@@ -140,9 +141,9 @@ window.SUPPLEMENT_FIELDS = {
       : (s.projectInfoAvailable === false ? 'no' : '');
     const projectVal = (key, fallback = '') => this.val(projectInfo, key, projectSeed?.[key] ?? fallback);
     return `
-      <div class="form-item"><label>客户名称</label><input value="${s.customerName || '—'}" disabled></div>
-      <div class="form-item"><label>所属行业</label><input value="${ctx.industryMajor}" disabled></div>
-      <div class="form-item"><label>业务类型</label><input value="${this.bizTypeLabel(ctx.bizType)}" disabled></div>
+      <div class="form-item"><label>客户名称</label><input id="f_customer_name" value="${s.customerName || ''}" ${basicDis}></div>
+      <div class="form-item"><label>所属行业</label><input id="f_industry_major" value="${ctx.industryMajor}" ${basicDis}></div>
+      <div class="form-item"><label>业务类型</label><input id="f_biz_type" value="${this.bizTypeLabel(ctx.bizType)}" ${basicDis}></div>
       ${ctx.isProject ? `<div class="form-item"><label>是否可提供项目信息</label>
         <select id="f_project_info_available" ${dis}>
           <option value="" ${projectInfoAvailable === '' ? 'selected' : ''}>请选择</option>
@@ -436,6 +437,8 @@ window.SUPPLEMENT_FIELDS = {
   collectFormData(tab, rootEl, supplement) {
     const tpl = this.resolveTemplate(supplement);
     const payload = {
+      customerName: txtVal('#f_customer_name', rootEl) || supplement.customerName,
+      industryMajor: txtVal('#f_industry_major', rootEl) || supplement.industryMajor,
       totalAssets: numVal('#f_total_assets', rootEl),
       revenue: numVal('#f_revenue', rootEl),
       avgLoanBalance: numVal('#f_avg_loan', rootEl),

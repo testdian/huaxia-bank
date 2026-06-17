@@ -2,7 +2,32 @@
  * 企业碳账户：法人+贷款号建档，核算确认后挂载排放记录；总行/分行按一级分行过滤
  */
 const CarbonAccount = {
-  ACCOUNT_STATUS_LABEL: { active: '启用', disabled: '停用', cancelled: '注销' },
+  ACCOUNT_STATUS_LABEL: { active: '正常', disabled: '停用', cancelled: '注销' },
+
+  isAccountActive(acc) {
+    return (acc?.status || 'active') === 'active';
+  },
+
+  getProjectSubAccountCount(acc) {
+    const subs = acc?.projectSubAccounts?.length
+      ? acc.projectSubAccounts
+      : (acc?.projectDetails || []);
+    return subs.length;
+  },
+
+  appendOperationLog(acc, entry) {
+    if (!acc) return;
+    if (!acc.operationLogs) acc.operationLogs = [];
+    acc.operationLogs.push({
+      at: new Date().toLocaleString('zh-CN'),
+      ...entry
+    });
+  },
+
+  resolveOperatorLabel(operatorKey) {
+    const role = typeof ROLES !== 'undefined' ? ROLES[operatorKey] : null;
+    return role ? `${role.label}（${role.user}）` : (operatorKey || '系统');
+  },
 
   /** 企业碳账户「核算方法」展示枚举 */
   METHOD_LABEL: {
@@ -39,7 +64,7 @@ const CarbonAccount = {
         { next: 'cancelled', label: '注销' }
       ];
     }
-    if (s === 'disabled') return [{ next: 'active', label: '启用' }];
+    if (s === 'disabled') return [{ next: 'active', label: '恢复' }];
     return [];
   },
 
@@ -400,6 +425,7 @@ const CarbonAccount = {
       const cand = (d.candidates || []).find(c =>
         c.id === (formal?.customerId || acc.customerId)
       );
+      const enterpriseName = this.resolveEnterpriseDisplayName(cand, formal, acc);
       const projects = (Array.isArray(acc.projectDetails) && acc.projectDetails.length
         ? acc.projectDetails
         : resolveFormalProjectDetails(formal || acc, cand));
@@ -408,7 +434,7 @@ const CarbonAccount = {
         accountId: acc.id,
         isSubAccount: false,
         year: String(year),
-        customerName: acc.customerName || '-',
+        customerName: enterpriseName,
         creditCode: acc.creditCode || '-',
         customerNo: metrics.customerNo || '-',
         method: metrics.method || '-',
@@ -428,7 +454,7 @@ const CarbonAccount = {
             isSubAccount: true,
             projectNo: p.projectNo || ('P' + (idx + 1)),
             year: String(year),
-            customerName: p.customerName || p.projectName || acc.customerName,
+            customerName: p.customerName || enterpriseName,
             creditCode: p.creditCode || acc.creditCode || '-',
             customerNo: p.customerNo || metrics.customerNo || '-',
             method: subProfile.methodLabel || subProfile.method || metrics.methodLabel || metrics.method || '-',
@@ -441,6 +467,79 @@ const CarbonAccount = {
       }
     });
     return rows;
+  },
+
+  _isInvalidDemoCustomerName(name) {
+    if (!name || name === '-') return true;
+    return /样本|【补录测试】|配套工程|项目子账户|演示客户/.test(name)
+      || /(北京|上海|深圳|杭州|南京|成都).{0,3}样本/.test(name);
+  },
+
+  _formatDemoCompanyName(major, idx) {
+    if (typeof CandidateSync !== 'undefined') {
+      return CandidateSync.formatCompanyName(major, idx);
+    }
+    const roots = ['华能', '国电', '大唐', '宝钢', '河钢', '万华', '中建', '海螺'];
+    const mid = major === '电力' ? '发电' : (major === '钢铁' ? '炼钢' : '');
+    return `${roots[idx % roots.length]}${mid}有限公司`;
+  },
+
+  resolveEnterpriseDisplayName(cand, formal, acc) {
+    const pick = [cand?.customerName, formal?.customerName, acc?.customerName];
+    for (const n of pick) {
+      if (n && !this._isInvalidDemoCustomerName(n)) return n;
+    }
+    const major = formal?.industryMajor || acc?.industryMajor || cand?.industryMajor || '电力';
+    const idx = parseInt(String(acc?.id || formal?.id || cand?.id || '0').replace(/\D/g, ''), 10) || 0;
+    return this._formatDemoCompanyName(major, idx);
+  },
+
+  fixInvalidLedgerCustomerNames(d) {
+    const majors = (typeof GUIDE !== 'undefined' && GUIDE.INDUSTRIES)
+      ? GUIDE.INDUSTRIES.map(i => i.major)
+      : ['电力', '钢铁', '建材', '化工', '有色', '石化', '造纸', '民航'];
+    (d.formalList || []).forEach((f, i) => {
+      if (!this._isInvalidDemoCustomerName(f.customerName)) return;
+      const idx = parseInt(String(f.id || i).replace(/\D/g, ''), 10) || (880 + i);
+      const name = this._formatDemoCompanyName(f.industryMajor || majors[i % majors.length], idx);
+      f.customerName = name;
+      const cand = (d.candidates || []).find(c => c.id === f.customerId);
+      if (cand && this._isInvalidDemoCustomerName(cand.customerName)) cand.customerName = name;
+      (d.supplements || []).filter(s => s.formalId === f.id).forEach(s => {
+        if (this._isInvalidDemoCustomerName(s.customerName)) s.customerName = name;
+      });
+    });
+  },
+
+  /** 从台账同步企业名称，并修正批量演示中的非规范名称 */
+  syncCustomerNamesFromLedger(d) {
+    this.fixInvalidLedgerCustomerNames(d);
+    const majors = (typeof GUIDE !== 'undefined' && GUIDE.INDUSTRIES)
+      ? GUIDE.INDUSTRIES.map(i => i.major)
+      : ['电力', '钢铁', '建材', '化工', '有色', '石化', '造纸', '民航'];
+    (d.carbonAccounts || []).forEach((acc, i) => {
+      const formal = (d.formalList || []).find(f => f.id === acc.formalId);
+      const cand = formal
+        ? (d.candidates || []).find(c => c.id === formal.customerId)
+        : (d.candidates || []).find(c => c.creditCode === acc.creditCode && c.loanAccount === acc.loanAccount);
+      let name = this.resolveEnterpriseDisplayName(cand, formal, acc);
+      if (!name || this._isInvalidDemoCustomerName(name)) {
+        const major = acc.industryMajor || formal?.industryMajor || majors[i % majors.length];
+        const idx = parseInt(String(acc.id || i).replace(/\D/g, ''), 10) || i;
+        name = this._formatDemoCompanyName(major, idx);
+      }
+      acc.customerName = name;
+      if (formal && this._isInvalidDemoCustomerName(formal.customerName)) formal.customerName = name;
+      if (cand && this._isInvalidDemoCustomerName(cand.customerName)) cand.customerName = name;
+      (acc.projectDetails || []).forEach(p => {
+        if (!p.customerName || p.customerName === p.projectName || this._isInvalidDemoCustomerName(p.customerName)) {
+          p.customerName = name;
+        }
+      });
+      (d.carbonAccountRecords || []).filter(r => r.accountId === acc.id).forEach(r => {
+        if (name) r.customerName = name;
+      });
+    });
   },
 
   /** 格澜/直算等写入任务数据后，同步更新企业碳账户年度主体排放 */
@@ -497,6 +596,144 @@ const CarbonAccount = {
       }));
     }
     return acc;
+  },
+
+  /** 手工保存碳账户档案（账户列表「编辑」入口） */
+  saveAccountProfile(d, accountId, year, subProjectNo, payload, operator) {
+    const acc = (d.carbonAccounts || []).find(a => a.id === accountId);
+    if (!acc || !payload) return null;
+    if (!this.isAccountActive(acc)) return null;
+    const yearStr = String(year || new Date().getFullYear());
+    const methodLabel = payload.methodLabel || '-';
+    const methodId = this._methodIdFromLabel(methodLabel);
+    const reportDetail = payload.reportDetail || null;
+    const profilePatch = {
+      entityEmission: payload.entityEmission,
+      method: methodLabel,
+      methodLabel,
+      methodId: payload.methodId || methodId,
+      customerNo: payload.customerNo,
+      source: 'manual',
+      updatedAt: new Date().toLocaleString('zh-CN'),
+      reportDetail
+    };
+    if (payload.supplementSnapshot) {
+      profilePatch.supplementSnapshot = payload.supplementSnapshot;
+    }
+
+    if (subProjectNo) {
+      const sub = (acc.projectSubAccounts || []).find(x => String(x.projectNo) === String(subProjectNo));
+      if (sub) {
+        if (!sub.annualProfiles) sub.annualProfiles = {};
+        sub.annualProfiles[yearStr] = { ...(sub.annualProfiles[yearStr] || {}), ...profilePatch };
+        if (payload.customerName) sub.customerName = payload.customerName;
+        if (payload.creditCode) sub.creditCode = payload.creditCode;
+        if (payload.customerNo) sub.customerNo = payload.customerNo;
+      }
+      const pd = (acc.projectDetails || []).find(p => String(p.projectNo) === String(subProjectNo));
+      if (pd) {
+        if (payload.customerName) pd.customerName = payload.customerName;
+        if (payload.creditCode) pd.creditCode = payload.creditCode;
+        if (payload.customerNo) pd.customerNo = payload.customerNo;
+      }
+    } else {
+      if (payload.customerName) acc.customerName = payload.customerName;
+      if (payload.creditCode) acc.creditCode = payload.creditCode;
+      if (payload.customerNo) acc.customerNo = payload.customerNo;
+      if (!acc.annualProfiles) acc.annualProfiles = {};
+      acc.annualProfiles[yearStr] = { ...(acc.annualProfiles[yearStr] || {}), ...profilePatch };
+    }
+
+    (d.carbonAccountRecords || []).forEach(r => {
+      if (r.accountId !== accountId || String(r.year) !== yearStr) return;
+      if (payload.entityEmission != null) r.entityEmission = payload.entityEmission;
+      if (methodLabel) r.method = methodLabel;
+    });
+    acc.profileEditedAt = new Date().toLocaleString('zh-CN');
+    const subLabel = subProjectNo ? `项目子账户 ${subProjectNo}` : '主账户';
+    this.appendOperationLog(acc, {
+      action: 'profile_edit',
+      actionLabel: '档案编辑',
+      summary: `${yearStr} 年度${subLabel}档案已更新`,
+      operator: operator || '系统',
+      year: yearStr,
+      subProjectNo: subProjectNo || null,
+      detail: {
+        customerName: payload.customerName,
+        methodLabel: payload.methodLabel,
+        entityEmission: payload.entityEmission
+      }
+    });
+    return acc;
+  },
+
+  /** 变更账户状态（主账户与项目子账户同步） */
+  transitionAccountStatus(d, accountId, nextStatus, operatorKey) {
+    const acc = (d.carbonAccounts || []).find(a => a.id === accountId);
+    if (!acc) return { ok: false, message: '未找到碳账户' };
+    const cur = acc.status || 'active';
+    if (!this.canTransitionStatus(cur, nextStatus)) {
+      return { ok: false, message: '当前状态不允许该操作' };
+    }
+    const operator = this.resolveOperatorLabel(operatorKey);
+    const subCount = this.getProjectSubAccountCount(acc);
+    const at = new Date().toLocaleString('zh-CN');
+    if (!acc.statusHistory) acc.statusHistory = [];
+    acc.statusHistory.push({ from: cur, to: nextStatus, at, operator });
+    const toLabel = this.ACCOUNT_STATUS_LABEL[nextStatus] || nextStatus;
+    const fromLabel = this.ACCOUNT_STATUS_LABEL[cur] || cur;
+    const subRemark = subCount > 0 ? `同步影响 ${subCount} 个项目子账户` : '无项目子账户';
+    this.appendOperationLog(acc, {
+      action: 'status_change',
+      actionLabel: '状态变更',
+      summary: `${fromLabel} → ${toLabel}`,
+      operator,
+      from: cur,
+      to: nextStatus,
+      fromLabel,
+      toLabel,
+      remark: subRemark,
+      subAccountCount: subCount
+    });
+    acc.status = nextStatus;
+    acc.statusChangedAt = at;
+    (acc.projectSubAccounts || []).forEach(sub => {
+      sub.status = nextStatus;
+    });
+    const label = toLabel;
+    return {
+      ok: true,
+      message: subCount > 0
+        ? `账户已${label}（含 ${subCount} 个项目子账户）`
+        : `账户已${label}`
+    };
+  },
+
+  _methodIdFromLabel(label) {
+    const text = String(label || '');
+    if (text.includes('能源')) return 'energy';
+    if (text.includes('产品法')) return 'product';
+    if (text.includes('贷款')) return 'economy_fallback';
+    if (text.includes('营收') || text.includes('经济')) return 'economy';
+    return 'report';
+  },
+
+  getAccountOperationLogs(acc) {
+    const logs = [];
+    (acc?.operationLogs || []).forEach(item => logs.push({ ...item }));
+    if (!logs.length && acc?.statusHistory?.length) {
+      acc.statusHistory.forEach(h => {
+        logs.push({
+          at: h.at,
+          action: 'status_change',
+          actionLabel: '状态变更',
+          summary: `${this.ACCOUNT_STATUS_LABEL[h.from] || h.from || '-'} → ${this.ACCOUNT_STATUS_LABEL[h.to] || h.to || '-'}`,
+          operator: h.operator,
+          remark: '历史记录迁移'
+        });
+      });
+    }
+    return logs.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   },
 
   aggregateBy(records, keyFn) {
@@ -1001,7 +1238,9 @@ const CarbonAccount = {
         const handling = brCfg.handling[k % brCfg.handling.length];
         const creditCode = '91' + String(210000 + i).padStart(6, '0') + 'MA' + String(3000 + i) + 'X';
         const loanAccount = '622' + String(3000000000000 + i * 4999).slice(-13);
-        const customerName = nameRoots[k % nameRoots.length] + tier1.slice(0, 2) + '样本' + k + '有限公司';
+        const customerName = typeof CandidateSync !== 'undefined'
+          ? CandidateSync.formatCompanyName(ind.major, i)
+          : `${nameRoots[k % nameRoots.length]}${ind.major === '电力' ? '发电' : ind.major === '钢铁' ? '炼钢' : ''}有限公司`;
         const acc = ensureAccount({
           creditCode,
           loanAccount,
@@ -1036,8 +1275,9 @@ const CarbonAccount = {
       const handling = br.handling[i % br.handling.length];
       const creditCode = '91' + String(110000 + (i % 900000)).padStart(6, '0') + 'MA' + String(1000 + i).slice(-4) + 'X';
       const loanAccount = '622' + String(2000000000000 + i * 7919).slice(-13);
-      const customerName = nameRoots[i % nameRoots.length] + ['能源', '钢铁', '建材', '化工', '物流', '装备'][i % 6] +
-        ['有限公司', '股份有限公司'][i % 2];
+      const customerName = typeof CandidateSync !== 'undefined'
+        ? CandidateSync.formatCompanyName(ind.major, i)
+        : `${nameRoots[i % nameRoots.length]}${ind.major === '电力' ? '发电' : ind.major === '钢铁' ? '炼钢' : ''}有限公司`;
       const bizType = i % 4 === 0 ? 'project' : 'non_project';
       const row = {
         creditCode,
@@ -1137,31 +1377,24 @@ if (typeof Store !== 'undefined') {
       return this.update(d => CarbonAccount.syncTask(d, taskId));
     },
     setCarbonAccountStatus(accountId, nextStatus, operatorKey) {
-      const d = this.get();
-      const acc = (d.carbonAccounts || []).find(a => a.id === accountId);
-      if (!acc) return { ok: false, message: '未找到碳账户' };
-      const cur = acc.status || 'active';
-      if (!CarbonAccount.canTransitionStatus(cur, nextStatus)) {
-        return { ok: false, message: '当前状态不允许该操作' };
-      }
-      const role = typeof ROLES !== 'undefined' ? ROLES[operatorKey] : null;
-      const operator = role ? `${role.label}（${role.user}）` : (operatorKey || '系统');
-      const at = new Date().toLocaleString('zh-CN');
-      this.update(data => {
-        const a = (data.carbonAccounts || []).find(x => x.id === accountId);
-        if (!a) return;
-        if (!a.statusHistory) a.statusHistory = [];
-        a.statusHistory.push({
-          from: cur,
-          to: nextStatus,
-          at,
-          operator
-        });
-        a.status = nextStatus;
-        a.statusChangedAt = at;
+      let result = { ok: false, message: '状态变更失败' };
+      this.update(d => {
+        result = CarbonAccount.transitionAccountStatus(d, accountId, nextStatus, operatorKey);
       });
-      const label = CarbonAccount.ACCOUNT_STATUS_LABEL[nextStatus] || nextStatus;
-      return { ok: true, message: `账户已${label}` };
+      return result;
+    },
+    saveCarbonAccountProfile(accountId, year, subProjectNo, payload, operatorKey) {
+      if (!accountId || !payload) return { ok: false, message: '缺少保存数据' };
+      const acc = this.getCarbonAccount(accountId);
+      if (!acc) return { ok: false, message: '未找到碳账户' };
+      if (!CarbonAccount.isAccountActive(acc)) {
+        return { ok: false, message: '仅正常状态账户可编辑' };
+      }
+      const operator = CarbonAccount.resolveOperatorLabel(operatorKey);
+      this.update(d => {
+        CarbonAccount.saveAccountProfile(d, accountId, year, subProjectNo, payload, operator);
+      });
+      return { ok: true, message: '账户档案已保存' };
     },
     _migrateCarbonAccounts(d) {
       if (!d.carbonAccounts) d.carbonAccounts = [];
@@ -1174,6 +1407,19 @@ if (typeof Store !== 'undefined') {
         d.carbonAccounts,
         d.carbonAccountRecords
       );
+      (d.carbonAccounts || []).forEach(acc => {
+        if (!acc.status) acc.status = 'active';
+        if (!acc.operationLogs?.length && acc.statusHistory?.length) {
+          acc.operationLogs = acc.statusHistory.map(h => ({
+            at: h.at,
+            action: 'status_change',
+            actionLabel: '状态变更',
+            summary: `${CarbonAccount.ACCOUNT_STATUS_LABEL[h.from] || h.from || '-'} → ${CarbonAccount.ACCOUNT_STATUS_LABEL[h.to] || h.to || '-'}`,
+            operator: h.operator,
+            remark: '历史记录迁移'
+          }));
+        }
+      });
       CarbonAccount.backfillProvisionFromLockedFormals(d);
       const needsBackfill = d.carbonAccounts.length < 50;
       if (needsBackfill) CarbonAccount.backfillAll(d);
@@ -1187,6 +1433,7 @@ if (typeof Store !== 'undefined') {
         d.carbonAccounts,
         d.carbonAccountRecords
       );
+      CarbonAccount.syncCustomerNamesFromLedger(d);
     }
   });
 
@@ -1205,6 +1452,7 @@ if (typeof Store !== 'undefined') {
     });
     s.carbonAccounts = bulk.carbonAccounts;
     s.carbonAccountRecords = bulk.carbonAccountRecords;
+    CarbonAccount.syncCustomerNamesFromLedger(s);
   })();
 
   (function migrateCarbonAccountsOnce() {
@@ -1215,9 +1463,11 @@ if (typeof Store !== 'undefined') {
       d.carbonAccounts || [],
       d.carbonAccountRecords || []
     );
+    CarbonAccount.syncCustomerNamesFromLedger(d);
     if ((d.carbonAccountRecords || []).length < 1500) {
       Store._migrateCarbonAccounts(d);
     }
+    CarbonAccount.syncCustomerNamesFromLedger(d);
     Store.set(d);
   })();
 }

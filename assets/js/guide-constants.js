@@ -31,7 +31,6 @@ window.GUIDE = {
   ACCOUNTING_TYPES: [
     { id: 'non_project', label: '非项目' },
     { id: 'project_as_project', label: '项目（以项目方式计算）' },
-    { id: 'project_pending', label: '项目（计算方法待定）' },
     { id: 'project_as_non_project', label: '项目（以非项目方式计算）' }
   ],
   /** 业务品种 → 核算类型 id；映射待业务侧配置，配置前列表显示「待配置」 */
@@ -96,6 +95,10 @@ window.GUIDE = {
     '个人独资企业',
     '事业单位'
   ],
+  /** 候选/正式清单 — 客户规模 */
+  CUSTOMER_SCALES: ['大型企业', '中型企业', '小微企业'],
+  /** 默认筛选：与指引核算范畴一致，不含小微企业 */
+  SCOPE_DEFAULT_CUSTOMER_SCALES: ['大型企业', '中型企业'],
   QUALITY_LEVELS: [
     { max: 1.5, label: '优秀' },
     { max: 2.0, label: '良好' },

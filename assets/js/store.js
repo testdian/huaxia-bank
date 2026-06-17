@@ -52,7 +52,7 @@ const Store = {
     } catch { /* ignore */ }
   },
 
-  /** 按当前规则刷新候选/正式清单上的核算类型（兼容旧 localStorage） */
+  /** 按当前规则刷新候选/正式清单上的核算类型（兼容旧 localStorage，清除 project_pending） */
   _refreshAccountingTypes() {
     const raw = localStorage.getItem(this.KEY);
     if (!raw || typeof resolveAccountingType !== 'function') return;
@@ -60,6 +60,10 @@ const Store = {
       const d = JSON.parse(raw);
       let changed = false;
       (d.candidates || []).forEach(c => {
+        if (c.accountingType === 'project_pending') {
+          c.accountingType = null;
+          changed = true;
+        }
         const next = resolveAccountingType(c);
         if (next && c.accountingType !== next) {
           c.accountingType = next;
@@ -67,6 +71,10 @@ const Store = {
         }
       });
       (d.formalList || []).forEach(f => {
+        if (f.accountingType === 'project_pending') {
+          f.accountingType = null;
+          changed = true;
+        }
         const next = resolveAccountingType(f);
         if (next && f.accountingType !== next) {
           f.accountingType = next;
@@ -77,7 +85,33 @@ const Store = {
     } catch { /* ignore */ }
   },
 
-  /** 保障演示数据存在“项目（计算方法待定）”样本 */
+  /** 进入排放计算后，将待定项目类核算类型定档为三档终态之一（仅用内存数据，避免 init 递归） */
+  _finalizeFormalAccountingType(d, f, taskId) {
+    if (!f || typeof finalizeAccountingType !== 'function') return;
+    const cand = d.candidates.find(c => c.id === f.customerId);
+    const row = {
+      ...(cand || {}),
+      ...f,
+      projectDetails: f.projectDetails ?? cand?.projectDetails,
+      projectInfoAvailable: f.projectInfoAvailable ?? cand?.projectInfoAvailable,
+      projectInfo: f.projectInfo ?? cand?.projectInfo,
+      loanType: f.loanType ?? cand?.loanType,
+      productType: f.productType ?? cand?.productType,
+      bizType: f.bizType ?? cand?.bizType
+    };
+    const next = finalizeAccountingType(row);
+    if (!next) return;
+    if (f.accountingType !== next) f.accountingType = next;
+    if (cand && cand.accountingType !== next) cand.accountingType = next;
+  },
+
+  _finalizeTaskAccountingTypes(d, taskId) {
+    d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed').forEach(f => {
+      this._finalizeFormalAccountingType(d, f, taskId);
+    });
+  },
+
+  /** 保障演示数据存在「项目类待补录定档」样本（无 project_pending 枚举） */
   _ensureProjectPendingSamples() {
     const raw = localStorage.getItem(this.KEY);
     if (!raw) return;
@@ -99,12 +133,12 @@ const Store = {
       targetCandidates.forEach(c => {
         c.projectDetails = [];
         c.projectInfoAvailable = null;
-        c.accountingType = 'project_pending';
+        c.accountingType = null;
         const relatedFormals = d.formalList.filter(f => f.customerId === c.id);
         relatedFormals.forEach(f => {
           f.projectDetails = [];
           f.projectInfoAvailable = null;
-          f.accountingType = 'project_pending';
+          f.accountingType = null;
         });
       });
       localStorage.setItem(this.KEY, JSON.stringify(d));
@@ -112,6 +146,9 @@ const Store = {
   },
 
   init() {
+    if (this._initRunning) return;
+    this._initRunning = true;
+    try {
     this._ensureInterfaces();
     this._migrateReportPdfToWord();
     if (!localStorage.getItem(this.KEY)) {
@@ -126,8 +163,139 @@ const Store = {
     }
     this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
+    this._migrateFinalizedAccountingTypes();
+    this._migrateCalculationEmissionSplit();
+    this._ensureDataCollectDemoTask();
+    this._migrateTaskIndustryScopes();
+    this._migrateCandidateCustomerScale();
     this._migrateCarbonAccountProvision();
     this._migrateCarbonAccountProjectDetails();
+    this._migrateCarbonAccountCustomerNames();
+    } finally {
+      this._initRunning = false;
+    }
+  },
+
+  /** 已进入排放计算的任务：核算类型定档为三档终态 */
+  _migrateFinalizedAccountingTypes() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof finalizeAccountingType !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._accountingTypeFinalizedMigrated) return;
+      let changed = false;
+      const calcTaskIds = new Set((d.calculations || []).map(c => c.taskId).filter(Boolean));
+      (d.tasks || []).forEach(t => {
+        const inCalc = calcTaskIds.has(t.id)
+          || (t.workflowStep != null && t.workflowStep >= (WORKFLOW_STEP?.CALCULATION ?? 4))
+          || t.milestone?.calculationDone
+          || t.dataCollectSubmitted;
+        if (!inCalc) return;
+        d.formalList.filter(f => f.taskId === t.id && f.status === 'confirmed').forEach(f => {
+          const before = f.accountingType;
+          this._finalizeFormalAccountingType(d, f, t.id);
+          if (f.accountingType !== before) changed = true;
+        });
+      });
+      d._accountingTypeFinalizedMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 计算记录拆分法人主体排放 / 项目主体排放（兼容旧数据） */
+  _migrateCalculationEmissionSplit() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof applyCalculationEmissionSplit !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      (d.calculations || []).forEach(calc => {
+        if (calc.entityEmission == null) return;
+        const f = (d.formalList || []).find(x => x.id === calc.formalId && x.taskId === calc.taskId);
+        if (!f) return;
+        const before = `${calc.legalEntityEmission}|${calc.projectEntityEmission}`;
+        applyCalculationEmissionSplit(calc, f, calc.taskId, calc.entityEmission, d);
+        const after = `${calc.legalEntityEmission}|${calc.projectEntityEmission}`;
+        if (before !== after) changed = true;
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 补入数据采集·格澜+直算演示任务（兼容已有 localStorage） */
+  _ensureDataCollectDemoTask() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || !DemoSeed.buildDataCollectDemoSlice) return;
+    try {
+      const d = JSON.parse(raw);
+      const slice = DemoSeed.buildDataCollectDemoSlice();
+      if ((d.tasks || []).some(t => t.id === slice.task.id)) return;
+      d.tasks.push(slice.task);
+      d.candidates.push(...slice.candidates);
+      d.formalList.push(...slice.formalList);
+      if (typeof CarbonAccount !== 'undefined') {
+        CarbonAccount.provisionFromFormalLock(d, slice.task.id, slice.formalList);
+      }
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 补全候选/正式清单客户规模字段 */
+  _migrateCandidateCustomerScale() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof candidateCustomerScale !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      (d.candidates || []).forEach(c => {
+        const next = candidateCustomerScale(c);
+        if (c.customerScale !== next) {
+          c.customerScale = next;
+          changed = true;
+        }
+      });
+      (d.formalList || []).forEach(f => {
+        const cand = (d.candidates || []).find(c => c.id === f.customerId);
+        const next = f.customerScale || cand?.customerScale || candidateCustomerScale({ ...f, ...cand });
+        if (f.customerScale !== next) {
+          f.customerScale = next;
+          changed = true;
+        }
+      });
+      (d.tasks || []).forEach(t => {
+        const rules = t.candidateFilterRules;
+        if (!rules || rules.customized === true) return;
+        if (rules.customerScales == null) {
+          t.candidateFilterRules = getDefaultCandidateFilterRules(t);
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 兼容旧任务：将 industryScope 拆分为所属/投向行业范围 */
+  _migrateTaskIndustryScopes() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof normalizeTaskIndustryFields !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      (d.tasks || []).forEach(t => {
+        const before = JSON.stringify({
+          subjectIndustryScope: t.subjectIndustryScope,
+          investIndustryScope: t.investIndustryScope,
+          industryScope: t.industryScope
+        });
+        normalizeTaskIndustryFields(t);
+        if (JSON.stringify({
+          subjectIndustryScope: t.subjectIndustryScope,
+          investIndustryScope: t.investIndustryScope,
+          industryScope: t.industryScope
+        }) !== before) changed = true;
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
   },
 
   /** 补全项目贷款 projectDetails / loanAccount，并重建碳账户子账户数据 */
@@ -182,6 +350,20 @@ const Store = {
       if (d._carbonProvisionMigrated) return;
       CarbonAccount.backfillProvisionFromLockedFormals(d);
       d._carbonProvisionMigrated = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 同步企业碳账户企业名称（与候选/正式清单一致，修正批量演示脏数据） */
+  _migrateCarbonAccountCustomerNames() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof CarbonAccount === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._carbonCustomerNameSyncedV2) return;
+      CarbonAccount.syncCustomerNamesFromLedger(d);
+      d._carbonCustomerNameSyncedV2 = true;
+      delete d._carbonCustomerNameSyncedV1;
       localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -331,6 +513,9 @@ const Store = {
       : (calc?.attributedEmission != null ? calc.attributedEmission : this.calcAttributedEmission(payload, s || {}));
     const ql = ['', '一级(优)', '二级', '三级', '四级', '五级(兜底)'];
     payload.quality = ql[payload.qualityGrade] || '-';
+    if (typeof applyCalculationEmissionSplit === 'function') {
+      applyCalculationEmissionSplit(payload, f, taskId, payload.entityEmission, d);
+    }
     if (calc) Object.assign(calc, payload);
     else {
       calc = { id: 'CAL' + f.id.replace(/\W/g, ''), ...payload };
@@ -345,6 +530,7 @@ const Store = {
     }
     this.update(d => {
       d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed').forEach(f => {
+        this._finalizeFormalAccountingType(d, f, taskId);
         this._upsertCalculationFromFormal(d, f, taskId);
         this._markFormalCollectDone(d, f, taskId);
       });
@@ -430,7 +616,7 @@ const Store = {
     const task = this.getTask(taskId);
     const r = normalizeCandidateFilterRules(rules, task);
 
-    if (task?.industryScope === '八大高碳行业') {
+    if (task?.subjectIndustryScope === '八大高碳行业' || (!task?.subjectIndustryScope && task?.industryScope === '八大高碳行业')) {
       list = list.filter(c => isCandidateInGuideAccountingScope(c));
     }
     if (r.productTypes?.length) {
@@ -438,6 +624,9 @@ const Store = {
     }
     if (r.borrowerTypes?.length) {
       list = list.filter(c => r.borrowerTypes.includes(candidateBorrowerType(c)));
+    }
+    if (r.customerScales?.length) {
+      list = list.filter(c => r.customerScales.includes(candidateCustomerScale(c)));
     }
     if (r.industries?.length) {
       list = list.filter(c => r.industries.includes(c.gbIndustryCode));
@@ -611,6 +800,7 @@ const Store = {
           disbursementAmount: c.disbursementAmount,
           disbursementDate: c.disbursementDate,
           borrowerType: c.borrowerType,
+          customerScale: c.customerScale || candidateCustomerScale(c),
           avgMonthlyBalance: c.avgMonthlyBalance,
           operatingRevenue: c.operatingRevenue,
           manager: c.manager,
@@ -679,6 +869,7 @@ const Store = {
       const supps = d.supplements.filter(s => s.taskId === taskId);
       const formal = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
       formal.forEach(f => {
+        this._finalizeFormalAccountingType(d, f, taskId);
         let calc = d.calculations.find(c => c.formalId === f.id);
         const s = supps.find(x => x.customerId === f.customerId) || {};
         const method = Store.matchMethod(s);
@@ -699,6 +890,9 @@ const Store = {
         const ql = ['', '一级(优)', '二级', '三级', '四级', '五级(兜底)'];
         payload.quality = ql[payload.qualityGrade] || '-';
         payload.calculatedAt = new Date().toLocaleString('zh-CN');
+        if (typeof applyCalculationEmissionSplit === 'function') {
+          applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d);
+        }
         if (!calc) {
           calc = { id: 'CAL' + f.id, ...payload };
           d.calculations.push(calc);
@@ -926,13 +1120,16 @@ const Store = {
     return added ? added.id : null;
   },
 
-  /** 调取格澜数据：为已锁定且尚无主体排放的记录写入报告法主体排放 */
+  /** 调取格澜数据：为已锁定且尚无主体排放的记录写入报告法主体排放（不含项目法-以项目方式计算） */
   fetchGelanEntityEmissions(taskId, formalIds) {
     const task = this.getTask(taskId);
-    if (!task) return { ok: false, message: '任务不存在', withData: 0, noData: 0, skipped: 0 };
+    if (!task) {
+      return { ok: false, message: '任务不存在', withData: 0, noData: 0, skipped: 0, skippedProject: 0 };
+    }
     let withData = 0;
     let noData = 0;
     let skipped = 0;
+    let skippedProject = 0;
     this.update(d => {
       let targets = d.formalList.filter(f =>
         f.taskId === taskId && f.status === 'confirmed' && !this._formalHasEntityEmission(d, taskId, f)
@@ -942,6 +1139,10 @@ const Store = {
         targets = targets.filter(f => idSet.has(f.id));
       }
       targets.forEach(f => {
+        if (typeof isFormalGelanEligible === 'function' && !isFormalGelanEligible(f, taskId, d)) {
+          skippedProject++;
+          return;
+        }
         const row = typeof CarbonAccount !== 'undefined'
           ? CarbonAccount.resolveLedgerRow(d, f, null)
           : formalLedgerRow(f, taskId);
@@ -994,6 +1195,9 @@ const Store = {
           calculatedAt: gelan.data.fetchedAt,
           reportDetail
         };
+        if (typeof applyCalculationEmissionSplit === 'function') {
+          applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d);
+        }
         let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
         if (calc) Object.assign(calc, payload);
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
@@ -1007,7 +1211,7 @@ const Store = {
       ).length;
       this.syncTaskWorkflow(d, taskId);
     });
-    return { ok: true, withData, noData, skipped };
+    return { ok: true, withData, noData, skipped, skippedProject };
   },
 
   runEconomyDirectCalc(taskId, formalIds) {
@@ -1015,6 +1219,9 @@ const Store = {
     this.update(d => {
       formalIds.forEach(fid => {
         const f = d.formalList.find(x => x.id === fid && x.taskId === taskId);
+        if (!f || typeof isFormalEconomyDirectEligible === 'function' && !isFormalEconomyDirectEligible(f, taskId, d)) {
+          return;
+        }
         const mode = f?.collectMode || resolveCollectMode(f?.loanType);
         if (!f || f.status !== 'confirmed' || mode === 'mandatory') return;
         if (f.economyDirectStatus === 'done') return;
@@ -1040,6 +1247,9 @@ const Store = {
           status: 'done', approvalStatus: 'none',
           calculatedAt: new Date().toLocaleString('zh-CN')
         };
+        if (typeof applyCalculationEmissionSplit === 'function') {
+          applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d);
+        }
         let calc = d.calculations.find(x => x.formalId === f.id);
         if (calc) Object.assign(calc, payload);
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
@@ -1285,7 +1495,8 @@ const Store = {
         rows: [
           ['客户', c.customerName],
           ['核算方法', c.method || '-'],
-          ['主体排放', formatNum(c.entityEmission)],
+          ['法人主体排放', formatCalculationEmissionCell(c.legalEntityEmission ?? (c.projectEntityEmission == null ? c.entityEmission : null))],
+          ['项目主体排放', formatCalculationEmissionCell(c.projectEntityEmission)],
           ['归因排放', formatNum(c.attributedEmission)],
           ['质量等级', c.qualityGrade || '-']
         ]
@@ -1301,7 +1512,8 @@ const Store = {
         rows: [
           ['任务名称', t.name],
           ['核算年度', t.year],
-          ['行业范围', t.industryScope],
+          ['所属行业范围', getTaskSubjectIndustryScope(t)],
+          ['投向行业范围', getTaskInvestIndustryScope(t)],
           ['截止日期', t.deadline],
           ['当前进度', WORKFLOW_STEP_NAMES[Math.min(t.workflowStep ?? 0, WORKFLOW_STEP_NAMES.length - 1)] || '-']
         ]
@@ -1329,7 +1541,7 @@ const Store = {
         const hasSyncedProject = (Array.isArray(candidate?.projectDetails) && candidate.projectDetails.length > 0)
           || (Array.isArray(formal?.projectDetails) && formal.projectDetails.length > 0);
         const hasSupplementProject = Array.isArray(s.projectDetails) && s.projectDetails.length > 0;
-        let accountingType = 'project_pending';
+        let accountingType = null;
         if (hasSyncedProject || hasSupplementProject || s.projectInfoAvailable === true) {
           accountingType = 'project_as_project';
         } else if (s.projectInfoAvailable === false && payload.complete) {
@@ -1500,6 +1712,7 @@ const Store = {
           t.milestone.resultsConfirmed = true;
         }
       }
+      this._finalizeTaskAccountingTypes(d, taskId);
       if (typeof CarbonAccount !== 'undefined') {
         CarbonAccount.syncTask(d, taskId);
       }

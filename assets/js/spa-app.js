@@ -103,7 +103,8 @@ function bindPageEvents(base, ctx) {
   if (base === '#/task-create') {
     bindTaskIndustryScopeToggle();
     bindTaskInitiatorToggle();
-    bindCustomIndustryPanel();
+    bindCustomIndustryPanel(qs('#customSubjectIndustryWrap'));
+    bindCustomIndustryPanel(qs('#customInvestIndustryWrap'));
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskBtn');
@@ -111,8 +112,12 @@ function bindPageEvents(base, ctx) {
       const f = document.getElementById('taskForm');
       if (!f.reportValidity()) return;
       const payload = readTaskFormPayload(f);
-      if (payload.industryScope === '自定义' && !payload.industryCustomCodes.length) {
-        toast('自定义行业为必填项，请至少选择一项行业', 'warning');
+      if (payload.subjectIndustryScope === '自定义' && !payload.industryCustomCodes.length) {
+        toast('所属行业范围为自定义时，请至少选择一项行业', 'warning');
+        return;
+      }
+      if (payload.investIndustryScope === '自定义' && !payload.investIndustryCustomCodes.length) {
+        toast('投向行业范围为自定义时，请至少选择一项行业', 'warning');
         return;
       }
       const id = 'T' + Date.now();
@@ -136,7 +141,8 @@ function bindPageEvents(base, ctx) {
   if (base === '#/task-edit') {
     bindTaskIndustryScopeToggle();
     bindTaskInitiatorToggle();
-    bindCustomIndustryPanel();
+    bindCustomIndustryPanel(qs('#customSubjectIndustryWrap'));
+    bindCustomIndustryPanel(qs('#customInvestIndustryWrap'));
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskEditBtn');
@@ -145,8 +151,12 @@ function bindPageEvents(base, ctx) {
       if (!f.reportValidity()) return;
       const taskId = f.dataset.taskId;
       const payload = readTaskFormPayload(f);
-      if (payload.industryScope === '自定义' && !payload.industryCustomCodes.length) {
-        toast('自定义行业为必填项，请至少选择一项行业', 'warning');
+      if (payload.subjectIndustryScope === '自定义' && !payload.industryCustomCodes.length) {
+        toast('所属行业范围为自定义时，请至少选择一项行业', 'warning');
+        return;
+      }
+      if (payload.investIndustryScope === '自定义' && !payload.investIndustryCustomCodes.length) {
+        toast('投向行业范围为自定义时，请至少选择一项行业', 'warning');
         return;
       }
       Store.updateTask(taskId, payload);
@@ -349,10 +359,17 @@ function bindPageEvents(base, ctx) {
 
     qs('#fetchGelanBtn')?.addEventListener('click', () => {
       const pendingIds = Store.getFormalList(taskId)
-        .filter(f => f.status === 'confirmed' && Store.getFormalEntityEmission(taskId, f.id) == null)
+        .filter(f =>
+          f.status === 'confirmed'
+          && Store.getFormalEntityEmission(taskId, f.id) == null
+          && isFormalGelanEligible(f, taskId)
+        )
         .map(f => f.id);
       if (!pendingIds.length) {
-        toast('当前没有可调取格澜数据的记录（需已锁定且主体排放为空）', 'warning');
+        toast(
+          '当前没有可调取格澜数据的记录（需已锁定、主体排放为空，且核算类型非「项目（以项目方式计算）」）',
+          'warning'
+        );
         return;
       }
       const r = Store.fetchGelanEntityEmissions(taskId, pendingIds);
@@ -360,8 +377,9 @@ function bindPageEvents(base, ctx) {
         toast('格澜数据调取失败', 'warning');
         return;
       }
+      const skipHint = r.skippedProject > 0 ? `，${r.skippedProject} 笔项目法（以项目方式计算）已跳过` : '';
       toast(
-        `格澜数据调取完成：${r.withData} 笔已获取主体排放，${r.noData} 笔无数据`,
+        `格澜数据调取完成：${r.withData} 笔已获取主体排放，${r.noData} 笔无数据${skipHint}`,
         r.withData ? 'success' : 'warning'
       );
       route();
@@ -369,16 +387,11 @@ function bindPageEvents(base, ctx) {
 
     qs('#economyDirectBtn')?.addEventListener('click', () => {
       const economyIds = Store.getFormalList(taskId)
-        .filter(f => {
-          const mode = f.collectMode || resolveCollectMode(f.loanType);
-          if (f.status !== 'confirmed' || mode !== 'economy_direct' || f.economyDirectStatus === 'done') {
-            return false;
-          }
-          return Store.getFormalEntityEmission(taskId, f.id) == null;
-        })
+        .filter(f => isFormalEconomyDirectEligible(f, taskId))
         .map(f => f.id);
       if (!economyIds.length) {
-        toast('当前没有待直算的经济法记录（需已锁定且未完成直算）', 'warning');
+        const hint = describeEconomyDirectEmptyOutcome(taskId);
+        toast(hint?.msg || '当前没有待直算的经济法记录', hint?.type || 'warning');
         return;
       }
       const n = Store.runEconomyDirectCalc(taskId, economyIds);
@@ -448,10 +461,6 @@ function bindPageEvents(base, ctx) {
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
       const tab = qs('#methodTabs .tab.active', root)?.dataset.tab || 'report';
-      if (tab === 'economy' && isEconomyTabLockedForSupplement(s)) {
-        toast('该笔业务已选择经济法直算，请择其他方法填报', 'warning');
-        return;
-      }
       const payload = SUPPLEMENT_FIELDS.collectFormData(tab, root, s);
       payload.complete = complete;
       payload.fieldsDone = complete ? 15 : 10;
@@ -564,8 +573,10 @@ function bindPageEvents(base, ctx) {
         const nextStatus = btn.dataset.action;
         const label = CarbonAccount.ACCOUNT_STATUS_LABEL[nextStatus] || nextStatus;
         const acc = Store.getCarbonAccount(accountId);
-        const curLabel = CarbonAccount.ACCOUNT_STATUS_LABEL[acc?.status] || '当前';
-        if (!confirm(`确认将「${acc?.customerName || accountId}」从【${curLabel}】变更为【${label}】？`)) return;
+        const curLabel = CarbonAccount.ACCOUNT_STATUS_LABEL[acc?.status || 'active'] || '正常';
+        const subCount = CarbonAccount.getProjectSubAccountCount(acc);
+        const subTip = subCount > 0 ? `\n\n将同步影响 ${subCount} 个项目子账户。` : '';
+        if (!confirm(`确认将「${acc?.customerName || accountId}」从【${curLabel}】变更为【${label}】？${subTip}\n\n操作将记入账户日志。`)) return;
         const r = Store.setCarbonAccountStatus(accountId, nextStatus, Store.get().currentRole);
         if (!r?.ok) {
           toast(r?.message || '状态变更失败', 'warning');
@@ -578,10 +589,63 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/carbon-account') {
+    const caSupplementRoot = qs('.ca-profile-supplement');
+    if (caSupplementRoot && qs('#caProfileForm')) {
+      bindSupplementMethodTabs(false, caSupplementRoot);
+    }
+    const navigateCaAccountView = (accountId, year, sub, tab) => {
+      const p = new URLSearchParams({ id: accountId, tab: tab || 'profile' });
+      if (year) p.set('year', year);
+      if (sub) p.set('sub', sub);
+      location.hash = '#/carbon-account?' + p.toString();
+    };
+    const saveCaProfile = () => {
+      const form = qs('#caProfileForm');
+      if (!form) return;
+      const supplementRoot = qs('.ca-profile-supplement');
+      const acc = Store.getCarbonAccount(form.dataset.accountId);
+      let payload = collectCarbonAccountProfileForm(form);
+      if (supplementRoot && acc) {
+        const supplementView = buildCarbonAccountSupplementView(
+          Store.get(),
+          acc,
+          form.dataset.year,
+          form.dataset.sub || ''
+        );
+        payload = mergeCarbonAccountSupplementIntoPayload(payload, supplementRoot, supplementView);
+      }
+      if (!payload?.customerName) {
+        toast('请填写企业名称', 'warning');
+        return;
+      }
+      const r = Store.saveCarbonAccountProfile(
+        form.dataset.accountId,
+        form.dataset.year,
+        form.dataset.sub || '',
+        payload,
+        Store.get().currentRole
+      );
+      toast(r?.message || '保存失败', r?.ok ? 'success' : 'warning');
+      if (r?.ok) {
+        navigateCaAccountView(form.dataset.accountId, form.dataset.year, form.dataset.sub || '', 'profile');
+      }
+    };
+    qs('#caProfileSaveBtn')?.addEventListener('click', saveCaProfile);
+    qs('#caProfileCancelBtn')?.addEventListener('click', () => {
+      const form = qs('#caProfileForm');
+      if (form) {
+        navigateCaAccountView(form.dataset.accountId, form.dataset.year, form.dataset.sub || '', 'profile');
+        return;
+      }
+      location.hash = '#/carbon-accounts';
+    });
     qs('#caDetailYearTabs')?.querySelectorAll('.tab[data-ca-list-year]').forEach(tab => {
       tab.addEventListener('click', () => {
         const params = new URLSearchParams((location.hash.split('?')[1] || ''));
         params.set('year', tab.dataset.caListYear);
+        if (params.get('mode') === 'edit') {
+          params.delete('tab');
+        }
         location.hash = '#/carbon-account?' + params.toString();
       });
     });
@@ -824,9 +888,7 @@ function openInterfaceBatchModal(batchId) {
     <div class="table-wrap" style="max-height:420px;overflow:auto">
       <table class="data-table">
         <thead><tr>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
-          <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-          <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>
+          ${CANDIDATE_LIST_TABLE_HEAD}
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>

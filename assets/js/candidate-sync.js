@@ -25,6 +25,17 @@ const CandidateSync = {
     民航: ['G5631']
   },
 
+  /** 格澜 mock：信用代码数字末两位 %5===0 则接口无数据 */
+  _creditCodeForGelan(idx, loanType, bizType) {
+    const mandatory = (GUIDE.MANDATORY_COLLECT_LOAN_TYPES || []).some(t => (loanType || '').includes(t));
+    if (bizType !== 'non_project' || mandatory) {
+      return '91' + String(110000 + idx).slice(0, 6) + 'MA' + String(idx).padStart(4, '0') + 'X';
+    }
+    const gelanHasData = idx % 2 === 1;
+    const tail = gelanHasData ? (11 + (idx % 4)) : (10 + (idx % 3) * 5);
+    return `91110109MA01${String(idx % 100).padStart(2, '0')}${String(tail).padStart(2, '0')}X`;
+  },
+
   generateBatch(taskId, count = 48, year, month) {
     const rows = [];
     const majors = GUIDE.INDUSTRIES.map(i => i.major);
@@ -60,6 +71,10 @@ const CandidateSync = {
       else if (bucket === 3) { isOverseas = true; excludeReason = 'OVERSEAS'; avgMonthlyBalance = 2000; borrowerType = '股份有限公司'; }
       else if (bucket === 4) { industryMajor = null; excludeReason = 'NON_HIGH_CARBON'; }
 
+      let customerScale = '大型企业';
+      if (isSme) customerScale = '小微企业';
+      else if (idx % 3 === 0) customerScale = '中型企业';
+
       const excluded = !!excludeReason;
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
       const disbursementDate = `${year || 2024}-${String((idx % 12) + 1).padStart(2, '0')}-${String(10 + (idx % 18)).padStart(2, '0')}`;
@@ -76,7 +91,7 @@ const CandidateSync = {
           projectIndustry: industryMajor || major,
           customerNo: `KH${String(100000 + idx)}`,
           customerName: name,
-          creditCode: '91' + String(110000 + idx).slice(0, 6) + 'MA' + String(idx).padStart(4, '0') + 'X',
+          creditCode: this._creditCodeForGelan(idx, loanType, bizType),
           nationalIndustryCodeLv4: industryMajor ? (industryOpt.code || code) : 'C4190',
           projectAvgLoanBalanceWan: avgMonthlyBalance,
           projectRevenueWan: operatingRevenue,
@@ -87,7 +102,8 @@ const CandidateSync = {
         id: 'C' + taskId.replace(/\D/g, '').slice(-6) + String(i + 1).padStart(3, '0'),
         taskId,
         customerName: name,
-        creditCode: '91' + String(110000 + idx).slice(0, 6) + 'MA' + String(idx).padStart(4, '0') + 'X',
+        customerScale,
+        creditCode: this._creditCodeForGelan(idx, loanType, bizType),
         gbIndustryCode: industryMajor ? (industryOpt.code || code) : 'C4190',
         gbIndustryName: industryMajor ? (industryOpt.label || GUIDE.INDUSTRIES.find(x => x.major === major)?.names[0]) : '其他',
         industryMajor: industryMajor || '-',
@@ -97,7 +113,7 @@ const CandidateSync = {
         loanType,
         bizType,
         accountingType: bizType === 'project'
-          ? (projectDetails.length ? 'project_as_project' : 'project_pending')
+          ? (projectDetails.length ? 'project_as_project' : null)
           : 'non_project',
         projectInfoAvailable: (bizType === 'project' && projectDetails.length) ? true : null,
         tier1Branch,
@@ -123,6 +139,15 @@ const CandidateSync = {
       });
     }
     return rows;
+  },
+
+  /** 与候选清单一致的演示企业名称 */
+  formatCompanyName(major, idx) {
+    const names = this.NAMES[major] || ['华夏示范'];
+    const brand = names[idx % names.length];
+    const mid = major === '电力' ? '发电' : (major === '钢铁' ? '炼钢' : '');
+    const variant = idx > 20 ? String.fromCharCode(65 + (idx % 5)) : '';
+    return `${brand}${mid}有限公司${variant}`;
   },
 
   /** 接口管理批次查看：按数据月份生成台账预览（字段与候选清单一致） */

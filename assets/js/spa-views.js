@@ -83,7 +83,7 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
         <div class="filter-extra task-list-filter-grid">
           <div class="form-item"><label>任务名称</label><input id="tf_name" placeholder="模糊搜索" value="${filters.name || ''}"></div>
           <div class="form-item"><label>核算年度</label>${renderTaskYearFilterField(filters.year)}</div>
-          <div class="form-item"><label>行业范围</label>
+          <div class="form-item"><label>所属行业范围</label>
             <select id="tf_industry">
               <option value="">全部</option>
               <option value="八大高碳行业" ${filters.industryScope === '八大高碳行业' ? 'selected' : ''}>八大高碳行业</option>
@@ -104,14 +104,17 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
       </div>
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
-          <th>序号</th><th>任务名称</th><th>核算年度</th><th>行业范围</th><th>截止日期</th>
+          <th>序号</th><th>任务名称</th><th>核算年度</th><th>所属行业范围</th><th>投向行业范围</th><th>截止日期</th>
           <th>当前进度</th><th>操作</th>
         </tr></thead>
-        <tbody>${view.rows.length ? view.rows.map((t, i) => `<tr>
+        <tbody>${view.rows.length ? view.rows.map((t, i) => {
+      normalizeTaskIndustryFields(t);
+      return `<tr>
       <td>${view.startIndex + i + 1}</td>
       <td>${t.name}</td>
       <td>${t.year}</td>
-      <td>${formatIndustryScopeDisplay(t)}</td>
+      <td>${formatSingleIndustryScopeDisplay(getTaskSubjectIndustryScope(t), t.industryCustomCodes)}</td>
+      <td>${formatSingleIndustryScopeDisplay(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes)}</td>
       <td>${t.deadline || '-'}</td>
       <td>${getTaskStepLabel(t)}</td>
       <td class="actions">
@@ -119,7 +122,8 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
         <a href="#/task-view?id=${t.id}" class="btn-link">查看</a>
         <button type="button" class="btn-link task-delete-btn" data-id="${t.id}" data-name="${t.name.replace(/"/g, '&quot;')}">删除</button>
       </td>
-    </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;padding:40px;color:#909399">暂无符合条件的任务</td></tr>`}
+    </tr>`;
+    }).join('') : `<tr><td colspan="8" style="text-align:center;padding:40px;color:#909399">暂无符合条件的任务</td></tr>`}
         </tbody></table></div>
       ${renderPagination(listKey, view)}</div>`;
 };
@@ -129,7 +133,7 @@ SPA_VIEWS['#/task-create'] = function() {
     <h1 class="page-title">新建核算任务</h1>
     ${demoSteps(0, { clickable: true })}
     <div class="card"><div class="card-body"><form id="taskForm" class="form-grid">
-      ${renderTaskFormFields({ name: '2026年度投融资碳排放核算', year: 2026, industryScope: '八大高碳行业', deadline: '2027-09-30', balanceRule: '月均余额', orgScope: '全行', goal: '监管报送' })}
+      ${renderTaskFormFields({ name: '2026年度投融资碳排放核算', year: 2026, subjectIndustryScope: '八大高碳行业', investIndustryScope: '八大高碳行业', deadline: '2027-09-30', balanceRule: '月均余额', orgScope: '全行', goal: '监管报送' })}
     </form></div>
     <div style="padding:12px 20px;text-align:right;border-top:1px solid #eee">
       <a href="#/tasks" class="btn">取消</a>
@@ -182,11 +186,20 @@ SPA_VIEWS['#/task-detail'] = function(ctx) {
       <a href="#/calculation" class="btn btn-primary">碳排放计算</a>
     </div>
     <div class="card"><div class="card-body form-grid">
-      <div class="form-item"><label>行业范围</label><input readonly value="${formatIndustryScopeDisplay(t)}"></div>
-      ${t.industryScope === '自定义' && t.industryCustomCodes?.length ? `
+      <div class="form-item"><label>所属行业范围</label><input readonly value="${formatSingleIndustryScopeDisplay(getTaskSubjectIndustryScope(t), t.industryCustomCodes)}"></div>
+      <div class="form-item"><label>投向行业范围</label><input readonly value="${formatSingleIndustryScopeDisplay(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes)}"></div>
+      ${getTaskSubjectIndustryScope(t) === '自定义' && t.industryCustomCodes?.length ? `
       <div class="form-item full">
-        <label>自定义行业明细</label>
+        <label>所属行业自定义明细</label>
         <div class="industry-detail-tags">${t.industryCustomCodes.map(code => {
+          const item = INDUSTRY_TABLE.find(i => i.code === code);
+          return item ? `<span class="industry-tag">${IndustryScope.label(item)}</span>` : '';
+        }).join('')}</div>
+      </div>` : ''}
+      ${getTaskInvestIndustryScope(t) === '自定义' && t.investIndustryCustomCodes?.length ? `
+      <div class="form-item full">
+        <label>投向行业自定义明细</label>
+        <div class="industry-detail-tags">${t.investIndustryCustomCodes.map(code => {
           const item = INDUSTRY_TABLE.find(i => i.code === code);
           return item ? `<span class="industry-tag">${IndustryScope.label(item)}</span>` : '';
         }).join('')}</div>
@@ -219,8 +232,8 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
       <td>${c.included ? '<span class="badge badge-success">拟纳入</span>' : '<span class="badge badge-draft">未勾选</span>'}</td>
     </tr>`;
     if (!expanded) return mainRow;
-    return mainRow + renderCandidateProjectDetailRow(c, 15);
-  }).join('') : `<tr><td colspan="15" style="text-align:center;padding:40px;color:#909399">
+    return mainRow + renderCandidateProjectDetailRow(c, 16);
+      }).join('') : `<tr><td colspan="16" style="text-align:center;padding:40px;color:#909399">
       ${synced ? '无符合筛选条件的记录，请调整筛选后重新查询' : '暂无台账数据，请先点击上方「从接口同步台账」'}</td></tr>`;
 
   const syncTip = synced
@@ -257,9 +270,8 @@ SPA_VIEWS['#/candidates'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="checkAllPage" title="全选列表" ${viewOnly || !synced ? 'disabled' : ''}></th>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
-          <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-          <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>纳入标记</th>
+          ${CANDIDATE_LIST_TABLE_HEAD}
+          <th>纳入标记</th>
         </tr></thead>
         <tbody id="candidateTbody">${rowsHtml}</tbody>
       </table></div>
@@ -283,7 +295,7 @@ SPA_VIEWS['#/formal'] = function(ctx) {
       <td>${statusBadge(f.status)}</td>
     </tr>`;
     if (!expanded) return mainRow;
-    return mainRow + renderCandidateProjectDetailRow(row, 15);
+    return mainRow + renderCandidateProjectDetailRow(row, 16);
   }).join('');
   return `
     <h1 class="page-title">正式清单确认</h1>
@@ -295,11 +307,10 @@ SPA_VIEWS['#/formal'] = function(ctx) {
     <div class="card"><div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="formalCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
-          <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-          <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th><th>状态</th>
+          ${CANDIDATE_LIST_TABLE_HEAD}
+          <th>状态</th>
         </tr></thead>
-        <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="15" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
+        <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="16" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
       </table></div></div>`;
 };
 
@@ -330,13 +341,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
     const supp = getSupplementByFormalId(f.id);
     const cand = Store.getCandidates(taskId).find(c => c.id === f.customerId);
     const mode = f.collectMode || resolveCollectMode(f.loanType);
-    const dispatchCol = supp
-      ? dispatchStatusBadge(f, supp)
-      : (mode === 'economy_direct' ? economyDirectStatusBadge(f) : dispatchStatusBadge(f, supp));
-    const fillCol = supp
-      ? fillStatusBadge(supp)
-      : (mode === 'economy_direct' && f.economyDirectStatus === 'done'
-        ? '<span class="badge badge-success">系统直算</span>' : fillStatusBadge(supp));
+    const statusCol = dataCollectStatusBadge(f, supp, taskId);
     const auditCol = supp ? auditStageBadge(supp, task) : '—';
     const entityCol = formatFormalEntityEmission(taskId, f.id);
     const canDispatch = !viewOnly && f.status === 'confirmed' && !supp;
@@ -363,8 +368,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <td>${formalAccountingMethodBadge(f, taskId)}</td>
       <td>${f.manager || supp?.manager || cand?.manager || '—'}</td>
       <td>${entityCol}</td>
-      <td>${dispatchCol}</td>
-      <td>${fillCol}</td>
+      <td>${statusCol}</td>
       <td>${auditCol}</td>
       <td>${ops.join(' ')}</td>
     </tr>`;
@@ -374,7 +378,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
   const hasMissingEntity = Store.hasMissingEntityEmission(taskId);
   return `
     <h1 class="page-title">数据采集</h1>
-    <p class="page-desc">${initiatorLabel} · 进入本页时核算方法均为「—」；可先【调取格澜数据】获取报告法其他数据，再对剩余记录【经济法直算】填充主体排放与核算方法；已直算记录仍可下发补录任务</p>
+    <p class="page-desc">${initiatorLabel} · 进入本页时核算方法均为「—」；【调取格澜数据】仅适用于主体碳排放（核算类型非「项目（以项目方式计算）」），可获取报告法主体排放；再对剩余记录【经济法直算-营收法】填充主体排放与核算方法；项目法以项目方式计算须通过补录采集项目排放；已直算记录仍可下发补录任务</p>
     ${workflowStepsBar(ctx.task)}
     ${collectDone
       ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'
@@ -383,8 +387,8 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         : '<div class="demo-tip">全部已锁定业务须计算出主体排放；未完成填报且主体排放为空时，可使用「数据为0」置零并完成采集</div>'}
     <div class="toolbar">
       <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放补录任务</button>
-      <button class="btn" id="fetchGelanBtn"${vma} title="模拟调用格澜数据接口，为已锁定且尚无主体排放的客户获取报告法主体排放">调取格澜数据</button>
-      <button class="btn btn-success" id="economyDirectBtn"${vma} title="对全部已锁定、核算方法为经济活动法-营收法数据且未完成直算的记录一键计算">经济法直算</button>
+      <button class="btn" id="fetchGelanBtn"${vma} title="为已锁定、核算类型非「项目（以项目方式计算）」且尚无主体排放的记录调取格澜报告法主体排放">调取格澜数据</button>
+      <button class="btn btn-success" id="economyDirectBtn"${vma} title="对格澜未覆盖的非项目主体记录一键经济法直算（项目法以项目方式计算不适用）">经济法直算-营收法</button>
       <button class="btn btn-primary" id="submitAllDataBtn"${viewOnly ? vma : (allHaveEntity ? '' : ' disabled title="请待全部记录计算出主体排放"')}>一键提交数据</button>
       <button class="btn" id="zeroMissingBtn"${viewOnly ? vma : (hasMissingEntity ? '' : ' disabled title="当前无缺失主体排放的记录"')}>数据为0</button>
     </div>
@@ -392,7 +396,11 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <div class="stat-card"><div class="label">已锁定</div><div class="value">${stats.locked}</div></div>
       <div class="stat-card"><div class="label">须补录笔数</div><div class="value">${stats.mandatory}</div></div>
       <div class="stat-card"><div class="label">已派发</div><div class="value">${stats.dispatched}</div></div>
-      <div class="stat-card accent"><div class="label">待填报/直算</div><div class="value">${stats.pendingFill + list.filter(f => f.economyDirectStatus !== 'done' && (f.collectMode || resolveCollectMode(f.loanType)) === 'economy_direct' && f.status === 'confirmed').length}</div></div>
+      <div class="stat-card accent"><div class="label">待采集</div><div class="value">${list.filter(f => {
+        const s = getSupplementByFormalId(f.id);
+        const st = getDataCollectRowStatus(f, s, taskId);
+        return ['pending_dispatch', 'need_supplement', 'pending_economy', 'pending_fill', 'in_progress', 'pending_submit'].includes(st);
+      }).length}</div></div>
       <div class="stat-card"><div class="label">经济法已直算</div><div class="value">${stats.economyDirect}</div></div>
       <div class="stat-card"><div class="label">已完成</div><div class="value">${stats.done}</div></div>
     </div>
@@ -407,7 +415,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
               ${renderFormalAccountingMethodFilterOptions(filters.accountingMethod || '')}
             </select>
           </div>
-          <div class="form-item"><label>状态</label>
+          <div class="form-item"><label>采集状态</label>
             <select id="dcf_status">${renderDataCollectStatusOptions(filters.status || '')}</select>
           </div>
           <div class="form-item"><label>&nbsp;</label>
@@ -422,7 +430,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="dispatchCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          <th>客户</th><th>贷款类型</th><th>核算类型</th><th>核算方法</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>派发/直算</th><th>填报状态</th><th>审核环节</th><th>操作</th>
+          <th>客户</th><th>贷款类型</th><th>核算类型</th><th>核算方法</th><th>客户经理</th><th>主体排放(tCO₂e)</th><th>采集状态</th><th>审核环节</th><th>操作</th>
         </tr></thead>
         <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="11" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
       </table></div></div>`;
@@ -762,12 +770,7 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
     <tbody>${industryView.rows.length ? industryView.rows.map(i => `<tr><td>${i.industry}</td><td>${i.count}</td><td>${formatNum(i.emission)}</td><td>${i.share}%</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:24px;color:#909399">暂无分行业数据</td></tr>'}</tbody></table></div>
     ${industries.length ? renderPagination(industryKey, industryView) : ''}</div>
     <div class="card"><div class="card-header"><h3>排放计算清单</h3></div><div class="card-body table-wrap"><table class="data-table">
-    <thead><tr>
-      <th>一级分行</th><th>经办行</th><th>客户名称</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
-      <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-      <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>
-      <th>主体排放(tCO₂e)</th><th>归因排放(tCO₂e)</th><th>质量等级</th>
-    </tr></thead>
+    <thead><tr>${CALCULATION_LIST_TABLE_HEAD}</tr></thead>
     <tbody>${view.rows.map(({ f, calc }) => `<tr>${renderCalculationListCells(f, calc, taskId)}</tr>`).join('')}</tbody></table></div>
     ${renderPagination(listKey, view)}</div>`;
 };
@@ -1024,13 +1027,6 @@ function formatCaConfirmedAt(r) {
   return r.confirmedAt || r.mountedAt || '-';
 }
 
-function renderCaAccountStatusBadge(acc) {
-  const s = acc.status || 'active';
-  if (s === 'active') return '<span class="badge badge-success">启用</span>';
-  if (s === 'cancelled') return '<span class="badge badge-danger">注销</span>';
-  return '<span class="badge badge-draft">停用</span>';
-}
-
 function getCaListFilters() {
   try {
     return JSON.parse(sessionStorage.getItem('ca_list_filters') || '{}');
@@ -1048,30 +1044,48 @@ function renderCaYearSwitcher(years, selected, tabsId = 'caListYearTabs') {
   </div>`;
 }
 
+function renderCaAccountStatusBadge(acc) {
+  const s = acc?.status || 'active';
+  if (s === 'active') return '<span class="badge badge-success">正常</span>';
+  if (s === 'cancelled') return '<span class="badge badge-danger">注销</span>';
+  return '<span class="badge badge-draft">停用</span>';
+}
+
 function renderCaAccountActions(row, roleKey, accountingYear) {
   const acc = row.account || row;
   const accountId = row.accountId || acc.id;
   const yearQ = accountingYear ? `&year=${encodeURIComponent(accountingYear)}` : '';
   const subQ = row.isSubAccount && row.projectNo ? `&sub=${encodeURIComponent(row.projectNo)}` : '';
+  const isActive = CarbonAccount.isAccountActive(acc);
   const view = `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&tab=profile" class="btn-link">查看</a>`;
-  if (row.isSubAccount || roleKey !== 'hq') return `<span class="actions">${view}</span>`;
+  const edit = isActive
+    ? `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&mode=edit" class="btn-link">编辑</a>`
+    : `<span class="btn-link is-disabled" title="仅正常状态可编辑" style="color:#c0c4cc;cursor:not-allowed">编辑</span>`;
+
+  if (row.isSubAccount) {
+    return `<span class="actions">${view} ${edit}</span>`;
+  }
+  if (roleKey !== 'hq') {
+    return `<span class="actions">${view} ${edit}</span>`;
+  }
   const ops = CarbonAccount.getAccountStatusActions(acc.status);
   const btns = ops.map(o =>
     `<button type="button" class="btn-link ca-account-status-btn" data-id="${acc.id}" data-action="${o.next}">${o.label}</button>`
   ).join('');
-  return `<span class="actions">${view}${btns ? ' ' + btns : ''}</span>`;
+  return `<span class="actions">${view} ${edit}${btns ? ' ' + btns : ''}</span>`;
 }
 
 function renderCaStatusHistoryPanel(acc) {
-  const hist = (acc.statusHistory || []).slice().reverse();
-  if (!hist.length) return '';
-  return `<div class="card" style="margin-top:16px"><div class="card-header"><h3>状态变更记录</h3></div>
+  const logs = CarbonAccount.getAccountOperationLogs(acc);
+  if (!logs.length) return '';
+  return `<div class="card" style="margin-top:16px"><div class="card-header"><h3>操作日志</h3></div>
     <div class="card-body"><table class="data-table">
-      <thead><tr><th>变更时间</th><th>原状态</th><th>新状态</th><th>操作人</th></tr></thead>
-      <tbody>${hist.map(h => `<tr>
+      <thead><tr><th>操作时间</th><th>操作类型</th><th>操作内容</th><th>备注</th><th>操作人</th></tr></thead>
+      <tbody>${logs.map(h => `<tr>
         <td>${h.at || '-'}</td>
-        <td>${CarbonAccount.ACCOUNT_STATUS_LABEL[h.from] || h.from || '-'}</td>
-        <td>${CarbonAccount.ACCOUNT_STATUS_LABEL[h.to] || h.to || '-'}</td>
+        <td>${h.actionLabel || (h.action === 'status_change' ? '状态变更' : h.action === 'profile_edit' ? '档案编辑' : '-')}</td>
+        <td>${h.summary || `${CarbonAccount.ACCOUNT_STATUS_LABEL[h.from] || h.from || '-'} → ${CarbonAccount.ACCOUNT_STATUS_LABEL[h.to] || h.to || '-'}`}</td>
+        <td>${h.remark || '—'}</td>
         <td>${h.operator || '-'}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>`;
@@ -1087,6 +1101,17 @@ function carbonAccountTabs(active) {
   return `<div class="tabs tabs-segment ca-tabs">${tabs.map(t =>
     `<div class="tab ${active === t.id ? 'active' : ''}" data-ca-tab="${t.id}">${t.label}</div>`
   ).join('')}</div>`;
+}
+
+function renderCaAccountPageFooter(isEditMode) {
+  if (isEditMode) {
+    return `<div class="toolbar ca-profile-page-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="caProfileCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="caProfileSaveBtn">保存</button>
+    </div>`;
+  }
+  return `<div style="margin-top:16px"><a href="#/carbon-accounts" class="btn">返回列表</a></div>`;
 }
 
 SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
@@ -1133,7 +1158,7 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
   return `
     <h1 class="page-title">企业碳账户</h1>
     <p class="page-desc">按核算年度展示 · 对象边界【确认锁定】后建档 · 格澜/补录/直算数据同步主体排放 · ${branchHint}</p>
-    <div class="demo-tip">【业务规则】每个客户每年一条数据；名下有项目贷款的，项目作为子账户单独列示。核算任务中【调取格澜数据】后，对应客户主体排放将同步至本模块。${roleKey === 'hq' ? '总行可对主账户执行启用、停用、注销（CA003）。' : ''}</div>
+    <div class="demo-tip">【业务规则】每个客户每年一条数据；名下有项目贷款的，项目作为子账户单独列示。停用/注销时主账户与项目子账户同步生效。仅<strong>正常</strong>状态可编辑档案。${roleKey === 'hq' ? '总行可对主账户执行恢复、停用、注销（CA003），操作均记入日志。' : ''}</div>
     <div class="ca-year-toolbar">${renderCaYearSwitcher(years, accountingYear)}</div>
     <div class="stats-row stats-row--compact">
       <div class="stat-card"><div class="label">可见账户</div><div class="value">${mainRows.length}</div><div class="sub">${accountingYear ? accountingYear + '年' : ''}</div></div>
@@ -1156,17 +1181,20 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th>序号</th><th>企业名称</th><th>统一社会信用代码</th><th>客户号</th>
-          <th>核算方法</th><th>主体排放(tCO2e)</th><th>操作</th>
+          <th>核算方法</th><th>主体排放(tCO2e)</th><th>账户状态</th><th>操作</th>
         </tr></thead>
         <tbody>${view.rows.length ? view.rows.map((r, i) => `<tr class="${r.isSubAccount ? 'ca-sub-account-row' : ''}">
           <td>${view.startIndex + i + 1}</td>
-          <td>${r.isSubAccount ? `<span class="ca-sub-account-label">└ 项目子账户 · ${r.project?.projectName || r.projectNo || '—'}</span>` : (r.customerName || '-')}</td>
+          <td>${r.isSubAccount
+            ? `<div>${r.customerName || '-'}</div><div class="ca-sub-account-label" style="margin-top:2px">└ 项目：${r.project?.projectName || r.projectNo || '—'}</div>`
+            : (r.customerName || '-')}</td>
           <td><code style="font-size:12px">${r.creditCode || '-'}</code></td>
           <td>${r.customerNo || '-'}</td>
           <td>${r.method || '-'}</td>
           <td>${r.entityEmission != null ? formatNum(r.entityEmission) : '—'}</td>
+          <td>${renderCaAccountStatusBadge(r.account)}</td>
           <td>${renderCaAccountActions(r, roleKey, accountingYear)}</td>
-        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在对象边界步骤【确认锁定】正式清单。'}</td></tr>`}
+        </tr>`).join('') : `<tr><td colspan="8" style="text-align:center;padding:32px;color:#909399">${accountingYear ? accountingYear + ' 年度暂无碳账户数据' : '暂无碳账户。请先在对象边界步骤【确认锁定】正式清单。'}</td></tr>`}
         </tbody></table></div>
       ${renderPagination(listKey, view)}
     </div>`;
@@ -1184,6 +1212,8 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
     return `<h1 class="page-title">企业碳账户</h1><p class="page-desc">未找到账户</p>
       <a href="#/carbon-accounts" class="btn">返回列表</a>`;
   }
+  const isEditMode = params.get('mode') === 'edit' && CarbonAccount.isAccountActive(acc);
+  const activeTab = isEditMode ? 'profile' : tab;
   const { records: allRec } = Store.getCarbonContext(roleKey, ctx.role);
   const scopeYear = params.get('year') || getCaListFilters().accountingYear || null;
   const accountRecordsAll = allRec.filter(r => r.accountId === accountId);
@@ -1192,7 +1222,6 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
     : accountRecordsAll;
   const detailFilters = getCaDetailFilters(accountId);
   const records = CarbonAccount.filterRecords(accountRecords, detailFilters);
-  const enriched = CarbonAccount.enrichAccount(acc, accountRecords);
   const profileRow = resolveCarbonAccountProfileRow(d, acc, scopeYear, subProjectNo);
   const byBiz = CarbonAccount.aggregateBy(accountRecords, r => r.bizLabel);
   const byIndustry = CarbonAccount.aggregateBy(accountRecords, r => r.industryMajor);
@@ -1206,10 +1235,13 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   const view = paginateData(listKey, records);
 
   let panel = '';
-  if (tab === 'profile') {
-    panel = renderCarbonAccountProfilePanel(d, acc, scopeYear, subProjectNo) +
-      renderCaStatusHistoryPanel(acc);
-  } else if (tab === 'summary') {
+  if (activeTab === 'profile') {
+    panel = renderCarbonAccountProfilePanel(d, acc, scopeYear, subProjectNo, { editable: isEditMode }) +
+      (!isEditMode && !CarbonAccount.isAccountActive(acc)
+        ? `<div class="demo-tip" style="margin-top:12px">当前账户状态为「${CarbonAccount.ACCOUNT_STATUS_LABEL[acc.status] || acc.status || '停用'}」，仅可查看，不可编辑。</div>`
+        : '') +
+      (!isEditMode ? renderCaStatusHistoryPanel(acc) : '');
+  } else if (activeTab === 'summary') {
     panel = `<div class="ca-summary-grid">
       <div class="card"><div class="card-header"><h3>项目 / 非项目</h3><span class="ca-chart-type-tag">环图</span></div><div class="card-body">${renderCaDonutChart(byBiz)}</div></div>
       <div class="card"><div class="card-header"><h3>行业维度（八大高碳）</h3><span class="ca-chart-type-tag">条形图</span></div><div class="card-body">${renderCaBarChart(byIndustry)}</div></div>
@@ -1217,7 +1249,7 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
       <div class="card"><div class="card-header"><h3>贷款类型</h3><span class="ca-chart-type-tag">环图</span></div><div class="card-body">${renderCaDonutChart(byLoanType)}</div></div>
       ${roleKey === 'hq' ? `<div class="card ca-summary-full"><div class="card-header"><h3>经办行分布</h3><span class="ca-chart-type-tag">条形图</span></div><div class="card-body">${renderCaBarChart(byBranch)}</div></div>` : ''}
     </div>`;
-  } else if (tab === 'trend') {
+  } else if (activeTab === 'trend') {
     panel = `<div class="ca-trend-grid">
       <div class="card"><div class="card-header"><h3>年度排放趋势</h3><span class="ca-chart-type-tag">折线图</span></div><div class="card-body">${renderCaLineChart(trend, [
       { key: 'emission', label: '归因排放 (tCO₂e)', color: '#3d7cc9' },
@@ -1258,22 +1290,20 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
 
   const yearDesc = scopeYear ? `核算年度 ${scopeYear}` : '全部年度';
   const subDesc = subProjectNo ? ` · 项目子账户 ${subProjectNo}` : '';
+  const pageTitle = isEditMode
+    ? `编辑账户信息 · ${profileRow.customerName}`
+    : `碳账户 · ${profileRow.customerName}`;
   return `
     <div class="page-head-bar">
       <div class="page-head-main">
-        <h1 class="page-title">碳账户 · ${profileRow.customerName}</h1>
+        <h1 class="page-title">${pageTitle}</h1>
         <p class="page-desc">${profileRow.creditCode} · 客户号 ${profileRow.customerNo} · ${yearDesc}${subDesc}</p>
       </div>
       ${renderCaYearSwitcher(detailYears, scopeYear, 'caDetailYearTabs')}
     </div>
-    <div class="stats-row">
-      <div class="stat-card accent"><div class="label">主体排放</div><div class="value">${profileRow.entityEmission != null ? formatNum(profileRow.entityEmission) : '—'}</div><div class="sub">tCO2e · ${profileRow.method || '-'}</div></div>
-      <div class="stat-card"><div class="label">可见记录</div><div class="value">${enriched.visibleRecordCount}</div><div class="sub">笔</div></div>
-      <div class="stat-card"><div class="label">主办分行</div><div class="value" style="font-size:16px">${acc.primaryBranch || '-'}</div></div>
-    </div>
-    ${carbonAccountTabs(tab)}
+    ${isEditMode ? '' : carbonAccountTabs(activeTab)}
     <div style="margin-top:12px">${panel}</div>
-    <div style="margin-top:16px"><a href="#/carbon-accounts" class="btn">返回列表</a></div>`;
+    ${renderCaAccountPageFooter(isEditMode)}`;
 };
 
 SPA_VIEWS['#/interfaces'] = function(ctx) {
