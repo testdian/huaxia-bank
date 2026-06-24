@@ -4,9 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>华夏银行 - 投融资碳核算演示</title>
-  <script>location.replace('/' + (location.hash || ''));</script>
+  <script>
+    (function () {
+      var base = location.pathname.replace(/\/app\.html$/, '/');
+      if (base.slice(-1) !== '/') base += '/';
+      location.replace(base + (location.hash || ''));
+    })();
+  </script>
 </head>
 <body>
-  <p>正在跳转… <a href="/">进入演示系统</a></p>
+  <p>正在跳转… <a id="enter-link" href="./">进入演示系统</a></p>
 </body>
 </html>
