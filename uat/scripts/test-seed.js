@@ -4,33 +4,33 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const root = path.join(__dirname, '..', 'assets', 'js');
-global.window = global;
-const ctx = global;
-const localStorageMock = {
+const root = path.join(__dirname, '..');
+globalThis.window = globalThis;
+globalThis.localStorage = {
   _data: {},
   getItem(k) { return this._data[k] ?? null; },
   setItem(k, v) { this._data[k] = v; },
   removeItem(k) { delete this._data[k]; }
 };
-global.localStorage = localStorageMock;
-globalThis.localStorage = localStorageMock;
 
-function load(name) {
-  require(path.join(root, name));
+function load(file) {
+  vm.runInThisContext(fs.readFileSync(path.join(root, file), 'utf8'), { filename: file });
 }
 
-load('guide-constants.js');
-load('industry-table.js');
-load('factors-guide-data.js');
-load('supplement-templates-data.js');
-load('candidate-sync.js');
-load('supplement-fields.js');
-load('demo-seed.js');
-load('store.js');
-load('carbon-account.js');
+load('assets/js/guide-constants.js');
+load('assets/js/industry-gb4754-tree.js');
+load('assets/js/industry-table.js');
+load('assets/js/industry-cascade.js');
+load('assets/js/factors-guide-data.js');
+load('assets/js/supplement-templates-data.js');
+load('assets/js/candidate-sync.js');
+load('assets/js/supplement-fields.js');
+load('assets/js/demo-seed.js');
+load('assets/js/common.js');
+load('assets/js/store.js');
+load('assets/js/carbon-account.js');
 
-const seed = global.MOCK_SEED;
+const seed = globalThis.MOCK_SEED;
 const taskId = 'T2025001';
 const errors = [];
 
@@ -47,7 +47,7 @@ const withFieldData = seed.supplements.filter(s => s.taskId === taskId && s.fiel
 assert(withFieldData.length >= 90, 'supplements with fieldData >= 90, got ' + withFieldData.length);
 assert(seed.calculations.filter(c => c.taskId === taskId).length >= 130, 'calculations >= 130, got ' + seed.calculations.filter(c => c.taskId === taskId).length);
 
-const testSupps = seed.supplements.filter(s => s.taskId === taskId && (s.customerName || '').includes('补录测试'));
+const testSupps = seed.supplements.filter(s => s.taskId === taskId && s.testCaseLabel);
 assert(testSupps.length >= 90, 'matrix test supplements >= 90, got ' + testSupps.length);
 const s001 = seed.supplements.find(s => s.id === 'S001');
 assert(s001 && s001.testCaseLabel === '电力·项目·报告法', 'S001 is 电力·项目·报告法');
@@ -59,7 +59,7 @@ assert(matrixBiz.has('project') && matrixBiz.has('non_project'), 'matrix has bot
 const matrixSheets = new Set(testSupps.map(s => (s.testCaseLabel || '').split('·')[0]));
 assert(matrixSheets.size >= 10, 'matrix covers >= 10 industry sheets, got ' + matrixSheets.size);
 const civilNoProduct = testSupps.filter(s => (s.testCaseLabel || '').startsWith('民航') && s.methodId === 'product');
-assert(civilNoProduct.length === 0, '民航无产品法补录');
+assert(civilNoProduct.length === 0, '民航无产品法收集');
 assert(seed.reports.length >= 20, 'reports >= 20');
 assert(seed.approvals.length >= 8, 'approvals >= 8, got ' + seed.approvals.length);
 const pendingApr = seed.approvals.filter(a => a.status === 'pending');
@@ -71,17 +71,17 @@ assert(undispatched.length >= 1, 'has undispatched supplements');
 assert(seed.factors.some(f => f.id === 'CF001' && !f.isBuiltin), 'has custom demo factor CF001');
 assert(seed.industryStats.length >= 15, 'industryStats >= 15');
 assert(seed.factors.length >= 400, 'factors >= 400, got ' + seed.factors.length);
-assert(typeof global.SUPPLEMENT_TEMPLATES !== 'undefined' && global.SUPPLEMENT_TEMPLATES.length >= 20, 'supplement templates >= 20');
-const tplIds = new Set(global.SUPPLEMENT_TEMPLATES.map(t => t.id));
+assert(typeof globalThis.SUPPLEMENT_TEMPLATES !== 'undefined' && globalThis.SUPPLEMENT_TEMPLATES.length >= 20, 'supplement templates >= 20');
+const tplIds = new Set(globalThis.SUPPLEMENT_TEMPLATES.map(t => t.id));
 assert(tplIds.has('project_电力') && tplIds.has('non_project_水泥'), 'key supplement templates exist');
-const tplPowerProject = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_电力');
-const tplPowerNp = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'non_project_电力');
+const tplPowerProject = globalThis.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_电力');
+const tplPowerNp = globalThis.SUPPLEMENT_TEMPLATES.find(t => t.id === 'non_project_电力');
 assert(tplPowerProject?.methods?.product?.supported === true, 'project_电力 supports product method');
 assert(tplPowerNp?.methods?.product?.supported === true, 'non_project_电力 supports product method');
 assert((tplPowerProject?.methods?.product?.fields?.length || 0) >= 12, 'project_电力 has 12 product fields');
-assert(global.SUPPLEMENT_FIELDS.productSupported({ bizType: 'project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力项目 productSupported');
-assert(global.SUPPLEMENT_FIELDS.productSupported({ bizType: 'non_project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力非项目 productSupported');
-const tplCivil = global.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_民航');
+assert(globalThis.SUPPLEMENT_FIELDS.productSupported({ bizType: 'project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力项目 productSupported');
+assert(globalThis.SUPPLEMENT_FIELDS.productSupported({ bizType: 'non_project', industryMajor: '电力', gbIndustryCode: 'D4411' }), '电力非项目 productSupported');
+const tplCivil = globalThis.SUPPLEMENT_TEMPLATES.find(t => t.id === 'project_民航');
 assert(tplCivil?.methods?.product?.supported === false, '民航无产品法');
 assert(seed.mappings.length >= 25, 'mappings >= 25');
 assert(seed.branchStats.length >= 25, 'branchStats >= 25');

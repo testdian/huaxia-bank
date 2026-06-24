@@ -14,9 +14,9 @@ const NAV = [
     { href: 'boundary.html', label: '核算对象与边界' }
   ]},
   { group: '补数协同', items: [
-    { href: 'branch-board.html', label: '数据补录' },
+    { href: 'branch-board.html', label: '数据收集' },
     { href: 'manager-tasks.html', label: '客户经理任务' },
-    { href: 'supplement-fill.html', label: '在线补录填报' }
+    { href: 'supplement-fill.html', label: '在线收集填报' }
   ]},
   { group: '方法与计算', items: [
     { href: 'factors.html', label: '排放因子库' },
@@ -38,7 +38,7 @@ const ROLES = {
   manager: { label: '客户经理', user: '王磊', branch: '北京分行' }
 };
 
-/** 客户经理仅可访问数据补录相关路由 */
+/** 客户经理仅可访问数据收集相关路由 */
 const MANAGER_ALLOWED_ROUTES = ['#/branch-board', '#/manager-tasks', '#/supplement-fill'];
 const MANAGER_ONLY_ROUTES = MANAGER_ALLOWED_ROUTES;
 /** 企业碳账户：仅总行、分行 */
@@ -236,7 +236,7 @@ function ensureSupplementDrawer() {
 function openSupplementFillDrawer(supplementId) {
   const s = Store.get().supplements.find(x => x.id === supplementId);
   if (!s) {
-    toast('未找到补录记录', 'warning');
+    toast('未找到收集记录', 'warning');
     return;
   }
   ensureSupplementDrawer();
@@ -401,7 +401,7 @@ function getTaskMaxWorkflowStep(task) {
   return Math.max(task.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP.TASK_CREATE);
 }
 
-/** 数据补录模块页面不展示核算六步流程条 */
+/** 数据收集模块页面不展示核算六步流程条 */
 function shouldShowWorkflowSteps() {
   const base = (typeof location !== 'undefined' ? location.hash : '').split('?')[0];
   const hideOn = ['#/branch-board', '#/manager-tasks', '#/supplement-fill', '#/approval-review'];
@@ -533,28 +533,68 @@ function saveTaskFilters(filters) {
   sessionStorage.setItem(TASK_FILTER_KEY, JSON.stringify(filters));
 }
 
+const INDUSTRY_SCOPE_KEY_EIGHT = '八大高碳行业';
+const INDUSTRY_SCOPE_LABEL_EIGHT = '人行投融资碳核算八大高碳行业';
+const INDUSTRY_SCOPE_KEY_EXTENDED = '八大高碳+重点行业';
+const INDUSTRY_SCOPE_LABEL_EXTENDED = '人行八大高碳 + 我行主要行业';
+
 function getTaskSubjectIndustryScope(task) {
-  return task?.subjectIndustryScope || task?.industryScope || '八大高碳行业';
+  return task?.subjectIndustryScope || task?.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
 }
 
 function getTaskInvestIndustryScope(task) {
-  return task?.investIndustryScope || task?.industryScope || '八大高碳行业';
+  return task?.investIndustryScope || task?.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
 }
 
 function normalizeTaskIndustryFields(task) {
   if (!task) return task;
-  if (!task.subjectIndustryScope) task.subjectIndustryScope = task.industryScope || '八大高碳行业';
-  if (!task.investIndustryScope) task.investIndustryScope = task.industryScope || '八大高碳行业';
+  if (!task.subjectIndustryScope) task.subjectIndustryScope = task.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
+  if (!task.investIndustryScope) task.investIndustryScope = task.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
+  task.subjectIndustryScope = normalizeIndustryScopeValue(task.subjectIndustryScope);
+  task.investIndustryScope = normalizeIndustryScopeValue(task.investIndustryScope);
   task.industryScope = task.subjectIndustryScope;
   return task;
 }
 
+function normalizeIndustryScopeValue(scope) {
+  if (scope === '八大+扩展') return INDUSTRY_SCOPE_KEY_EXTENDED;
+  return scope;
+}
+
 function renderIndustryScopeOptions(selected) {
-  const scope = selected || '八大高碳行业';
+  const scope = normalizeIndustryScopeValue(selected || INDUSTRY_SCOPE_KEY_EIGHT);
   return `
-    <option value="八大高碳行业" ${scope === '八大高碳行业' ? 'selected' : ''}>八大高碳行业</option>
-    <option value="八大+扩展" ${scope === '八大+扩展' ? 'selected' : ''}>八大+扩展</option>
+    <option value="${INDUSTRY_SCOPE_KEY_EIGHT}" ${scope === INDUSTRY_SCOPE_KEY_EIGHT ? 'selected' : ''}>${INDUSTRY_SCOPE_LABEL_EIGHT}</option>
+    <option value="${INDUSTRY_SCOPE_KEY_EXTENDED}" ${scope === INDUSTRY_SCOPE_KEY_EXTENDED ? 'selected' : ''}>${INDUSTRY_SCOPE_LABEL_EXTENDED}</option>
     <option value="自定义" ${scope === '自定义' ? 'selected' : ''}>自定义</option>`;
+}
+
+function renderIndustryScopeRadios(name, selected, options = {}) {
+  const { readonly = false, dis = '', groupId = '' } = options;
+  const scope = normalizeIndustryScopeValue(selected || INDUSTRY_SCOPE_KEY_EIGHT);
+  const opts = [
+    { value: INDUSTRY_SCOPE_KEY_EIGHT, label: INDUSTRY_SCOPE_LABEL_EIGHT },
+    { value: INDUSTRY_SCOPE_KEY_EXTENDED, label: INDUSTRY_SCOPE_LABEL_EXTENDED },
+    { value: '自定义', label: '自定义' }
+  ];
+  return `<div class="industry-scope-radios" id="${groupId}" data-scope-name="${name}">
+    ${opts.map((o, i) => `
+      <label class="industry-scope-radio">
+        <input type="radio" name="${name}" value="${o.value}" ${scope === o.value ? 'checked' : ''} ${dis} ${!readonly && i === 0 ? 'required' : ''}>
+        <span>${o.label}</span>
+      </label>`).join('')}
+  </div>`;
+}
+
+function renderTaskIndustryScopeFilterSelect(selectId, selected) {
+  const val = selected || '';
+  return `
+    <select id="${selectId}">
+      <option value="">全部</option>
+      <option value="${INDUSTRY_SCOPE_KEY_EIGHT}" ${val === INDUSTRY_SCOPE_KEY_EIGHT ? 'selected' : ''}>${INDUSTRY_SCOPE_LABEL_EIGHT}</option>
+      <option value="${INDUSTRY_SCOPE_KEY_EXTENDED}" ${val === INDUSTRY_SCOPE_KEY_EXTENDED || val === '八大+扩展' ? 'selected' : ''}>${INDUSTRY_SCOPE_LABEL_EXTENDED}</option>
+      <option value="自定义" ${val === '自定义' ? 'selected' : ''}>自定义</option>
+    </select>`;
 }
 
 function filterTasks(tasks, filters) {
@@ -563,6 +603,7 @@ function filterTasks(tasks, filters) {
     normalizeTaskIndustryFields(t);
     if (f.name && !(t.name || '').toLowerCase().includes(f.name.trim().toLowerCase())) return false;
     if (f.year && String(t.year) !== String(f.year)) return false;
+    if (f.investIndustryScope && getTaskInvestIndustryScope(t) !== f.investIndustryScope) return false;
     if (f.industryScope && getTaskSubjectIndustryScope(t) !== f.industryScope) return false;
     if (f.progress !== '' && f.progress != null) {
       const step = Math.max(0, Math.min(t.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP_NAMES.length - 1));
@@ -593,17 +634,24 @@ function renderTaskFormFields(task, options = {}) {
         readonly,
         legacyReadonly: !readonly && isLegacyTaskYear(t.year)
       })}
-      ${!readonly && !isLegacyTaskYear(t.year) ? `<span class="field-hint">${TASK_YEAR_MIN}–${TASK_YEAR_MAX}，与接口同步台账年度一致</span>` : ''}
     </div>
-    <div class="form-item"><label>${label('所属行业范围')}</label>
-      <select name="subjectIndustryScope" id="subjectIndustryScopeSelect" ${readonly ? '' : 'required'} ${dis}>
-        ${renderIndustryScopeOptions(subjectScope)}
-      </select>
+    <div class="form-item full"><label>${label('投向行业范围')}</label>
+      ${renderIndustryScopeRadios('investIndustryScope', investScope, { readonly, dis, groupId: 'investIndustryScopeGroup' })}
     </div>
-    <div class="form-item"><label>${label('投向行业范围')}</label>
-      <select name="investIndustryScope" id="investIndustryScopeSelect" ${readonly ? '' : 'required'} ${dis}>
-        ${renderIndustryScopeOptions(investScope)}
-      </select>
+    <div class="form-item full" id="investIndustryCascadeWrap">
+      ${IndustryCascade.renderPanel(investCustomCodes, readonly || investScope !== '自定义', {
+        wrapId: 'investIndustryCascadePanel',
+        countId: 'investIndustrySelectedCount'
+      })}
+    </div>
+    <div class="form-item full"><label>${label('所属行业范围')}</label>
+      ${renderIndustryScopeRadios('subjectIndustryScope', subjectScope, { readonly, dis, groupId: 'subjectIndustryScopeGroup' })}
+    </div>
+    <div class="form-item full" id="subjectIndustryCascadeWrap">
+      ${IndustryCascade.renderPanel(subjectCustomCodes, readonly || subjectScope !== '自定义', {
+        wrapId: 'subjectIndustryCascadePanel',
+        countId: 'subjectIndustrySelectedCount'
+      })}
     </div>
     <div class="form-item"><label>${label('余额口径')}</label>
       <select name="balanceRule" ${readonly ? '' : 'required'} ${dis}>
@@ -624,8 +672,11 @@ function renderTaskFormFields(task, options = {}) {
         <option ${t.goal === '内部分析' ? 'selected' : ''}>内部分析</option>
       </select>
     </div>
-    <div class="form-item"><label>${label('截止日期')}</label>
+    <div class="form-item"><label>${label('数据收集截止日期')}</label>
       <input type="date" name="deadline" ${readonly ? '' : 'required'} value="${t.deadline || ''}" ${ro}>
+    </div>
+    <div class="form-item"><label>${label('分行审批截止日期')}</label>
+      <input type="date" name="branchDeadline" value="${t.branchDeadline || ''}" ${ro}>
     </div>
     <div class="form-item"><label>${label('任务发起')}</label>
       <select name="initiatorOrg" id="initiatorOrgSelect" ${dis}>
@@ -641,37 +692,17 @@ function renderTaskFormFields(task, options = {}) {
         <option value="深圳分行" ${t.initiatorBranch === '深圳分行' ? 'selected' : ''}>深圳分行</option>
       </select>
     </div>
-    <div class="form-item"><label>${label('数据采集截止')}</label>
-      <input type="datetime-local" name="dataCutoffAt" value="${t.dataCutoffAt ? t.dataCutoffAt.replace(' ', 'T').slice(0, 16) : ''}" ${ro}>
-    </div>
-    <div class="form-item full" id="customSubjectIndustryWrap" style="display:${subjectScope === '自定义' ? '' : 'none'}">
-      <label>${label('所属行业自定义')}</label>
-      ${subjectScope === '自定义' ? renderCustomIndustryPanel(subjectCustomCodes, readonly, {
-        panelId: 'customSubjectIndustryPanel',
-        countId: 'subjectIndustrySelectedCount',
-        selectAllId: 'selectAllSubjectIndustries',
-        clearAllId: 'clearAllSubjectIndustries'
-      }) : ''}
-    </div>
-    <div class="form-item full" id="customInvestIndustryWrap" style="display:${investScope === '自定义' ? '' : 'none'}">
-      <label>${label('投向行业自定义')}</label>
-      ${investScope === '自定义' ? renderCustomIndustryPanel(investCustomCodes, readonly, {
-        panelId: 'customInvestIndustryPanel',
-        countId: 'investIndustrySelectedCount',
-        selectAllId: 'selectAllInvestIndustries',
-        clearAllId: 'clearAllInvestIndustries'
-      }) : ''}
-    </div>`;
+    `;
 }
 
 function readTaskFormPayload(form) {
   const subjectIndustryScope = form.subjectIndustryScope.value;
   const investIndustryScope = form.investIndustryScope.value;
   const industryCustomCodes = subjectIndustryScope === '自定义'
-    ? getSelectedCustomIndustryCodes(qs('#customSubjectIndustryWrap'))
+    ? IndustryCascade.getSelectedCodes(qs('#subjectIndustryCascadeWrap'))
     : [];
   const investIndustryCustomCodes = investIndustryScope === '自定义'
-    ? getSelectedCustomIndustryCodes(qs('#customInvestIndustryWrap'))
+    ? IndustryCascade.getSelectedCodes(qs('#investIndustryCascadeWrap'))
     : [];
   return {
     name: form.name.value,
@@ -687,9 +718,9 @@ function readTaskFormPayload(form) {
     balanceRule: form.balanceRule?.value || '月均余额',
     goal: form.goal.value,
     deadline: form.deadline.value,
+    branchDeadline: form.branchDeadline?.value || '',
     initiatorOrg: form.initiatorOrg?.value || 'hq',
-    initiatorBranch: form.initiatorBranch?.value || form.orgScope?.value || '北京分行',
-    dataCutoffAt: form.dataCutoffAt?.value ? form.dataCutoffAt.value.replace('T', ' ') + ':00' : null
+    initiatorBranch: form.initiatorBranch?.value || form.orgScope?.value || '北京分行'
   };
 }
 
@@ -706,45 +737,13 @@ function bindTaskInitiatorToggle() {
 }
 
 function bindTaskIndustryScopeToggle() {
-  const subjectSelect = qs('#subjectIndustryScopeSelect');
-  const investSelect = qs('#investIndustryScopeSelect');
-  const subjectWrap = qs('#customSubjectIndustryWrap');
-  const investWrap = qs('#customInvestIndustryWrap');
-  if (!subjectSelect || !investSelect || !subjectWrap || !investWrap) return;
-
-  const ensureCustomPanel = (wrap, selectedCodes, panelOptions) => {
-    if (!wrap || wrap.style.display === 'none' || subjectSelect.disabled) return;
-    if (qs('.industry-custom-panel', wrap)) return;
-    wrap.insertAdjacentHTML('beforeend', renderCustomIndustryPanel(selectedCodes, false, panelOptions));
-    bindCustomIndustryPanel(wrap);
-  };
-
-  const toggle = () => {
-    const subjectCustom = subjectSelect.value === '自定义';
-    const investCustom = investSelect.value === '自定义';
-    subjectWrap.style.display = subjectCustom ? '' : 'none';
-    investWrap.style.display = investCustom ? '' : 'none';
-    if (subjectCustom) {
-      ensureCustomPanel(subjectWrap, getSelectedCustomIndustryCodes(subjectWrap), {
-        panelId: 'customSubjectIndustryPanel',
-        countId: 'subjectIndustrySelectedCount',
-        selectAllId: 'selectAllSubjectIndustries',
-        clearAllId: 'clearAllSubjectIndustries'
-      });
-    }
-    if (investCustom) {
-      ensureCustomPanel(investWrap, getSelectedCustomIndustryCodes(investWrap), {
-        panelId: 'customInvestIndustryPanel',
-        countId: 'investIndustrySelectedCount',
-        selectAllId: 'selectAllInvestIndustries',
-        clearAllId: 'clearAllInvestIndustries'
-      });
-    }
-  };
-
-  subjectSelect.addEventListener('change', toggle);
-  investSelect.addEventListener('change', toggle);
-  toggle();
+  const subjectGroup = qs('#subjectIndustryScopeGroup');
+  const investGroup = qs('#investIndustryScopeGroup');
+  const subjectWrap = qs('#subjectIndustryCascadeWrap');
+  const investWrap = qs('#investIndustryCascadeWrap');
+  if (!subjectGroup || !investGroup) return;
+  IndustryCascade.bindPanel(subjectWrap, subjectGroup);
+  IndustryCascade.bindPanel(investWrap, investGroup);
 }
 
 function confirmDeleteTask(taskId, taskName) {
@@ -791,13 +790,51 @@ function getSupplementByFormalId(formalId) {
   return Store.get().supplements.find(s => s.formalId === formalId);
 }
 
-function formatFormalEntityEmission(taskId, formalId) {
-  const v = Store.getFormalEntityEmission?.(taskId, formalId);
-  return v != null ? formatNum(v) : '—';
+function isSupplementManualVisible(supp) {
+  if (!supp?.dispatchedAt) return false;
+  if (supp.status === 'completed') return true;
+  return ['branch_review', 'hq_review', 'approved'].includes(supp.auditStage || '');
 }
 
-/** 格澜接口预填时，报告法数据来源固定为「其他」 */
-const GELAN_REPORT_DATA_SOURCE = '其他';
+function formatSystemEntityEmission(taskId, formalId) {
+  const formal = Store.getFormalList(taskId).find(f => f.id === formalId);
+  const calc = Store.getCalculations?.(taskId)?.find(c => c.formalId === formalId);
+  if (formal?.gelanEntityEmission != null) {
+    const src = formal.gelanPrefill?.reportSource || GELAN_REPORT_DATA_SOURCE;
+    const at = formal.gelanFetchedAt || '';
+    const sourceHtml = `<div style="font-size:11px;color:#909399;margin-top:2px">来源：格澜接口${at ? ' · ' + at : ''} · ${src}</div>`;
+    return `${formatNum(formal.gelanEntityEmission)}${sourceHtml}`;
+  }
+  if (formal?.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
+    if (calc?.entityEmission != null) {
+      const sourceHtml = '<div style="font-size:11px;color:#909399;margin-top:2px">来源：经济活动法（不可编辑）</div>';
+      return `${formatNum(calc.entityEmission)}${sourceHtml}`;
+    }
+  }
+  if (calc?.source === 'credit_fallback' && calc.entityEmission != null) {
+    const sourceHtml = '<div style="font-size:11px;color:#909399;margin-top:2px">来源：信贷数据兜底法</div>';
+    return `${formatNum(calc.entityEmission)}${sourceHtml}`;
+  }
+  return '—';
+}
+
+function formatManualEntityEmission(taskId, formalId) {
+  const supp = Store.get().supplements.find(s => s.formalId === formalId && s.taskId === taskId);
+  if (!isSupplementManualVisible(supp)) return '—';
+  const e = Store.calcEntityEmission(supp);
+  if (e == null || Number.isNaN(Number(e))) return '—';
+  return formatNum(e);
+}
+
+/** @deprecated 列表展示请用 formatSystemEntityEmission / formatManualEntityEmission */
+function formatFormalEntityEmission(taskId, formalId) {
+  const sys = formatSystemEntityEmission(taskId, formalId);
+  if (sys !== '—') return sys;
+  return formatManualEntityEmission(taskId, formalId);
+}
+
+/** 格澜接口预填时，报告法数据来源固定为「报告法-其他数据来源」 */
+const GELAN_REPORT_DATA_SOURCE = '报告法-其他数据来源';
 
 /** 格澜主体排放调取：仅适用于主体碳排放；「项目（以项目方式计算）」不适用 */
 function isFormalGelanEligible(formal, taskId, d) {
@@ -807,7 +844,7 @@ function isFormalGelanEligible(formal, taskId, d) {
   return resolveAccountingType(row) !== 'project_as_project';
 }
 
-/** 经济法直算-营收法：非必收数路径、主体尚无排放，且非项目法（以项目方式计算）/项目待补录 */
+/** 经济活动法直算：非必收数路径、主体尚无排放，且非项目法（以项目方式计算）/项目待收集 */
 function isFormalEconomyDirectEligible(formal, taskId, d) {
   if (!formal || formal.status !== 'confirmed') return false;
   if (formal.economyDirectStatus === 'done') return false;
@@ -820,7 +857,7 @@ function isFormalEconomyDirectEligible(formal, taskId, d) {
   return type !== 'project_as_project' && !isProjectAccountingPending(row);
 }
 
-/** 经济法直算按钮无待处理记录时的提示（区分格澜已覆盖、项目法须补录等正常流程） */
+/** 经济法直算按钮无待处理记录时的提示（区分格澜已覆盖、项目法须收集等正常流程） */
 function describeEconomyDirectEmptyOutcome(taskId) {
   const list = Store.getFormalList(taskId).filter(f => f.status === 'confirmed');
   const ecoPath = list.filter(f => (f.collectMode || resolveCollectMode(f.loanType)) === 'economy_direct');
@@ -835,14 +872,14 @@ function describeEconomyDirectEmptyOutcome(taskId) {
   if (withEntity.length && needSupplement.length) {
     return {
       type: 'info',
-      msg: '当前无待经济法直算记录：格澜等方式已填充主体排放；项目法/待补录项目请通过「发放补录任务」采集'
+      msg: '当前无待经济法直算记录：格澜等方式已填充主体排放；项目法/待收集项目请通过「发放收集任务」采集'
     };
   }
   if (withEntity.length) {
     return { type: 'info', msg: '当前无待经济法直算记录，主体排放已由格澜等方式填充' };
   }
   if (needSupplement.length) {
-    return { type: 'info', msg: '项目法（以项目方式计算）及项目待补录不适用经济法直算，请发放补录任务' };
+    return { type: 'info', msg: '项目法（以项目方式计算）及项目待收集不适用经济法直算，请发放收集任务' };
   }
   if (ecoPath.every(f => f.economyDirectStatus === 'done')) {
     return { type: 'info', msg: '经济法直算已全部完成' };
@@ -883,7 +920,7 @@ function fetchGelanEntityDataMock(row, task) {
   };
 }
 
-/** 归集报告法扩展字段（补录 / 格澜 / 碳账户年度快照） */
+/** 归集报告法扩展字段（收集 / 格澜 / 碳账户年度快照） */
 function getReportMethodFields(source) {
   if (typeof SUPPLEMENT_FIELDS !== 'undefined' && source && !source.gelanPrefill && !source.reportDetail) {
     return SUPPLEMENT_FIELDS.reportFieldValues(source);
@@ -955,6 +992,8 @@ function collectCarbonAccountProfileForm(form) {
 }
 
 const CA_SUPPLEMENT_TAB_METHOD_IDS = {
+  report_authority: 'report',
+  report_other: 'report',
   report: 'report',
   energy: 'energy',
   product: 'product',
@@ -962,29 +1001,36 @@ const CA_SUPPLEMENT_TAB_METHOD_IDS = {
   other: 'economy_fallback'
 };
 
-/** 碳账户编辑：合并客户经理补录表单，推导主体排放与核算方法（不写回核算任务） */
+/** 碳账户编辑：合并客户经理收集表单，推导主体排放与核算方法（不写回核算任务） */
 function mergeCarbonAccountSupplementIntoPayload(profilePayload, supplementRoot, supplementView) {
   if (!supplementRoot || !supplementView || typeof SUPPLEMENT_FIELDS === 'undefined') {
     return profilePayload;
   }
-  const tab = qs('#methodTabs .tab.active', supplementRoot)?.dataset.tab
-    || supplementActiveTab(supplementView);
-  const collected = SUPPLEMENT_FIELDS.collectFormData(tab, supplementRoot, supplementView);
+  const collected = SUPPLEMENT_FIELDS.collectAllFormData(supplementRoot, supplementView);
   const merged = {
     ...supplementView,
     ...collected,
-    methodId: CA_SUPPLEMENT_TAB_METHOD_IDS[tab]
-      || Store.matchMethod({ ...supplementView, ...collected })?.id
+    methodId: CA_SUPPLEMENT_TAB_METHOD_IDS[collected.activeMethodTab]
       || supplementView.methodId
       || 'report',
-    activeMethodTab: tab
+    activeMethodTab: collected.activeMethodTab
   };
+  if (supplementView.approvedMethodId) {
+    merged.methodId = supplementView.approvedMethodId;
+  } else {
+    merged.methodId = Store.matchMethod({ ...supplementView, ...collected })?.id
+      || merged.methodId;
+  }
   const entityFromSupplement = Store.calcEntityEmission(merged);
-  const reportDetail = tab === 'report'
+  const reportDetail = (collected.activeMethodTab === 'report_authority' || collected.activeMethodTab === 'report_other' || collected.activeMethodTab === 'report')
     ? {
       ...(profilePayload.reportDetail || {}),
-      ...(merged.fieldData?.report || {}),
-      source: merged.fieldData?.report?.source || merged.disclosureChannel || profilePayload.reportDetail?.source
+      ...(merged.fieldData?.reportAuthority || merged.fieldData?.reportOther || merged.fieldData?.report || {}),
+      source: merged.fieldData?.reportAuthority?.source
+        || merged.fieldData?.reportOther?.source
+        || merged.fieldData?.report?.source
+        || merged.disclosureChannel
+        || profilePayload.reportDetail?.source
     }
     : profilePayload.reportDetail;
   const methodLabel = typeof CarbonAccount !== 'undefined'
@@ -1013,7 +1059,7 @@ function mergeCarbonAccountSupplementIntoPayload(profilePayload, supplementRoot,
 function renderCarbonAccountMethodOptions(selected) {
   const labels = typeof CarbonAccount !== 'undefined'
     ? Object.values(CarbonAccount.METHOD_LABEL)
-    : ['报告法其他数据', '经济活动法-营收法数据'];
+    : ['报告法其他数据', '经济活动法'];
   const cur = selected || labels[0];
   return labels.map(label =>
     `<option value="${label}" ${label === cur ? 'selected' : ''}>${label}</option>`
@@ -1092,7 +1138,7 @@ function fillStatusBadge(supplement) {
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
-/** 补录任务状态（用于客户经理/补录清单） */
+/** 收集任务状态（用于客户经理/收集清单） */
 function supplementTaskStatusBadge(supplement) {
   if (!supplement) return '<span class="badge badge-draft">—</span>';
   if (supplement.status === 'returned' || supplement.auditStage === 'rejected') {
@@ -1140,13 +1186,12 @@ function resolveFormalAccountingMethodContext(d, formal, taskId) {
   };
 }
 
-/** 数据采集列表「核算方法」展示名（七类枚举，与碳账户一致；未采集前为 —） */
-function resolveFormalAccountingMethodLabel(formal, taskId, d) {
+/** 系统核算方法：格澜调取、经济法直算、信贷兜底等接口/直算路径 */
+function resolveSystemAccountingMethodLabel(formal, taskId, d) {
   d = d || (typeof Store !== 'undefined' ? Store.get() : null);
   if (!formal || !d || typeof CarbonAccount === 'undefined') return '—';
 
   const ctx = resolveFormalAccountingMethodContext(d, formal, taskId);
-  const supp = ctx.supplement;
   const calc = ctx.calc;
 
   if (formal.gelanEntityEmission != null || calc?.source === 'gelan') {
@@ -1155,14 +1200,43 @@ function resolveFormalAccountingMethodLabel(formal, taskId, d) {
   if (formal.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
     return CarbonAccount.resolveAccountMethodLabel(d, ctx) || CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
   }
-  if (supp && (supp.auditStage === 'approved' || (supp.status === 'completed' && supp.auditStage !== 'pending_fill'))) {
-    return CarbonAccount.resolveAccountMethodLabel(d, ctx) || '—';
+  if (calc?.source === 'credit_fallback') {
+    return CarbonAccount.METHOD_LABEL.ECONOMY_LOAN;
   }
   return '—';
 }
 
-function formalAccountingMethodBadge(formal, taskId, d) {
-  const label = resolveFormalAccountingMethodLabel(formal, taskId, d);
+/** 手动核算方法：收集任务提交后的客户经理填报口径 */
+function resolveManualAccountingMethodLabel(formal, taskId, d) {
+  d = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!formal || !d || typeof CarbonAccount === 'undefined') return '—';
+
+  const supp = (d.supplements || []).find(s => s.formalId === formal.id && s.taskId === taskId);
+  if (!isSupplementManualVisible(supp)) return '—';
+
+  const methodId = supp.approvedMethodId || (typeof Store !== 'undefined' ? Store.matchMethod(supp)?.id : null);
+  if (!methodId) return '—';
+
+  const manualCtx = {
+    formal: { ...formal, gelanEntityEmission: null, gelanPrefill: null },
+    supplement: supp,
+    calc: null,
+    methodId,
+    reportDetail: supp.fieldData?.report || null,
+    source: 'manual_collect'
+  };
+  const label = CarbonAccount.resolveAccountMethodLabel(d, manualCtx);
+  return label && label !== '-' ? label : '—';
+}
+
+/** 数据采集列表「核算方法」展示名（系统优先，其次手动；筛选/测试兼容） */
+function resolveFormalAccountingMethodLabel(formal, taskId, d) {
+  const sys = resolveSystemAccountingMethodLabel(formal, taskId, d);
+  if (sys !== '—') return sys;
+  return resolveManualAccountingMethodLabel(formal, taskId, d);
+}
+
+function accountingMethodBadge(label) {
   if (label === '—') return '<span class="badge badge-draft">—</span>';
   if (label.includes('报告法')) return `<span class="badge badge-success">${label}</span>`;
   if (label.includes('能源')) return `<span class="badge badge-warning">${label}</span>`;
@@ -1170,6 +1244,18 @@ function formalAccountingMethodBadge(formal, taskId, d) {
     return `<span class="badge badge-primary">${label}</span>`;
   }
   return `<span class="badge">${label}</span>`;
+}
+
+function systemAccountingMethodBadge(formal, taskId, d) {
+  return accountingMethodBadge(resolveSystemAccountingMethodLabel(formal, taskId, d));
+}
+
+function manualAccountingMethodBadge(formal, taskId, d) {
+  return accountingMethodBadge(resolveManualAccountingMethodLabel(formal, taskId, d));
+}
+
+function formalAccountingMethodBadge(formal, taskId, d) {
+  return accountingMethodBadge(resolveFormalAccountingMethodLabel(formal, taskId, d));
 }
 
 function renderFormalAccountingMethodFilterOptions(selected) {
@@ -1187,20 +1273,20 @@ function collectModeLabel(mode) {
   if (typeof CarbonAccount !== 'undefined' && mode === 'economy_direct') {
     return CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
   }
-  return mode === 'mandatory' ? '—' : '经济活动法-营收法数据';
+  return mode === 'mandatory' ? '—' : '经济活动法';
 }
 
 function collectModeBadge(mode) {
   return mode === 'mandatory'
     ? '<span class="badge badge-warning">—</span>'
-    : `<span class="badge badge-primary">${typeof CarbonAccount !== 'undefined' ? CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE : '经济活动法-营收法数据'}</span>`;
+    : `<span class="badge badge-primary">${typeof CarbonAccount !== 'undefined' ? CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE : '经济活动法'}</span>`;
 }
 
 const DATA_COLLECT_STATUS_OPTIONS = [
   { value: '', label: '全部' },
   { value: 'pending_lock', label: '待锁定' },
   { value: 'pending_dispatch', label: '未派发' },
-  { value: 'need_supplement', label: '须补录' },
+  { value: 'need_supplement', label: '须收集' },
   { value: 'pending_economy', label: '待直算' },
   { value: 'entity_collected', label: '已有排放' },
   { value: 'economy_done', label: '已直算' },
@@ -1251,7 +1337,7 @@ function dataCollectStatusBadge(formal, supplement, taskId) {
   const map = {
     pending_lock: ['待锁定', 'badge-draft'],
     pending_dispatch: ['未派发', 'badge-warning'],
-    need_supplement: ['须补录', 'badge-warning'],
+    need_supplement: ['须收集', 'badge-warning'],
     pending_economy: ['待直算', 'badge-warning'],
     entity_collected: ['已有排放', 'badge-success'],
     economy_done: ['已直算', 'badge-success'],
@@ -1286,8 +1372,10 @@ function filterDataCollectList(list, filters, taskId) {
     const supp = supplements.find(s => s.formalId === formal.id);
     if (f.keyword && !(formal.customerName || '').toLowerCase().includes(f.keyword.trim().toLowerCase())) return false;
     if (f.accountingMethod) {
-      const label = resolveFormalAccountingMethodLabel(formal, taskId, Store.get());
-      if (label !== f.accountingMethod) return false;
+      const d = Store.get();
+      const sys = resolveSystemAccountingMethodLabel(formal, taskId, d);
+      const man = resolveManualAccountingMethodLabel(formal, taskId, d);
+      if (sys !== f.accountingMethod && man !== f.accountingMethod) return false;
     } else if (f.collectMode) {
       const mode = formal.collectMode || resolveCollectMode(formal.loanType);
       if (mode !== f.collectMode) return false;
@@ -1337,7 +1425,7 @@ function economyDirectStatusBadge(formal, taskId) {
   const row = typeof formalLedgerRow === 'function' ? formalLedgerRow(formal, taskId) : formal;
   const type = resolveAccountingType(row);
   if (type === 'project_as_project' || isProjectAccountingPending(row)) {
-    return '<span class="badge badge-warning">须补录</span>';
+    return '<span class="badge badge-warning">须收集</span>';
   }
   if (typeof Store !== 'undefined' && Store.getFormalEntityEmission?.(taskId, formal.id) != null) {
     return '<span class="badge badge-success">已有排放</span>';
@@ -1380,11 +1468,11 @@ function renderSupplementRejectBanner(s) {
   if (wasAdminRejected(s)) {
     const reason = s.rejectReason ? `原因：${escapeHtml(s.rejectReason)}` : '';
     return `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-bottom:12px">
-      该笔数据已由管理员驳回，请重新填报。${reason}
+      该笔数据已由管理员退回，请重新填报。${reason}
     </div>`;
   }
   return `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-bottom:12px">
-    该笔数据已被驳回或未通过审核，请修改后重新提交。${s.rejectReason ? `原因：${escapeHtml(s.rejectReason)}` : '可在「审批流程」查看完整记录。'}
+    该笔数据已被退回或未通过审核，请修改后重新提交。${s.rejectReason ? `原因：${escapeHtml(s.rejectReason)}` : '可在「审批流程」查看完整记录。'}
   </div>`;
 }
 
@@ -1420,22 +1508,34 @@ function canSubmitSupplementForReview(supp) {
 function reviewLevelLabel(level) {
   if (level === 'branch') return '分行初审';
   if (level === 'hq') return '总行终审';
-  if (level === 'admin') return '管理员驳回';
+  if (level === 'admin') return '管理员退回';
   if (level === 'submit') return '提交审核';
   return '审核';
 }
 
 function supplementActiveTab(s) {
-  if (s?.activeMethodTab) return s.activeMethodTab;
+  if (s?.activeMethodTab) {
+    if (s.activeMethodTab === 'report') {
+      return typeof SUPPLEMENT_FIELDS !== 'undefined'
+        ? SUPPLEMENT_FIELDS.resolveReportActiveTab(s)
+        : 'report_other';
+    }
+    return s.activeMethodTab;
+  }
   const id = s?.methodId;
   if (id === 'energy') return 'energy';
   if (id === 'product') {
-    if (typeof SUPPLEMENT_FIELDS !== 'undefined' && !SUPPLEMENT_FIELDS.productSupported(s)) return 'report';
+    if (typeof SUPPLEMENT_FIELDS !== 'undefined' && !SUPPLEMENT_FIELDS.productSupported(s)) return 'report_authority';
     return 'product';
   }
   if (id === 'economy_fallback') return 'other';
   if (id === 'economy') return 'economy';
-  return 'report';
+  if (id === 'report') {
+    return typeof SUPPLEMENT_FIELDS !== 'undefined'
+      ? SUPPLEMENT_FIELDS.resolveReportActiveTab(s)
+      : 'report_authority';
+  }
+  return 'report_authority';
 }
 
 function getFormalForSupplement(s) {
@@ -1443,7 +1543,7 @@ function getFormalForSupplement(s) {
   return Store.get().formalList.find(f => f.id === s.formalId);
 }
 
-/** 数据采集为经济法直算路径时，补录页经济活动法 Tab 预填直算/接口数值（仍可编辑） */
+/** 数据采集为经济法直算路径时，收集页经济活动法 Tab 预填直算/接口数值（仍可编辑） */
 function getEconomyDirectPrefill(s) {
   if (!s?.formalId || !s.dispatchedAt) return null;
   const formal = getFormalForSupplement(s);
@@ -1469,7 +1569,8 @@ function getEconomyDirectViewData(s) {
 }
 
 const SUPPLEMENT_METHOD_TABS = [
-  { id: 'report', label: '报告法' },
+  { id: 'report_authority', label: '报告法-权威数据' },
+  { id: 'report_other', label: '报告法-其他' },
   { id: 'energy', label: '物理活动法-能源法' },
   { id: 'product', label: '物理活动法-产品法' },
   { id: 'economy', label: '经济活动法' },
@@ -1488,7 +1589,7 @@ function approvalStatusBadge(status) {
   const map = {
     pending: ['待审核', 'badge-warning'],
     approved: ['已通过', 'badge-success'],
-    rejected: ['已驳回', 'badge-danger'],
+    rejected: ['已退回', 'badge-danger'],
     voided: ['已作废', 'badge-draft']
   };
   const [text, cls] = map[status] || [status, 'badge-draft'];
@@ -1499,7 +1600,7 @@ function approvalStatusLabel(status) {
   return {
     pending: '待审核',
     approved: '已通过',
-    rejected: '已驳回',
+    rejected: '已退回',
     voided: '已作废'
   }[status] || status || '—';
 }
@@ -1592,7 +1693,7 @@ function renderSupplementApprovalTimeline(s, task) {
         <div><span class="label">${a.reviewLevel === 'admin' ? '操作状态' : '审批状态'}</span>${approvalStatusLabel(a.status)}</div>
         <div><span class="label">${a.reviewLevel === 'admin' ? '操作结果' : '审批结果'}</span>${approvalResultLabel(a.status)}</div>
         ${a.approveTime ? `<div><span class="label">${a.reviewLevel === 'admin' ? '操作时间' : '审批时间'}</span>${a.approveTime}</div>` : ''}
-        ${reason ? `<div class="approval-timeline-reason"><span class="label">${a.reviewLevel === 'admin' ? '驳回原因' : '审批原因'}</span>${escapeHtml(reason)}</div>` : ''}
+        ${reason ? `<div class="approval-timeline-reason"><span class="label">${a.reviewLevel === 'admin' ? '退回原因' : '审批原因'}</span>${escapeHtml(reason)}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1606,7 +1707,7 @@ function renderSupplementApprovalTimeline(s, task) {
     ? `<div class="approval-timeline">${items}</div>${followHint}`
     : '<p style="color:#909399;text-align:center;padding:24px 0">暂无审批记录，任务派发后可在此查看流程进度</p>';
   const extra = s.rejectReason && !approvals.some(a => a.status === 'rejected')
-    ? `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-top:12px">驳回原因：${escapeHtml(s.rejectReason)}</div>`
+    ? `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-top:12px">退回原因：${escapeHtml(s.rejectReason)}</div>`
     : '';
 
   return `<div class="card"><div class="card-header"><h3>审批流程</h3></div><div class="card-body">${timelineContent}${extra}</div></div>`;
@@ -1643,7 +1744,7 @@ function bindSupplementPageTabs(rootEl) {
   });
 }
 
-/** 与补录填报页一致的表单区域（支持只读） */
+/** 与收集填报页一致的表单区域（支持只读） */
 function renderSupplementFillBody(s, options = {}) {
   const readonly = !!options.readonly;
   const dis = readonly ? 'disabled' : '';
@@ -1673,13 +1774,14 @@ function renderSupplementFillBody(s, options = {}) {
     <div class="card-body form-grid">
       ${SUPPLEMENT_FIELDS.renderBasicInfo(s, dis, !!options.editableBasicInfo && !readonly)}
     </div></div>
-    <div class="card"><div class="card-header"><h3>排放数据（择一填报）</h3></div>
-    <div class="demo-tip method-priority-tip">方法优先级：报告法 → 物理活动法-能源法 → 物理活动法-产品法 → 经济活动法 → 其他计算法（见指引第七章）</div>
+    <div class="card"><div class="card-header"><h3>排放数据（可同时填写多种方法）</h3></div>
+    <div class="demo-tip method-priority-tip">客户经理可同时填写多种方法的数值；审核通过时由分行管理员选定最终采用的核算方法（见指引第七章方法优先级）</div>
     <div class="tabs method-tabs-bar" id="methodTabs">
       ${methodTabs.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
     </div>
     <div class="card-body">
-      ${SUPPLEMENT_FIELDS.renderReportPanel(s, dis, panelCls('report'), 'report')}
+      ${SUPPLEMENT_FIELDS.renderReportKindPanel(s, dis, panelCls('report_authority'), 'report_authority', 'authority')}
+      ${SUPPLEMENT_FIELDS.renderReportKindPanel(s, dis, panelCls('report_other'), 'report_other', 'other')}
       ${SUPPLEMENT_FIELDS.renderEnergyPanel(s, dis, panelCls('energy'), 'energy')}
       ${SUPPLEMENT_FIELDS.renderProductPanel(s, dis, panelCls('product'), 'product')}
       <div class="${panelCls('economy')}" data-panel="economy">
@@ -1767,7 +1869,8 @@ function renderApprovalReviewActions(canReview) {
   }
   return `<div style="padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;background:#fff;margin-top:16px">
     <button type="button" class="btn btn-success" id="approvalApproveBtn">审核通过</button>
-    <button type="button" class="btn btn-danger" id="approvalRejectBtn">审核不通过</button>
+    <button type="button" class="btn btn-danger" id="approvalRejectBtn">退回至客户经理</button>
+    <button type="button" class="btn" id="approvalLocalFixBtn">本级修正</button>
     <button type="button" class="btn" id="approvalCancelBtn">取消</button>
   </div>`;
 }
@@ -1785,7 +1888,10 @@ function ensureApprovalConfirmModal() {
           <p id="approvalConfirmMessage"></p>
           <div class="form-item" id="approvalConfirmReasonWrap" style="margin-top:12px;display:none">
             <label>审核原因</label>
-            <textarea id="approvalConfirmReason" rows="3" placeholder="请填写审核不通过原因" style="width:100%"></textarea>
+            <textarea id="approvalConfirmReason" rows="3" placeholder="请填写退回原因" style="width:100%"></textarea>
+          </div>
+          <div id="approvalConfirmMethodWrap" style="margin-top:12px;display:none">
+            <div id="approvalConfirmMethodList" class="method-select-list"></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1802,11 +1908,13 @@ function ensureApprovalConfirmModal() {
 function openApprovalActionConfirm(type, onConfirm, options = {}) {
   if (!ensureApprovalConfirmModal()) return;
   const isApprove = type === 'approve';
-  qs('#approvalConfirmTitle').textContent = options.title || (isApprove ? '审核通过' : '审核不通过');
-  qs('#approvalConfirmMessage').textContent = options.message || (isApprove ? '是否确认审核通过？' : '是否确认审核不通过？');
+  qs('#approvalConfirmTitle').textContent = options.title || (isApprove ? '审核通过' : '退回至客户经理');
+  qs('#approvalConfirmMessage').textContent = options.message || (isApprove ? '是否确认审核通过？' : '是否确认退回至客户经理？');
   const reasonWrap = qs('#approvalConfirmReasonWrap');
+  const methodWrap = qs('#approvalConfirmMethodWrap');
   const reasonInput = qs('#approvalConfirmReason');
   reasonWrap.style.display = isApprove ? 'none' : 'block';
+  if (methodWrap) methodWrap.style.display = 'none';
   reasonInput.value = '';
   const okBtn = qs('#approvalConfirmOkBtn');
   okBtn.className = isApprove ? 'btn btn-success' : 'btn btn-danger';
@@ -1815,7 +1923,7 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
     if (!isApprove) {
       const reason = (reasonInput.value || '').trim();
       if (!reason) {
-        toast('请填写审核原因', 'warning');
+        toast('请填写退回原因', 'warning');
         reasonInput.focus();
         return;
       }
@@ -1828,6 +1936,40 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
   };
   showModal('approvalConfirmModal');
   if (!isApprove) setTimeout(() => reasonInput.focus(), 100);
+}
+
+/** 分行审核收集单据通过：须单选核算方法 */
+function openSupplementMethodApprovalConfirm(approval, onConfirm) {
+  if (!ensureApprovalConfirmModal()) return;
+  const supplement = getSupplementForApproval(approval);
+  const tabs = getSupplementMethodTabs(supplement || {});
+  const defaultTabId = supplement?.activeMethodTab || supplementActiveTab(supplement || {});
+  qs('#approvalConfirmTitle').textContent = '审核通过';
+  qs('#approvalConfirmMessage').textContent = '请您选择要使用的核算方法：';
+  qs('#approvalConfirmReasonWrap').style.display = 'none';
+  const methodWrap = qs('#approvalConfirmMethodWrap');
+  const methodList = qs('#approvalConfirmMethodList');
+  methodWrap.style.display = 'block';
+  methodList.innerHTML = tabs.map(t => {
+    const checked = defaultTabId === t.id ? ' checked' : '';
+    return `<label class="method-select-option"><input type="radio" name="approvalMethodTab" value="${t.id}"${checked}> ${t.label}</label>`;
+  }).join('');
+  const okBtn = qs('#approvalConfirmOkBtn');
+  okBtn.className = 'btn btn-success';
+  okBtn.textContent = '确认通过';
+  okBtn.onclick = () => {
+    const tabId = qs('input[name="approvalMethodTab"]:checked')?.value;
+    if (!tabId) {
+      toast('请选择核算方法', 'warning');
+      return;
+    }
+    hideModal('approvalConfirmModal');
+    onConfirm(true, undefined, {
+      selectedMethodId: supplementTabToMethodId(tabId),
+      activeMethodTab: tabId
+    });
+  };
+  showModal('approvalConfirmModal');
 }
 
 function bindSupplementMethodTabs(readonly, rootEl) {
@@ -1861,7 +2003,30 @@ function candidateIndustryLabel(c) {
   return c.industryMajor || '-';
 }
 
-/** 解析核算类型 id（采集中项目类且无项目信息时返回 null，待补录定档） */
+/** 投向行业：优先取项目明细中的项目所属行业（国标代码） */
+function candidateInvestIndustryCode(c) {
+  const details = getCandidateProjectDetails(c);
+  if (details.length) {
+    const p = details[0];
+    if (p.nationalIndustryCodeLv4) return p.nationalIndustryCodeLv4;
+  }
+  return c.gbIndustryCode || '';
+}
+
+/** 投向行业展示：与列表项目所属行业一致 */
+function candidateInvestIndustryLabel(c) {
+  const details = getCandidateProjectDetails(c);
+  if (details.length) {
+    const p = details[0];
+    const code = p.nationalIndustryCodeLv4 || c.gbIndustryCode;
+    const name = p.projectIndustry || c.gbIndustryName || c.industryMajor;
+    if (code && name) return `${code} ${name}`;
+    return p.projectIndustry || candidateIndustryLabel(c);
+  }
+  return candidateIndustryLabel(c);
+}
+
+/** 解析核算类型 id（采集中项目类且无项目信息时返回 null，待收集定档） */
 function resolveAccountingType(c) {
   if (!c) return null;
   const explicit = c.accountingType;
@@ -2035,7 +2200,7 @@ function renderCarbonAccountNameCell(acc, expandedSet) {
   </span>`;
 }
 
-/** 碳账户档案页：解析展示用客户号、方法、主体排放及补录视图 */
+/** 碳账户档案页：解析展示用客户号、方法、主体排放及收集视图 */
 function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
   const yearStr = String(year || '');
   let metrics = typeof CarbonAccount !== 'undefined'
@@ -2065,7 +2230,7 @@ function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
   };
 }
 
-/** 构建碳账户档案页「客户经理补录数据」视图对象（优先碳账户本地快照） */
+/** 构建碳账户档案页「客户经理收集数据」视图对象（优先碳账户本地快照） */
 function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
   const yearStr = String(year || '');
   let supplementSnapshot = acc.annualProfiles?.[yearStr]?.supplementSnapshot;
@@ -2125,23 +2290,23 @@ function buildCarbonAccountSupplementView(d, acc, year, subProjectNo) {
     return {
       ...base,
       methodId: 'report',
-      activeMethodTab: 'report',
+      activeMethodTab: 'report_other',
       reportedEmission: emission,
       reportCarbonDataYear: reportExt.carbonDataYear,
       reportScope1Emission: reportExt.scope1Emission,
       reportScope2Emission: reportExt.scope2Emission,
       reportUnitTotalCo2Emission: reportExt.unitTotalCo2Emission,
-      disclosureChannel: gelan.disclosureChannel || 'ESG报告',
+      disclosureChannel: gelan.reportSource || GELAN_REPORT_DATA_SOURCE,
       thirdPartyVerified: gelan.thirdPartyVerified !== false,
       gelanPrefill: gelan,
-      fieldData: { report: reportExt }
+      fieldData: { reportOther: reportExt, reportAuthority: {} }
     };
   }
   if (calc?.methodId === 'economy' || formal?.economyDirectStatus === 'done') {
     return {
       ...base,
       methodId: 'economy',
-      activeMethodTab: 'report',
+      activeMethodTab: 'economy',
       economyValue: calc?.avgBalance,
       economyFactor: calc?.industryFactor || 2.35,
       economyBasis: 'revenue',
@@ -2193,11 +2358,11 @@ function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo, options = {
       <div class="form-item"><label>碳数据年份</label><input value="${carbonDataYear || '—'}" readonly></div>
     </div>`;
   const supplementHint = editable
-    ? '可编辑；保存后仅更新本碳账户及列表展示，不影响核算任务中的补录与计算数据'
+    ? '可编辑；保存后仅更新本碳账户及列表展示，不影响核算任务中的收集与计算数据'
     : '按核算方法展示对应填报内容（只读）';
   return `${subHint}
     <div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body">${profileFields}</div></div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理补录数据</h3>
+    <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理收集数据</h3>
       <span style="font-size:12px;color:#909399">${supplementHint}</span></div>
       <div class="card-body ca-profile-supplement${editable ? '' : ' is-readonly'}">${renderSupplementFillBody(supplementView, { readonly: !editable, editableBasicInfo: editable })}</div>
     </div>`;
@@ -2209,7 +2374,7 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
   return `<tr class="project-detail-row">
     <td colspan="${colspan}">
       <div class="project-detail-wrap">
-        <div class="project-detail-title">项目明细（接口同步）</div>
+        <div class="project-detail-title">项目明细</div>
         <div class="table-wrap">
           <table class="data-table project-detail-table">
             <thead><tr>
@@ -2240,11 +2405,11 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
 
 function getDefaultCandidateFilterRules(task) {
   const t = normalizeTaskIndustryFields({ ...(task || {}) });
-  const subjectScope = getTaskSubjectIndustryScope(t);
-  const scopeCodes = IndustryScope.resolveCodes(subjectScope, t.industryCustomCodes);
+  const investScope = getTaskInvestIndustryScope(t);
+  const scopeCodes = IndustryScope.resolveCodes(investScope, t.investIndustryCustomCodes);
   const eightCodes = IndustryScope.getEightCodes();
   let industries;
-  if (subjectScope === '自定义') {
+  if (investScope === '自定义') {
     industries = eightCodes.filter(c => scopeCodes.includes(c));
     if (!industries.length) industries = scopeCodes.slice();
   } else {
@@ -2301,9 +2466,9 @@ function isCandidateInGuideAccountingScope(c) {
   return true;
 }
 
-function getCandidateIndustryFilterOptions(task) {
+function getCandidateInvestIndustryFilterOptions(task) {
   const t = normalizeTaskIndustryFields({ ...(task || {}) });
-  const codes = IndustryScope.resolveCodes(getTaskSubjectIndustryScope(t), t.industryCustomCodes);
+  const codes = IndustryScope.resolveCodes(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes);
   return INDUSTRY_TABLE.filter(i => codes.includes(i.code));
 }
 
@@ -2322,20 +2487,16 @@ function renderCandidateFilterPanel(rules, task, options = {}) {
   const productOptions = GUIDE.CANDIDATE_PRODUCT_TYPES || [];
   const borrowerOptions = GUIDE.CANDIDATE_BORROWER_TYPES || [];
   const customerScaleOptions = (GUIDE.CUSTOMER_SCALES || []).map(v => ({ value: v, label: v }));
-  const industryOptions = getCandidateIndustryFilterOptions(task).map(i => ({
+  const industryOptions = getCandidateInvestIndustryFilterOptions(task).map(i => ({
     value: i.code,
     label: `${i.code} ${i.name}`
   }));
-  const scopeHint = getTaskSubjectIndustryScope(task) === '八大高碳行业'
-    ? '默认按指引核算范畴筛选，仅展示纳入核算的数据'
-    : '默认按八大高碳行业核算范畴筛选，可勾选调整后重新查询';
   return `
     <fieldset class="view-mode-fieldset"${viewOnly ? ' disabled' : ''}>
     <div class="filter-panel">
-      <p class="candidate-filter-hint">${scopeHint} · 月均余额≥500万元 · 排除小微/个人/境外/非高碳行业</p>
       <div class="filter-extra candidate-filter-grid">
         <div class="form-item full">
-          <label>业务品种</label>
+          <label>信贷品种</label>
           ${renderCandidateFilterCheckboxes('f_product', productOptions, rules.productTypes)}
         </div>
         <div class="form-item full">
@@ -2347,15 +2508,15 @@ function renderCandidateFilterPanel(rules, task, options = {}) {
           ${renderCandidateFilterCheckboxes('f_customer_scale', customerScaleOptions, rules.customerScales)}
         </div>
         <div class="form-item full">
-          <label>所属行业</label>
+          <label>投向行业</label>
           ${renderCandidateFilterCheckboxes('f_industry', industryOptions, rules.industries)}
         </div>
         <div class="candidate-filter-row-2">
-          <div class="form-item"><label>月均信贷余额(万元) 起</label>
-            <input id="f_bal_min" type="number" placeholder="最小值" value="${rules.balanceMin ?? ''}"${dis}>
+          <div class="form-item"><label>月均贷款余额(元) 起</label>
+            <input id="f_bal_min" type="number" placeholder="最小值" value="${balanceWanToYuanInput(rules.balanceMin)}"${dis}>
           </div>
-          <div class="form-item"><label>月均信贷余额(万元) 止</label>
-            <input id="f_bal_max" type="number" placeholder="最大值" value="${rules.balanceMax ?? ''}"${dis}>
+          <div class="form-item"><label>月均贷款余额(元) 止</label>
+            <input id="f_bal_max" type="number" placeholder="最大值" value="${balanceWanToYuanInput(rules.balanceMax)}"${dis}>
           </div>
         </div>
         <div class="form-item full">
@@ -2389,10 +2550,40 @@ function readCandidateFilterRulesFromDom() {
     borrowerTypes: checked('f_borrower'),
     customerScales: checked('f_customer_scale'),
     industries: checked('f_industry'),
-    balanceMin: qs('#f_bal_min')?.value ?? '',
-    balanceMax: qs('#f_bal_max')?.value ?? '',
+    balanceMin: balanceYuanToWan(qs('#f_bal_min')?.value ?? ''),
+    balanceMax: balanceYuanToWan(qs('#f_bal_max')?.value ?? ''),
     customized: true
   };
+}
+
+/** 台账金额（内部万元）→ 展示元，保留两位小数 */
+function formatLedgerAmountYuan(wanValue) {
+  if (wanValue == null || wanValue === '' || wanValue === '-') return '-';
+  const n = Number(wanValue);
+  if (Number.isNaN(n)) return String(wanValue);
+  return (n * 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function candidateAvgTotalAssets(c) {
+  if (c?.avgTotalAssets != null) return formatLedgerAmountYuan(c.avgTotalAssets);
+  const cur = Number(c?.totalAssets);
+  const prev = Number(c?.prevYearTotalAssets);
+  if (!cur && !prev) return '-';
+  const avgWan = prev ? (cur + prev) / 2 : cur;
+  return formatLedgerAmountYuan(avgWan);
+}
+
+function balanceYuanToWan(yuan) {
+  const n = Number(yuan);
+  if (Number.isNaN(n) || yuan === '' || yuan == null) return '';
+  return n / 10000;
+}
+
+function balanceWanToYuanInput(wan) {
+  if (wan === '' || wan == null) return '';
+  const n = Number(wan);
+  if (Number.isNaN(n)) return '';
+  return String(Math.round(n * 10000));
 }
 
 function candidateTier1Branch(c) {
@@ -2425,19 +2616,20 @@ function renderCandidateListCells(c, options = {}) {
     <td>${candidateProductType(c)}</td>
     <td>${candidateAccountingTypeLabel(c, options)}</td>
     <td>${c.loanAccount || '-'}</td>
-    <td>${c.disbursementAmount != null ? Number(c.disbursementAmount).toLocaleString() : '-'}</td>
     <td>${c.disbursementDate || '-'}</td>
     <td>${candidateBorrowerType(c)}</td>
     <td>${candidateIndustryLabel(c)}</td>
-    <td>${c.avgMonthlyBalance ?? '-'}</td>
-    <td>${c.operatingRevenue ?? c.revenue ?? '-'}</td>
+    <td>${candidateInvestIndustryLabel(c)}</td>
+    <td>${formatLedgerAmountYuan(c.avgMonthlyBalance)}</td>
+    <td>${formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue)}</td>
+    <td>${candidateAvgTotalAssets(c)}</td>
     <td>${c.manager || '-'}</td>`;
 }
 
 const CANDIDATE_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>业务品种</th><th>核算类型</th><th>贷款账号</th>
-  <th>投放金额（元）</th><th>投放日</th><th>贷款主体类型</th><th>所属行业</th>
-  <th>月均信贷余额（万元）</th><th>营业收入（万元）</th><th>业务经理</th>`;
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
+  <th>月均贷款余额（元）</th><th>年报营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
 
 const CALCULATION_LIST_TABLE_HEAD = `
   ${CANDIDATE_LIST_TABLE_HEAD}
@@ -2607,10 +2799,13 @@ function renderCustomIndustryPanel(selectedCodes, readonly, options = {}) {
 
 function formatSingleIndustryScopeDisplay(scope, customCodes) {
   if (!scope) return '-';
-  if (scope === '自定义' && customCodes?.length) {
+  const normalized = normalizeIndustryScopeValue(scope);
+  if (normalized === INDUSTRY_SCOPE_KEY_EIGHT) return INDUSTRY_SCOPE_LABEL_EIGHT;
+  if (normalized === INDUSTRY_SCOPE_KEY_EXTENDED) return INDUSTRY_SCOPE_LABEL_EXTENDED;
+  if (normalized === '自定义' && customCodes?.length) {
     return '自定义（' + IndustryScope.summarizeCustom(customCodes) + '）';
   }
-  return scope;
+  return normalized;
 }
 
 function formatIndustryScopeDisplay(task) {

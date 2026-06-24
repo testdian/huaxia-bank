@@ -7,7 +7,7 @@ const SPA_NAV = [
   },
   {
     hash: '#/branch-board',
-    label: '数据补录',
+    label: '数据收集',
     match: ['#/branch-board', '#/manager-tasks', '#/supplement-fill']
   },
   { hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },

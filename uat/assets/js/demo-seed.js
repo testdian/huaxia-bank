@@ -71,7 +71,7 @@ const DemoSeed = {
       { id: 'DC03', name: '河钢主体客户（格澜无·待直算）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' },
       { id: 'DC04', name: '万华化学主体（格澜无·待直算）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '深圳分行', manager: '刘洋' },
       { id: 'DC05', name: '紫金矿业主体（格澜无·待直算）', loanType: '个人经营性贷款', biz: 'non_project', gelan: false, branch: '杭州分行', manager: '赵敏' },
-      { id: 'DC06', name: '鞍钢炼铁项目（须补录）', loanType: '出口退税账户托管贷款', biz: 'project', gelan: null, branch: '北京分行', manager: '王磊', project: false },
+      { id: 'DC06', name: '鞍钢炼铁项目（须收集）', loanType: '出口退税账户托管贷款', biz: 'project', gelan: null, branch: '北京分行', manager: '王磊', project: false },
       { id: 'DC07', name: '国电基建项目（以项目计算）', loanType: '一般性固定资产贷款', biz: 'project', gelan: null, branch: '上海分行', manager: '陈静', project: true },
       { id: 'DC08', name: '贴现必收客户', loanType: '商票贴现-申请人一般授信（金融市场部）', biz: 'non_project', gelan: null, mandatory: true, branch: '南京分行', manager: '周强' },
       { id: 'DC09', name: '海螺水泥主体（格澜有数据）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '成都分行', manager: '李娜' },
@@ -124,6 +124,7 @@ const DemoSeed = {
         projectDetails,
         avgMonthlyBalance,
         totalAssets: avgMonthlyBalance * 90,
+        prevYearTotalAssets: avgMonthlyBalance * 85,
         revenue: avgMonthlyBalance * 7,
         branch: s.branch,
         manager: s.manager,
@@ -201,6 +202,7 @@ const DemoSeed = {
       createdAt: `${year}-05-20`,
       createdBy: '张明（总行绿金部）',
       deadline: '2027-09-30',
+      branchDeadline: '2027-10-15',
       milestone: { candidatesSynced: true, formalLocked: true }
     };
     return { task, candidates, formalList };
@@ -251,7 +253,6 @@ const DemoSeed = {
       workflowStep: 4,
       initiatorOrg: 'hq',
       initiatorBranch: null,
-      dataCutoffAt: '2025-06-30 18:00:00',
       createdAt: '2025-01-08',
       createdBy: '张明（总行绿金部）',
       deadline: '2025-09-30',
@@ -331,7 +332,7 @@ const DemoSeed = {
       completedTask,
       {
         id: 'T2025002',
-        name: '2024年度（分行发起·补录进行中）',
+        name: '2024年度（分行发起·收集进行中）',
         year: 2024,
         industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -424,6 +425,8 @@ const DemoSeed = {
       isBuiltin: false,
       status: 'active',
       sourceSheet: '自定义',
+      versionYear: 2026,
+      caliberTag: 'bank',
       sourceNote: '验收演示用自定义因子，可编辑/删除'
     }];
     return custom.concat(guide.map(f => ({ ...f })));
@@ -639,7 +642,7 @@ const DemoSeed = {
     return bizType === 'project' ? '项目' : '非项目';
   },
 
-  /** 补录矩阵测试用例的企业名称（testCaseLabel 仍保留场景标识） */
+  /** 收集矩阵测试用例的企业名称（testCaseLabel 仍保留场景标识） */
   _supplementTestCompanyName(tc, i) {
     if (typeof CandidateSync !== 'undefined') {
       return CandidateSync.formatCompanyName(tc.industryMajor, 880 + i);
@@ -957,14 +960,27 @@ const DemoSeed = {
     const n = parseInt(String(s.id || '').replace(/\D/g, ''), 10) || 0;
     const fieldData = { ...(s.fieldData || {}) };
     if (s.methodId === 'report' && tpl?.methods?.report) {
-      const sources = tpl.methods.report.sourceOptions || [];
-      fieldData.report = {
+      const isProject = f.bizType === 'project';
+      const authSources = SUPPLEMENT_FIELDS.reportAuthoritySources(isProject);
+      const otherSources = SUPPLEMENT_FIELDS.reportOtherSources(isProject);
+      const useAuth = n % 2 === 0;
+      const sources = useAuth ? authSources : otherSources;
+      const block = {
         source: sources[n % sources.length],
         verified: n % 3 !== 1,
         emission: s.reportedEmission,
+        ghgTotalEmission: s.reportedEmission,
         attachments: s.status === 'completed'
           ? [{ name: `2024年度碳排放报告-${(f.customerName || '').slice(0, 12)}.pdf`, size: 1200000 + (n % 7) * 100000, uploadedAt: '2025-03-01 10:00:00' }]
           : (s.status === 'in_progress' ? [{ name: '碳排放数据草案.xlsx', size: 520000, uploadedAt: '2025-04-01 09:00:00' }] : [])
+      };
+      fieldData.reportAuthority = useAuth ? { ...block } : {};
+      fieldData.reportOther = useAuth ? {} : { ...block };
+      fieldData.report = { ...block };
+      return {
+        ...s,
+        fieldData,
+        activeMethodTab: useAuth ? 'report_authority' : 'report_other'
       };
     }
     if (s.methodId === 'energy' && tpl?.methods?.energy) {
@@ -1139,8 +1155,8 @@ const DemoSeed = {
   buildApprovals(taskId, supplements, formalList, calculations) {
     const list = [
       { id: 'APR001', taskId, docType: 'formal', docId: 'F001', docName: '正式清单-华能发电', submitter: '张明', submitTime: '2025-02-18 10:00', status: 'approved', approver: '李总', approveTime: '2025-02-19 15:30' },
-      { id: 'APR002B', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【补录测试】电力·项目·报告法（分行）', reviewLevel: 'branch', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '王丽', approveTime: '2025-03-06 11:00' },
-      { id: 'APR002', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【补录测试】电力·项目·报告法', reviewLevel: 'hq', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '张明', approveTime: '2025-03-07 14:00' },
+      { id: 'APR002B', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法（分行）', reviewLevel: 'branch', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '王丽', approveTime: '2025-03-06 11:00' },
+      { id: 'APR002', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法', reviewLevel: 'hq', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '张明', approveTime: '2025-03-07 14:00' },
       { id: 'APR004', taskId, docType: 'calculation', docId: 'CAL001', docName: '碳排放计算-华能发电', submitter: '张明', submitTime: '2025-05-11 14:00', status: 'approved', approver: '李总', approveTime: '2025-05-12 09:00' },
       { id: 'APR005', taskId, docType: 'calculation', docId: 'CAL002', docName: '碳排放计算-宝钢炼钢', submitter: '张明', submitTime: '2025-05-11 14:05', status: 'pending', approver: null, approveTime: null },
       { id: 'APR006', taskId, docType: 'formal', docId: 'F003', docName: '正式清单-中建水泥', submitter: '张明', submitTime: '2025-02-20 11:00', status: 'pending', approver: null, approveTime: null }

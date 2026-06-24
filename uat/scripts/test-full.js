@@ -28,7 +28,9 @@ function load(file) {
 }
 
 load('assets/js/guide-constants.js');
+load('assets/js/industry-gb4754-tree.js');
 load('assets/js/industry-table.js');
+load('assets/js/industry-cascade.js');
 load('assets/js/factors-guide-data.js');
 load('assets/js/supplement-templates-data.js');
 load('assets/js/candidate-sync.js');
@@ -75,10 +77,10 @@ const seed = Store.get();
 assert(seed.tasks.length >= 5, '任务 ≥5（含主任务/已完成/分行/待同步/2026）');
 assert(seed.tasks.some(t => t.id === 'T2025003' && !t.syncedFromInterface), '有待同步台账任务');
 assert(seed.tasks.some(t => t.initiatorOrg === 'branch'), '有分行发起任务');
-assert(seed.supplements.filter(s => s.taskId === taskId).length >= 98, '主任务补录矩阵 ≥98');
+assert(seed.supplements.filter(s => s.taskId === taskId).length >= 98, '主任务收集矩阵 ≥98');
 assert(seed.approvals.length >= 8, '审批单 ≥8');
 assert(seed.approvals.some(a => a.status === 'pending'), '有待审审批');
-assert((seed.approvals.filter(a => a.docType === 'supplement' && a.status === 'pending').length) >= 2, '补录待审 ≥2');
+assert((seed.approvals.filter(a => a.docType === 'supplement' && a.status === 'pending').length) >= 2, '收集待审 ≥2');
 
 console.log('\n--- 3. 页面视图渲染 ---');
 const ctx = { data: seed, task: Store.getTask(taskId), role: ROLES.hq };
@@ -104,27 +106,27 @@ routes.forEach(route => {
   }
 });
 
-console.log('\n--- 3b. 总行数据审核详情（补录内容）---');
+console.log('\n--- 3b. 总行数据审核详情（收集内容）---');
 const hqPending = Store.get().approvals.find(a => a.reviewLevel === 'hq' && a.docType === 'supplement' && a.status === 'pending');
-assert(hqPending, '存在待总行终审的补录审核单');
+assert(hqPending, '存在待总行终审的收集审核单');
 ['review', 'view'].forEach(mode => {
   location.hash = `#/approval-review?approvalId=${hqPending.id}&mode=${mode}`;
   const html = SPA_VIEWS['#/approval-review'](ctx);
-  assert(html.includes('碳排放信息采集'), mode + ' 模式标题为补录页');
+  assert(html.includes('碳排放信息采集'), mode + ' 模式标题为收集页');
   assert(html.includes('supplement-page-tabs'), mode + ' 模式含填报/审批 Tab');
   assert(html.includes('method-tabs-bar'), mode + ' 模式含核算方法 Tab');
   assert(html.includes('企业基本信息'), mode + ' 模式含企业基本信息');
 });
 location.hash = '#/approval-review?approvalId=APR002&mode=view';
 const viewApproved = SPA_VIEWS['#/approval-review'](ctx);
-assert(viewApproved.includes('supplement-page-tabs') && viewApproved.includes('method-tabs-bar'), '已审记录查看仍为补录详情');
+assert(viewApproved.includes('supplement-page-tabs') && viewApproved.includes('method-tabs-bar'), '已审记录查看仍为收集详情');
 
 console.log('\n--- 4. 角色路由 ---');
 ['hq', 'branch', 'manager'].forEach(r => {
   assert(isRouteAllowedForRole('#/tasks', r) || r === 'manager', r + ' 路由策略');
 });
 assert(!isRouteAllowedForRole('#/data-collect', 'manager'), '客户经理不可进数据采集');
-assert(isRouteAllowedForRole('#/supplement-fill', 'manager'), '客户经理可补录');
+assert(isRouteAllowedForRole('#/supplement-fill', 'manager'), '客户经理可收集');
 
 console.log('\n--- 5. 因子库 CRUD ---');
 const added = Store.addFactor({
@@ -137,13 +139,13 @@ assert(Store.deleteFactor(added.id), '删除自定义因子');
 assert(!Store.getFactor(added.id), '删除后不可见');
 assert(Store.getFactor('CF001'), '种子自定义因子 CF001 存在');
 
-console.log('\n--- 6. 补录保存与审核 ---');
+console.log('\n--- 6. 收集保存与审核 ---');
 Store.reset();
 const supp = Store.get().supplements.find(s => s.id === 'S002' && s.status === 'in_progress');
 if (supp) {
   Store.saveSupplement(supp.id, { complete: false, fieldsDone: 12, energyTotalEmission: 450000 });
   const saved = Store.get().supplements.find(s => s.id === supp.id);
-  assert(saved.fieldsDone >= 12 || saved.energyTotalEmission === 450000, '补录保存');
+  assert(saved.fieldsDone >= 12 || saved.energyTotalEmission === 450000, '收集保存');
 }
 const branchPending = Store.get().approvals.find(a => a.reviewLevel === 'branch' && a.status === 'pending');
 if (branchPending) {

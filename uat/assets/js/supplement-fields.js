@@ -1,4 +1,4 @@
-/** 数据补录 — 行业×业务类型 配置驱动填报（来源：线下采集表模板） */
+/** 数据收集 — 行业×业务类型 配置驱动填报（来源：线下采集表模板） */
 window.SUPPLEMENT_FIELDS = {
   ATTACH_ACCEPT: '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg',
   ATTACH_MAX_COUNT: 3,
@@ -64,40 +64,99 @@ window.SUPPLEMENT_FIELDS = {
     return s.fieldData || {};
   },
 
-  /** 报告法扩展字段（格澜/补录/碳账户共用） */
-  reportFieldValues(s) {
-    const d = this.fieldData(s).report || {};
+  reportFieldKey(tabId) {
+    return tabId === 'report_authority' ? 'reportAuthority' : 'reportOther';
+  },
+
+  reportAuthoritySources(isProject) {
+    return isProject
+      ? ['经连续测量的碳排放数据', '建设或运营过程实际产生的数据']
+      : ['碳核查', '碳排放权配额实际履约情况'];
+  },
+
+  reportOtherSources(isProject) {
+    const gelan = typeof GELAN_REPORT_DATA_SOURCE !== 'undefined' ? GELAN_REPORT_DATA_SOURCE : '报告法-其他数据来源';
+    return isProject
+      ? ['可行性研究报告', '设计文件', '节能报告', '其他']
+      : ['环境信息披露报告', 'ESG报告', '可持续发展报告', '社会责任报告', '其他', gelan];
+  },
+
+  isAuthorityReportSource(source, isProject) {
+    if (!source) return false;
+    return this.reportAuthoritySources(isProject).includes(source);
+  },
+
+  normalizeReportFieldData(s) {
+    const fd = { ...(s?.fieldData || {}) };
+    if (fd.reportAuthority || fd.reportOther) return fd;
+    const legacy = fd.report;
+    if (!legacy) {
+      return { ...fd, reportAuthority: {}, reportOther: {} };
+    }
+    const ctx = this.getContext(s || {});
+    const isAuth = this.isAuthorityReportSource(legacy.source, ctx.isProject);
     return {
-      carbonDataYear: d.carbonDataYear ?? s.reportCarbonDataYear ?? s.gelanPrefill?.carbonDataYear ?? '',
-      ghgTotalEmission: d.ghgTotalEmission ?? d.emission ?? s.reportedEmission ?? s.gelanPrefill?.ghgTotalEmission ?? '',
-      scope1Emission: d.scope1Emission ?? s.reportScope1Emission ?? s.gelanPrefill?.scope1Emission ?? '',
-      scope2Emission: d.scope2Emission ?? s.reportScope2Emission ?? s.gelanPrefill?.scope2Emission ?? '',
-      unitTotalCo2Emission: d.unitTotalCo2Emission ?? s.reportUnitTotalCo2Emission ?? s.gelanPrefill?.unitTotalCo2Emission ?? ''
+      ...fd,
+      reportAuthority: isAuth ? { ...legacy } : {},
+      reportOther: isAuth ? {} : { ...legacy }
     };
   },
 
-  renderReportExtendedFields(s, dis) {
-    const r = this.reportFieldValues(s);
-    return `
-      <div class="form-item"><label>碳数据年份</label>${this.numInput('f_report_carbon_year', r.carbonDataYear, dis, '1')}</div>
-      <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
-        ${this.numInput('f_report_emission', r.ghgTotalEmission, dis, '0.01')}</div>
-      <div class="form-item"><label>范围一的排放总量（tCO2e）</label>${this.numInput('f_report_scope1', r.scope1Emission, dis, '0.01')}</div>
-      <div class="form-item"><label>范围二的排放总量（tCO2e）</label>${this.numInput('f_report_scope2', r.scope2Emission, dis, '0.01')}</div>
-      <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput('f_report_unit_total', r.unitTotalCo2Emission, dis, '0.01')}</div>`;
+  reportKindFieldValues(s, tabId) {
+    const fd = this.normalizeReportFieldData(s);
+    const key = this.reportFieldKey(tabId);
+    const row = fd[key] || {};
+    return {
+      carbonDataYear: row.carbonDataYear ?? s.reportCarbonDataYear ?? s.gelanPrefill?.carbonDataYear ?? '',
+      ghgTotalEmission: row.ghgTotalEmission ?? row.emission ?? s.reportedEmission ?? s.gelanPrefill?.ghgTotalEmission ?? '',
+      scope1Emission: row.scope1Emission ?? s.reportScope1Emission ?? s.gelanPrefill?.scope1Emission ?? '',
+      scope2Emission: row.scope2Emission ?? s.reportScope2Emission ?? s.gelanPrefill?.scope2Emission ?? '',
+      unitTotalCo2Emission: row.unitTotalCo2Emission ?? s.reportUnitTotalCo2Emission ?? s.gelanPrefill?.unitTotalCo2Emission ?? '',
+      source: row.source ?? '',
+      verified: row.verified === false || row.verified === 'no' ? 'no' : 'yes',
+      attachments: row.attachments || []
+    };
   },
 
-  collectReportExtendedFields(rootEl) {
-    const carbonDataYear = numVal('#f_report_carbon_year', rootEl);
-    const ghgTotalEmission = numVal('#f_report_emission', rootEl);
+  /** @deprecated 兼容旧调用 */
+  reportFieldValues(s) {
+    return this.reportKindFieldValues(s, 'report_other');
+  },
+
+  renderReportExtendedFieldsForTab(s, dis, tabId) {
+    const r = this.reportKindFieldValues(s, tabId);
+    return `
+      <div class="form-item"><label>碳数据年份</label>${this.numInput(`f_${tabId}_carbon_year`, r.carbonDataYear, dis, '1')}</div>
+      <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
+        ${this.numInput(`f_${tabId}_emission`, r.ghgTotalEmission, dis, '0.01')}</div>
+      <div class="form-item"><label>范围一的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope1`, r.scope1Emission, dis, '0.01')}</div>
+      <div class="form-item"><label>范围二的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope2`, r.scope2Emission, dis, '0.01')}</div>
+      <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_unit_total`, r.unitTotalCo2Emission, dis, '0.01')}</div>`;
+  },
+
+  collectReportExtendedFieldsForTab(rootEl, tabId) {
+    const carbonDataYear = numVal(`#f_${tabId}_carbon_year`, rootEl);
+    const ghgTotalEmission = numVal(`#f_${tabId}_emission`, rootEl);
     return {
       carbonDataYear: carbonDataYear != null ? Math.round(carbonDataYear) : null,
       ghgTotalEmission,
       emission: ghgTotalEmission,
-      scope1Emission: numVal('#f_report_scope1', rootEl),
-      scope2Emission: numVal('#f_report_scope2', rootEl),
-      unitTotalCo2Emission: numVal('#f_report_unit_total', rootEl)
+      scope1Emission: numVal(`#f_${tabId}_scope1`, rootEl),
+      scope2Emission: numVal(`#f_${tabId}_scope2`, rootEl),
+      unitTotalCo2Emission: numVal(`#f_${tabId}_unit_total`, rootEl)
     };
+  },
+
+  resolveReportActiveTab(s) {
+    const fd = this.normalizeReportFieldData(s || {});
+    const auth = fd.reportAuthority || {};
+    const other = fd.reportOther || {};
+    const authVal = auth.ghgTotalEmission ?? auth.emission;
+    const otherVal = other.ghgTotalEmission ?? other.emission;
+    if (authVal != null && authVal !== '') return 'report_authority';
+    if (otherVal != null && otherVal !== '') return 'report_other';
+    if (s?.gelanPrefill || s?.disclosureChannel === GELAN_REPORT_DATA_SOURCE) return 'report_other';
+    return 'report_authority';
   },
 
   applyReportFieldsToPayload(report, payload) {
@@ -169,62 +228,85 @@ window.SUPPLEMENT_FIELDS = {
         </div>
       </div>` : ''}
       <div class="form-item"><label>总资产(万元)</label>${this.numInput('f_total_assets', s.totalAssets, dis)}</div>
-      <div class="form-item"><label>营业收入(万元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
-      <div class="form-item"><label>月均信贷余额（万元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
+      <div class="form-item"><label>年报营业收入(元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
+      <div class="form-item"><label>月均贷款余额（元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
   },
 
-  renderAttachmentSection(tabId, attachments, dis) {
+  renderAttachmentSection(tabId, attachments, dis, options = {}) {
+    const required = !!options.required;
+    const reqHtml = required ? '<span class="req">*</span>' : '';
     const inputId = `f_${tabId}_files`;
     const listId = `f_${tabId}_attach_list`;
+    const wrapAttrs = (tabId === 'report_authority' || tabId === 'report_other')
+      ? ` id="f_${tabId}_attach_wrap"` : '';
     return `
-      <div class="form-item full">
-        <label>报告附件</label>
+      <div class="form-item full"${wrapAttrs}>
+        <label>${reqHtml}报告附件</label>
         <input type="file" id="${inputId}" ${dis} multiple accept="${this.ATTACH_ACCEPT}" style="margin-top:6px">
-        <small style="color:#909399;display:block;margin-top:4px">支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 3 个，每个不超过 20MB</small>
+        <small style="color:#909399;display:block;margin-top:4px">支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 3 个，每个不超过 20MB${required ? '；经政府/第三方核查时须上传佐证文件' : ''}</small>
         <ul class="attach-list" id="${listId}">${this.renderAttachList(attachments)}</ul>
       </div>`;
   },
 
-  renderReportPanel(s, dis, panelCls, panelId) {
+  renderReportKindPanel(s, dis, panelCls, panelId, kind) {
     const tpl = this.resolveTemplate(s);
-    if (!tpl?.methods?.report) return this.renderReportPanelDefault(s, dis, panelCls, panelId);
-    const d = this.fieldData(s).report || {};
-    const verified = d.verified === false || d.verified === 'no' ? 'no' : 'yes';
-    const attachments = d.attachments || [];
-    const sources = tpl.methods.report.sourceOptions || [];
+    const ctx = this.getContext(s);
+    const tabId = panelId;
+    const fieldKey = this.reportFieldKey(tabId);
+    const row = this.reportKindFieldValues(s, tabId);
+    const verified = row.verified === 'no' ? 'no' : 'yes';
+    const attachments = row.attachments || [];
+    const sources = kind === 'authority'
+      ? this.reportAuthoritySources(ctx.isProject)
+      : this.reportOtherSources(ctx.isProject);
+    const defaultSource = row.source || sources[0] || '';
+    if (!tpl?.methods?.report) {
+      return this.renderReportKindPanelDefault(s, dis, panelCls, panelId, kind);
+    }
     return `
       <div class="${panelCls}" data-panel="${panelId}">
         <div class="form-grid">
           <div class="form-item"><label><span class="req">*</span>报告法数据来源</label>
-            ${this.selectFromOptions(sources, this.val(d, 'source', sources[0]), dis, 'f_report_source', false)}</div>
+            ${this.selectFromOptions(sources, defaultSource, dis, `f_${tabId}_source`, false)}</div>
           <div class="form-item"><label><span class="req">*</span>该数据是否经政府/第三方核查</label>
-            <select id="f_report_verified" ${dis}>
+            <select id="f_${tabId}_verified" ${dis}>
               <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
               <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
             </select></div>
-          ${this.renderReportExtendedFields(s, dis)}
-          ${this.renderAttachmentSection('report', attachments, dis)}
+          ${this.renderReportExtendedFieldsForTab(s, dis, tabId)}
+          ${this.renderAttachmentSection(tabId, attachments, dis, { required: verified === 'yes' })}
         </div>
       </div>`;
   },
 
-  renderReportPanelDefault(s, dis, panelCls, panelId) {
-    const channel = s.disclosureChannel || 'ESG报告';
-    const verified = s.thirdPartyVerified === false ? 'no' : 'yes';
-    const attachments = this.fieldData(s).report?.attachments || [];
+  renderReportKindPanelDefault(s, dis, panelCls, panelId, kind) {
+    const tabId = panelId;
+    const row = this.reportKindFieldValues(s, tabId);
+    const verified = row.verified === 'no' ? 'no' : 'yes';
+    const attachments = row.attachments || [];
+    const ctx = this.getContext(s);
+    const sources = kind === 'authority'
+      ? this.reportAuthoritySources(ctx.isProject)
+      : (kind === 'other' ? ['ESG报告', '年报', '核查报告', GELAN_REPORT_DATA_SOURCE || '其他'] : []);
+    const channel = row.source || s.disclosureChannel || sources[0] || 'ESG报告';
     return `
       <div class="${panelCls}" data-panel="${panelId}"><div class="form-grid">
-        ${this.renderReportExtendedFields(s, dis)}
-        <div class="form-item"><label>披露渠道</label>
-          <select id="f_channel" ${dis}>${['ESG报告', '年报', '核查报告'].map(c =>
+        ${this.renderReportExtendedFieldsForTab(s, dis, tabId)}
+        <div class="form-item"><label><span class="req">*</span>报告法数据来源</label>
+          <select id="f_${tabId}_source" ${dis}>${sources.map(c =>
             `<option ${channel === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-        <div class="form-item"><label>第三方核验</label>
-          <select id="f_verified" ${dis}>
+        <div class="form-item"><label><span class="req">*</span>该数据是否经政府/第三方核查</label>
+          <select id="f_${tabId}_verified" ${dis}>
             <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
             <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
           </select></div>
-        ${this.renderAttachmentSection('report', attachments, dis)}
+        ${this.renderAttachmentSection(tabId, attachments, dis, { required: verified === 'yes' })}
       </div></div>`;
+  },
+
+  /** @deprecated */
+  renderReportPanel(s, dis, panelCls, panelId) {
+    return this.renderReportKindPanel(s, dis, panelCls, panelId || 'report_authority', 'authority');
   },
 
   renderEnergyPanel(s, dis, panelCls, panelId) {
@@ -349,6 +431,62 @@ window.SUPPLEMENT_FIELDS = {
     return (bytes / 1024 / 1024).toFixed(1) + ' MB';
   },
 
+  isReportVerifiedYes(rootEl, tabId) {
+    const el = qs(`#f_${tabId}_verified`, rootEl);
+    return el?.value === 'yes';
+  },
+
+  getReportAttachments(supplement, tabId) {
+    const key = this.reportFieldKey(tabId);
+    const fd = this.normalizeReportFieldData(supplement || {});
+    return fd[key]?.attachments || [];
+  },
+
+  syncReportAttachmentRequired(rootEl) {
+    ['report_authority', 'report_other'].forEach(tabId => {
+      const wrap = qs(`#f_${tabId}_attach_wrap`, rootEl);
+      if (!wrap) return;
+      const required = this.isReportVerifiedYes(rootEl, tabId);
+      const label = wrap.querySelector('label');
+      const hint = wrap.querySelector('small');
+      if (label) {
+        const hasReq = label.querySelector('.req');
+        if (required && !hasReq) label.insertAdjacentHTML('afterbegin', '<span class="req">*</span>');
+        else if (!required && hasReq) hasReq.remove();
+      }
+      if (hint) {
+        const base = '支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 3 个，每个不超过 20MB';
+        hint.textContent = required ? `${base}；经政府/第三方核查时须上传佐证文件` : base;
+      }
+    });
+  },
+
+  bindReportAttachmentRule(rootEl, readonly) {
+    if (readonly) return;
+    const handler = () => this.syncReportAttachmentRequired(rootEl);
+    ['report_authority', 'report_other'].forEach(tabId => {
+      qs(`#f_${tabId}_verified`, rootEl)?.addEventListener('change', handler);
+    });
+    handler();
+  },
+
+  validateReportAttachments(rootEl, supplement) {
+    const tabs = [
+      { id: 'report_authority', label: '报告法-权威数据' },
+      { id: 'report_other', label: '报告法-其他' }
+    ];
+    for (const tab of tabs) {
+      if (!this.isReportVerifiedYes(rootEl, tab.id)) continue;
+      if (this.getReportAttachments(supplement, tab.id).length > 0) continue;
+      return {
+        ok: false,
+        tabId: tab.id,
+        message: `${tab.label}：已选择「经政府/第三方核查」，请上传报告附件佐证文件`
+      };
+    }
+    return { ok: true };
+  },
+
   validateAttachments(files, existingCount) {
     const allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpeg', 'jpg'];
     const maxBytes = this.ATTACH_MAX_MB * 1024 * 1024;
@@ -367,32 +505,40 @@ window.SUPPLEMENT_FIELDS = {
 
   bindFileUpload(rootEl, supplementId, readonly) {
     if (readonly) return;
-    ['report', 'energy', 'product', 'other'].forEach(tabId => {
+    ['report_authority', 'report_other', 'energy', 'product', 'other'].forEach(tabId => {
       this._bindTabFileUpload(rootEl, supplementId, tabId);
     });
+  },
+
+  _fieldKeyForAttachTab(tabId) {
+    if (tabId === 'report_authority' || tabId === 'report_other') return this.reportFieldKey(tabId);
+    return tabId;
   },
 
   _bindTabFileUpload(rootEl, supplementId, tabId) {
     const input = qs(`#f_${tabId}_files`, rootEl);
     if (!input) return;
+    const fieldKey = this._fieldKeyForAttachTab(tabId);
     input.onchange = () => {
       const s = Store.get().supplements.find(x => x.id === supplementId);
       if (!s) return;
-      const existing = (s.fieldData?.[tabId]?.attachments || []);
+      const fd = this.normalizeReportFieldData(s);
+      const existing = (s.fieldData?.[fieldKey]?.attachments || fd[fieldKey]?.attachments || []);
       const check = this.validateAttachments([...input.files], existing.length);
       if (!check.ok) { toast(check.message, 'warning'); input.value = ''; return; }
       Store.update(d => {
         const sup = d.supplements.find(x => x.id === supplementId);
         if (!sup) return;
         sup.fieldData = sup.fieldData || {};
-        sup.fieldData[tabId] = sup.fieldData[tabId] || {};
-        sup.fieldData[tabId].attachments = existing.concat(check.list);
+        sup.fieldData[fieldKey] = sup.fieldData[fieldKey] || {};
+        sup.fieldData[fieldKey].attachments = existing.concat(check.list);
       });
       input.value = '';
       const listEl = qs(`#f_${tabId}_attach_list`, rootEl);
       if (listEl) {
         const updated = Store.get().supplements.find(x => x.id === supplementId);
-        listEl.innerHTML = this.renderAttachList(updated?.fieldData?.[tabId]?.attachments || []);
+        const key = this._fieldKeyForAttachTab(tabId);
+        listEl.innerHTML = this.renderAttachList(updated?.fieldData?.[key]?.attachments || []);
       }
       toast('附件已添加（演示：仅保存在浏览器本地）', 'success');
     };
@@ -434,8 +580,7 @@ window.SUPPLEMENT_FIELDS = {
     return product;
   },
 
-  collectFormData(tab, rootEl, supplement) {
-    const tpl = this.resolveTemplate(supplement);
+  _collectBasicFormData(rootEl, supplement) {
     const payload = {
       customerName: txtVal('#f_customer_name', rootEl) || supplement.customerName,
       industryMajor: txtVal('#f_industry_major', rootEl) || supplement.industryMajor,
@@ -468,83 +613,122 @@ window.SUPPLEMENT_FIELDS = {
         payload.projectDetails = [];
       }
     }
-    if (tab === 'report') {
-      const reportExt = this.collectReportExtendedFields(rootEl);
-      if (tpl?.methods?.report) {
-        const report = {
-          source: qs('#f_report_source', rootEl)?.value,
-          verified: qs('#f_report_verified', rootEl)?.value === 'yes',
-          attachments: supplement.fieldData?.report?.attachments || [],
-          ...reportExt
-        };
-        payload.fieldData.report = report;
-        this.applyReportFieldsToPayload(report, payload);
-        payload.disclosureChannel = report.source;
-        payload.thirdPartyVerified = report.verified;
-      } else {
-        payload.fieldData.report = {
-          ...(supplement.fieldData?.report || {}),
-          ...reportExt,
-          attachments: supplement.fieldData?.report?.attachments || []
-        };
-        this.applyReportFieldsToPayload(reportExt, payload);
-        payload.disclosureChannel = qs('#f_channel', rootEl)?.value;
-        payload.thirdPartyVerified = qs('#f_verified', rootEl)?.value === 'yes';
-      }
-      payload.energyTotalEmission = null;
-      payload.productTotalEmission = null;
-      payload.economyValue = null;
-      payload.fallbackFactor = null;
-    } else if (tab === 'energy') {
-      if (tpl?.methods?.energy) {
-        const energy = this.collectEnergyData(rootEl, tpl, supplement);
-        energy.attachments = supplement.fieldData?.energy?.attachments || [];
-        payload.fieldData.energy = energy;
-        payload.energyTotalEmission = this.estimateEnergyEmission(energy, tpl);
-      } else {
-        payload.energyTotalEmission = numVal('#f_energy_total', rootEl);
-        payload.fieldData.energy = {
-          attachments: supplement.fieldData?.energy?.attachments || []
-        };
-      }
-      payload.reportedEmission = null;
-      payload.productTotalEmission = null;
-      payload.economyValue = null;
-      payload.fallbackFactor = null;
-    } else if (tab === 'product') {
-      if (tpl?.methods?.product?.fields?.length) {
-        const product = this.collectProductData(rootEl, tpl);
-        product.attachments = supplement.fieldData?.product?.attachments || [];
-        payload.fieldData.product = product;
-        payload.productTotalEmission = this.estimateProductEmission(product, tpl);
-      } else {
-        payload.productTotalEmission = numVal('#f_product_total', rootEl);
-        payload.fieldData.product = {
-          attachments: supplement.fieldData?.product?.attachments || []
-        };
-      }
-      payload.reportedEmission = null;
-      payload.energyTotalEmission = null;
-      payload.economyValue = null;
-      payload.fallbackFactor = null;
-    } else if (tab === 'economy') {
-      payload.economyValue = numVal('#f_economy_value', rootEl);
-      payload.economyFactor = numVal('#f_economy_factor', rootEl) || 2.35;
-      payload.economyBasis = qs('#f_economy_basis', rootEl)?.value;
-      payload.reportedEmission = null;
-      payload.energyTotalEmission = null;
-      payload.productTotalEmission = null;
-      payload.fallbackFactor = null;
-    } else if (tab === 'other') {
-      payload.fallbackFactor = numVal('#f_fallback_factor', rootEl);
-      payload.fieldData.other = {
-        attachments: supplement.fieldData?.other?.attachments || []
+    return payload;
+  },
+
+  _mergeReportTabs(rootEl, supplement, payload, tpl) {
+    const ctx = this.getContext(supplement);
+    payload.fieldData = payload.fieldData || {};
+    ['report_authority', 'report_other'].forEach(tabId => {
+      const fieldKey = this.reportFieldKey(tabId);
+      const verifiedEl = qs(`#f_${tabId}_verified`, rootEl);
+      if (!verifiedEl) return;
+      const reportExt = this.collectReportExtendedFieldsForTab(rootEl, tabId);
+      const report = {
+        source: qs(`#f_${tabId}_source`, rootEl)?.value || null,
+        verified: verifiedEl.value === 'yes',
+        attachments: supplement.fieldData?.[fieldKey]?.attachments
+          || this.normalizeReportFieldData(supplement)[fieldKey]?.attachments
+          || [],
+        ...reportExt
       };
-      payload.reportedEmission = null;
-      payload.energyTotalEmission = null;
-      payload.productTotalEmission = null;
-      payload.economyValue = null;
+      payload.fieldData[fieldKey] = report;
+    });
+    const auth = payload.fieldData.reportAuthority;
+    const other = payload.fieldData.reportOther;
+    const pick = (auth?.ghgTotalEmission ?? auth?.emission) != null && (auth?.ghgTotalEmission ?? auth?.emission) !== ''
+      ? auth
+      : ((other?.ghgTotalEmission ?? other?.emission) != null && (other?.ghgTotalEmission ?? other?.emission) !== '' ? other : auth);
+    if (pick) {
+      this.applyReportFieldsToPayload(pick, payload);
+      payload.disclosureChannel = pick.source;
+      payload.thirdPartyVerified = pick.verified;
     }
+    payload.fieldData.report = pick || payload.fieldData.report;
+  },
+
+  _mergeReportTab(rootEl, supplement, payload, tpl) {
+    this._mergeReportTabs(rootEl, supplement, payload, tpl);
+  },
+
+  _mergeEnergyTab(rootEl, supplement, payload, tpl) {
+    if (tpl?.methods?.energy) {
+      const energy = this.collectEnergyData(rootEl, tpl, supplement);
+      energy.attachments = supplement.fieldData?.energy?.attachments || [];
+      payload.fieldData.energy = energy;
+      payload.energyTotalEmission = this.estimateEnergyEmission(energy, tpl);
+    } else if (qs('#f_energy_total', rootEl)) {
+      payload.energyTotalEmission = numVal('#f_energy_total', rootEl);
+      payload.fieldData.energy = {
+        ...(payload.fieldData.energy || {}),
+        attachments: supplement.fieldData?.energy?.attachments || []
+      };
+    }
+  },
+
+  _mergeProductTab(rootEl, supplement, payload, tpl) {
+    if (tpl?.methods?.product?.fields?.length) {
+      const product = this.collectProductData(rootEl, tpl);
+      product.attachments = supplement.fieldData?.product?.attachments || [];
+      payload.fieldData.product = product;
+      payload.productTotalEmission = this.estimateProductEmission(product, tpl);
+    } else if (qs('#f_product_total', rootEl)) {
+      payload.productTotalEmission = numVal('#f_product_total', rootEl);
+      payload.fieldData.product = {
+        ...(payload.fieldData.product || {}),
+        attachments: supplement.fieldData?.product?.attachments || []
+      };
+    }
+  },
+
+  _mergeEconomyTab(rootEl, payload) {
+    if (!qs('#f_economy_value', rootEl)) return;
+    payload.economyValue = numVal('#f_economy_value', rootEl);
+    payload.economyFactor = numVal('#f_economy_factor', rootEl) || 2.35;
+    payload.economyBasis = qs('#f_economy_basis', rootEl)?.value;
+  },
+
+  _mergeOtherTab(rootEl, supplement, payload) {
+    if (!qs('#f_fallback_factor', rootEl)) return;
+    payload.fallbackFactor = numVal('#f_fallback_factor', rootEl);
+    payload.fieldData.other = {
+      attachments: supplement.fieldData?.other?.attachments || []
+    };
+  },
+
+  /** 同时采集各核算方法 Tab 表单（客户经理可并行填写多种方法） */
+  collectAllFormData(rootEl, supplement) {
+    const tpl = this.resolveTemplate(supplement);
+    const payload = this._collectBasicFormData(rootEl, supplement);
+    payload.reportedEmission = supplement.reportedEmission ?? null;
+    payload.energyTotalEmission = supplement.energyTotalEmission ?? null;
+    payload.productTotalEmission = supplement.productTotalEmission ?? null;
+    payload.economyValue = supplement.economyValue ?? null;
+    payload.economyFactor = supplement.economyFactor ?? null;
+    payload.economyBasis = supplement.economyBasis ?? null;
+    payload.fallbackFactor = supplement.fallbackFactor ?? null;
+    this._mergeReportTab(rootEl, supplement, payload, tpl);
+    this._mergeEnergyTab(rootEl, supplement, payload, tpl);
+    if (this.productSupported(supplement)) {
+      this._mergeProductTab(rootEl, supplement, payload, tpl);
+    }
+    this._mergeEconomyTab(rootEl, payload);
+    this._mergeOtherTab(rootEl, supplement, payload);
+    payload.activeMethodTab = qs('#methodTabs .tab.active', rootEl)?.dataset.tab
+      || supplement.activeMethodTab
+      || (typeof supplementActiveTab === 'function' ? supplementActiveTab(supplement) : 'report_authority');
+    return payload;
+  },
+
+  collectFormData(tab, rootEl, supplement) {
+    const tpl = this.resolveTemplate(supplement);
+    const payload = this._collectBasicFormData(rootEl, supplement);
+    if (tab === 'report_authority' || tab === 'report_other' || tab === 'report') {
+      this._mergeReportTabs(rootEl, supplement, payload, tpl);
+    } else if (tab === 'energy') this._mergeEnergyTab(rootEl, supplement, payload, tpl);
+    else if (tab === 'product') this._mergeProductTab(rootEl, supplement, payload, tpl);
+    else if (tab === 'economy') this._mergeEconomyTab(rootEl, payload);
+    else if (tab === 'other') this._mergeOtherTab(rootEl, supplement, payload);
     return payload;
   },
 
@@ -582,9 +766,16 @@ function txtVal(sel, root) {
   return v || null;
 }
 
+function supplementTabToMethodId(tabId) {
+  if (tabId === 'other') return 'economy_fallback';
+  if (tabId === 'report_authority' || tabId === 'report_other' || tabId === 'report') return 'report';
+  return tabId;
+}
+
 function getSupplementMethodTabs(s) {
   const tabs = [
-    { id: 'report', label: '报告法' },
+    { id: 'report_authority', label: '报告法-权威数据' },
+    { id: 'report_other', label: '报告法-其他' },
     { id: 'energy', label: '物理活动法-能源法' },
     { id: 'product', label: '物理活动法-产品法' },
     { id: 'economy', label: '经济活动法' },

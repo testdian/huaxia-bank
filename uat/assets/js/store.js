@@ -111,7 +111,7 @@ const Store = {
     });
   },
 
-  /** 保障演示数据存在「项目类待补录定档」样本（无 project_pending 枚举） */
+  /** 保障演示数据存在「项目类待收集定档」样本（无 project_pending 枚举） */
   _ensureProjectPendingSamples() {
     const raw = localStorage.getItem(this.KEY);
     if (!raw) return;
@@ -171,9 +171,95 @@ const Store = {
     this._migrateCarbonAccountProvision();
     this._migrateCarbonAccountProjectDetails();
     this._migrateCarbonAccountCustomerNames();
+    this._migrateFactorMeta();
+    this._migrateFactorVersionHistory();
+    this._migrateTaskBranchDeadline();
     } finally {
       this._initRunning = false;
     }
+  },
+
+  /** 演示：为部分经济法内置因子补 2025 历史版本 */
+  _migrateFactorVersionHistory() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof factorGroupKey !== 'function' || typeof pickFactorVersion !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._factorVersionHistoryMigrated) return;
+      let changed = false;
+      const economy2026 = (d.factors || []).filter(f =>
+        f.isBuiltin && f.methodId === 'economy' && Number(f.versionYear || 2026) === 2026 && f.value != null
+      ).slice(0, 8);
+      economy2026.forEach(src => {
+        const gk = factorGroupKey(src);
+        const exists = (d.factors || []).some(f => factorGroupKey(f) === gk && Number(f.versionYear) === 2025);
+        if (exists) return;
+        d.factors.push({
+          ...src,
+          id: `${src.id}-2025`,
+          versionYear: 2025,
+          value: Math.round(Number(src.value) * 0.98 * 10000) / 10000,
+          sourceNote: '指引附2 · 2025历史版本'
+        });
+        changed = true;
+      });
+      d._factorVersionHistoryMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 排放因子库：补全版本年度与口径标签 */
+  _migrateFactorMeta() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._factorMetaMigrated) return;
+      let changed = false;
+      (d.factors || []).forEach(f => {
+        if (!f.versionYear) {
+          f.versionYear = 2026;
+          changed = true;
+        }
+        if (!f.caliberTag) {
+          f.caliberTag = f.isBuiltin ? 'pbo' : 'bank';
+          changed = true;
+        }
+      });
+      d._factorMetaMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 任务：行业范围值迁移、补全分行审批截止日期 */
+  _migrateTaskBranchDeadline() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._taskBranchDeadlineMigrated) return;
+      let changed = false;
+      (d.tasks || []).forEach(t => {
+        if (t.subjectIndustryScope === '八大+扩展') {
+          t.subjectIndustryScope = '八大高碳+重点行业';
+          changed = true;
+        }
+        if (t.investIndustryScope === '八大+扩展') {
+          t.investIndustryScope = '八大高碳+重点行业';
+          changed = true;
+        }
+        if (t.industryScope === '八大+扩展') {
+          t.industryScope = '八大高碳+重点行业';
+          changed = true;
+        }
+        if (!t.branchDeadline && t.deadline) {
+          t.branchDeadline = t.deadline;
+          changed = true;
+        }
+      });
+      d._taskBranchDeadlineMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
   },
 
   /** 已进入排放计算的任务：核算类型定档为三档终态 */
@@ -558,13 +644,18 @@ const Store = {
           }
         }
         if (hasEmission) return;
+        const c = d.candidates.find(x => x.id === f.customerId);
+        const avgBalance = Number(c?.avgMonthlyBalance) || Number(f.avgMonthlyBalance) || 0;
+        const task = d.tasks.find(x => x.id === taskId);
+        const factor = this._getIndustryFactor(d, f.industryMajor, f.gbIndustryCode || c?.gbIndustryCode, task?.year);
+        const entityEmission = Math.round(avgBalance * factor);
         this._upsertCalculationFromFormal(d, f, taskId, {
-          entityEmission: 0,
-          attributedEmission: 0,
+          entityEmission,
+          attributedEmission: entityEmission,
           method: '其他计算法',
           methodId: 'economy_fallback',
           qualityGrade: 5,
-          source: 'zero_fill'
+          source: 'credit_fallback'
         });
         this._markFormalCollectDone(d, f, taskId);
         count++;
@@ -629,7 +720,7 @@ const Store = {
       list = list.filter(c => r.customerScales.includes(candidateCustomerScale(c)));
     }
     if (r.industries?.length) {
-      list = list.filter(c => r.industries.includes(c.gbIndustryCode));
+      list = list.filter(c => r.industries.includes(candidateInvestIndustryCode(c)));
     }
     if (r.balanceMin !== '' && r.balanceMin != null) {
       const min = Number(r.balanceMin);
@@ -817,14 +908,35 @@ const Store = {
     });
   },
 
-  /** 按指引优先级匹配方法 */
+  /** 按指引优先级匹配方法；分行审核选定后优先使用 approvedMethodId */
   matchMethod(supplement) {
+    if (supplement?.approvedMethodId) {
+      const locked = GUIDE.METHODS.find(m => m.id === supplement.approvedMethodId);
+      if (locked) return locked;
+    }
     if (supplement.reportedEmission) return GUIDE.METHODS.find(m => m.id === 'report');
     if (supplement.energyTotalEmission) return GUIDE.METHODS.find(m => m.id === 'energy');
     if (supplement.productTotalEmission) return GUIDE.METHODS.find(m => m.id === 'product');
     if (supplement.economyValue) return GUIDE.METHODS.find(m => m.id === 'economy');
     if (supplement.fallbackFactor) return GUIDE.METHODS.find(m => m.id === 'economy_fallback');
     return GUIDE.METHODS.find(m => m.id === 'economy_fallback');
+  },
+
+  applySupplementApprovedMethod(s, methodId, activeMethodTab) {
+    const method = GUIDE.METHODS.find(m => m.id === methodId);
+    if (!method || !s) return;
+    s.approvedMethodId = methodId;
+    s.methodId = methodId;
+    s.method = method.name;
+    s.qualityGrade = method.qualityGrade;
+    if (methodId === 'energy') s.activeMethodTab = 'energy';
+    else if (methodId === 'product') s.activeMethodTab = 'product';
+    else if (methodId === 'economy') s.activeMethodTab = 'economy';
+    else if (methodId === 'economy_fallback') s.activeMethodTab = 'other';
+    else if (methodId === 'report') {
+      s.activeMethodTab = activeMethodTab
+        || (typeof SUPPLEMENT_FIELDS !== 'undefined' ? SUPPLEMENT_FIELDS.resolveReportActiveTab(s) : 'report_authority');
+    }
   },
 
   calcEntityEmission(s) {
@@ -1026,17 +1138,35 @@ const Store = {
     return count;
   },
 
-  _getIndustryFactor(d, industryMajor, gbCode) {
-    const factors = d.factors || [];
+  _getIndustryFactor(d, industryMajor, gbCode, taskYear) {
+    const factors = (d.factors || []).filter(x =>
+      x.methodId === 'economy' && x.valueType === 'default' && x.value != null
+    );
+    if (!factors.length) return 2.35;
+
+    let pool = factors;
     if (gbCode) {
-      const exact = factors.find(x =>
-        x.methodId === 'economy' && x.gbCode === gbCode && x.valueType === 'default' && x.value != null
-      );
+      const byCode = factors.filter(x => x.gbCode === gbCode);
+      if (byCode.length) pool = byCode;
+      else if (industryMajor) pool = factors.filter(x => x.industryMajor === industryMajor);
+    } else if (industryMajor) {
+      pool = factors.filter(x => x.industryMajor === industryMajor);
+    }
+
+    if (typeof groupFactorRecords === 'function' && typeof pickFactorVersion === 'function') {
+      const groups = groupFactorRecords(pool);
+      const preferred = groups.map(g => pickFactorVersion(g.versions, taskYear)).filter(Boolean);
+      if (preferred.length) {
+        const steel = preferred.find(v => v.gbCode === 'C3120' && industryMajor === '钢铁');
+        return Number((steel || preferred[0]).value);
+      }
+    }
+
+    if (gbCode) {
+      const exact = factors.find(x => x.gbCode === gbCode);
       if (exact) return Number(exact.value);
     }
-    const industryFactors = factors.filter(x =>
-      x.methodId === 'economy' && x.industryMajor === industryMajor && x.valueType === 'default' && x.value != null
-    );
+    const industryFactors = factors.filter(x => x.industryMajor === industryMajor);
     if (industryFactors.length) {
       const preferred = industryFactors.find(x => x.gbCode === 'C3120') && industryMajor === '钢铁'
         ? industryFactors.find(x => x.gbCode === 'C3120')
@@ -1050,14 +1180,9 @@ const Store = {
     return (this.get().factors || []).find(x => x.id === id);
   },
 
-  _factorDuplicateKey(f) {
-    if (f.methodId === 'energy') {
-      return [f.industryMajor, f.methodId, f.energyCategory, f.itemName, f.subIndustry || ''].join('|');
-    }
-    if (f.methodId === 'product') {
-      return [f.industryMajor, f.methodId, f.productMajor, f.productSub].join('|');
-    }
-    return [f.methodId, f.gbCode].join('|');
+  _factorVersionKey(f) {
+    if (typeof factorVersionKey === 'function') return factorVersionKey(f);
+    return `${f.methodId}|${f.versionYear || ''}`;
   },
 
   addFactor(payload, options) {
@@ -1072,8 +1197,12 @@ const Store = {
         sourceSheet: payload.sourceSheet || '自定义'
       };
       if (!(options && options.allowDuplicate)) {
-        const dup = d.factors.some(x => !x.isBuiltin && this._factorDuplicateKey(x) === this._factorDuplicateKey(item));
-        if (dup) return;
+        const versionDup = d.factors.some(x => this._factorVersionKey(x) === this._factorVersionKey(item));
+        if (versionDup) return;
+        if (options?.mode !== 'newVersion' && typeof factorGroupKey === 'function') {
+          const gk = factorGroupKey(item);
+          if (d.factors.some(x => factorGroupKey(x) === gk)) return;
+        }
       }
       d.factors.unshift(item);
       added = item;
@@ -1118,6 +1247,50 @@ const Store = {
     };
     const added = this.addFactor(copy, { allowDuplicate: true });
     return added ? added.id : null;
+  },
+
+  deleteFactorGroup(groupKey) {
+    let ok = false;
+    this.update(d => {
+      const before = (d.factors || []).length;
+      d.factors = (d.factors || []).filter(f => {
+        if (f.isBuiltin) return true;
+        if (typeof factorGroupKey !== 'function') return true;
+        return factorGroupKey(f) !== groupKey;
+      });
+      ok = d.factors.length < before;
+    });
+    return ok;
+  },
+
+  copyFactorsByYear(sourceYear, targetYear) {
+    const srcYear = String(sourceYear || '');
+    const tgtYear = String(targetYear || '');
+    if (!srcYear || !tgtYear || srcYear === tgtYear) return 0;
+    let count = 0;
+    this.update(d => {
+      d.factors = d.factors || [];
+      const sources = d.factors.filter(f => String(f.versionYear || 2026) === srcYear);
+      sources.forEach(src => {
+        const gk = typeof factorGroupKey === 'function' ? factorGroupKey(src) : src.id;
+        const exists = d.factors.some(f =>
+          (typeof factorGroupKey === 'function' ? factorGroupKey(f) === gk : f.id === src.id)
+          && String(f.versionYear) === tgtYear
+        );
+        if (exists) return;
+        const copy = {
+          ...src,
+          id: undefined,
+          versionYear: Number(tgtYear) || tgtYear,
+          isBuiltin: false,
+          sourceSheet: '自定义',
+          sourceNote: `由 ${srcYear} 年度版本复制（${factorDisplayName ? factorDisplayName(src) : src.id}）`
+        };
+        const added = this.addFactor(copy, { allowDuplicate: true, mode: 'newVersion' });
+        if (added) count++;
+      });
+    });
+    return count;
   },
 
   /** 调取格澜数据：为已锁定且尚无主体排放的记录写入报告法主体排放（不含项目法-以项目方式计算） */
@@ -1231,7 +1404,8 @@ const Store = {
         const totalAssets = Number(c?.totalAssets) || 800000;
         const avgBalance = Number(c?.avgMonthlyBalance) * 12 || 36000;
         const gbCode = f.gbIndustryCode || c?.gbIndustryCode;
-        const factor = this._getIndustryFactor(d, f.industryMajor, gbCode);
+        const task = d.tasks.find(x => x.id === taskId);
+        const factor = this._getIndustryFactor(d, f.industryMajor, gbCode, task?.year);
         const entityEmission = Math.round(revenue * factor);
         const attributedEmission = f.bizType === 'project'
           ? Math.round(entityEmission * (avgBalance / (Number(f.totalInvestment) || 500000)))
@@ -1322,7 +1496,8 @@ const Store = {
     return count;
   },
 
-  resolveApproval(approvalId, approved, rejectReason) {
+  resolveApproval(approvalId, approved, rejectReason, options) {
+    const opts = options || {};
     return this.update(d => {
       const a = (d.approvals || []).find(x => x.id === approvalId);
       if (!a || a.status !== 'pending') return;
@@ -1332,7 +1507,7 @@ const Store = {
       a.approver = d.currentUser;
       a.approveTime = new Date().toLocaleString('zh-CN');
       if (!approved) a.rejectReason = (rejectReason || '').trim();
-      this._applyDocApproval(d, a, approved, rejectReason);
+      this._applyDocApproval(d, a, approved, rejectReason, opts);
       if (a.taskId) {
         if (approved) this.syncTaskWorkflowAfterApprovals(d, a.taskId);
         else this.syncTaskWorkflow(d, a.taskId);
@@ -1352,7 +1527,8 @@ const Store = {
     return d.currentTaskId;
   },
 
-  _applyDocApproval(d, approval, approved, rejectReason) {
+  _applyDocApproval(d, approval, approved, rejectReason, options) {
+    const opts = options || {};
     const map = { formal: 'formalList', supplement: 'supplements', calculation: 'calculations', task: 'tasks' };
     const key = map[approval.docType];
     if (key === 'tasks') {
@@ -1371,11 +1547,14 @@ const Store = {
         item.auditStage = 'pending_fill';
         item.status = 'returned';
         item.rejectReason = (rejectReason || '').trim();
+        delete item.approvedMethodId;
         if (approval.reviewLevel === 'branch') item.branchReviewStatus = 'rejected';
         if (approval.reviewLevel === 'hq') item.hqReviewStatus = 'rejected';
         return;
       }
       if (approval.reviewLevel === 'branch') {
+        const methodId = opts.selectedMethodId || Store.matchMethod(item).id;
+        Store.applySupplementApprovedMethod(item, methodId, opts.activeMethodTab);
         item.branchReviewStatus = 'approved';
         if (task?.initiatorOrg === 'branch') {
           item.auditStage = 'approved';
@@ -1471,7 +1650,7 @@ const Store = {
       return {
         title: approval.docName,
         link: '#/supplement-fill?id=' + s.id,
-        linkLabel: '打开补录填报',
+        linkLabel: '打开收集填报',
         rows: [
           ['客户', s.customerName],
           ['客户经理', s.manager],
@@ -1527,7 +1706,9 @@ const Store = {
       const s = d.supplements.find(x => x.id === id);
       if (!s) return;
       Object.assign(s, payload);
-      const method = Store.matchMethod(s);
+      const method = s.approvedMethodId
+        ? GUIDE.METHODS.find(m => m.id === s.approvedMethodId)
+        : Store.matchMethod(s);
       s.method = method.name;
       s.methodId = method.id;
       s.qualityGrade = method.qualityGrade;

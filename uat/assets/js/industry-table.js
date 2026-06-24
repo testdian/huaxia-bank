@@ -168,15 +168,73 @@ window.INDUSTRY_TABLE = [
 ];
 window.INDUSTRY_EIGHT_CODES = ["C2211", "C2221", "C2511", "C2611", "C2612", "C2614", "C2621", "C2651", "C3011", "C3041", "C3110", "C3120", "C3130", "C3211", "C3216", "D4411", "D4412", "D4417", "D4420", "G5631"];
 
+/** 我行主要行业（GB/T 4754 小类，级联用小类码） */
+window.INDUSTRY_BANK_MAJOR_CODES = [
+  "0610", "3024", "2521", "3021", "3022", "4430", "3251", "3252", "3240", "3012",
+  "2669", "5443", "4190", "2822", "1711", "2523", "3140", "5164", "5165", "7212",
+  "7299", "4710", "7010", "7810", "6631", "7211"
+];
+
+function toCascadeIndustryCode(code) {
+  const s = String(code || '').trim();
+  if (/^[A-Z]\d/.test(s)) return s.slice(1);
+  return s;
+}
+
+function _buildLeafSectorMap() {
+  const map = {};
+  const walk = (nodes, sector) => {
+    (nodes || []).forEach(n => {
+      const sec = n.l === 0 ? n.c : sector;
+      if (n.l === 3) map[n.c] = sec;
+      else walk(n.ch || [], sec);
+    });
+  };
+  walk(window.GB4754_TREE || [], null);
+  return map;
+}
+
+function toScopedIndustryCode(code) {
+  const leaf = toCascadeIndustryCode(code);
+  if (/^[A-Z]\d/.test(String(code || '').trim())) return String(code).trim();
+  const sector = IndustryScope._leafSectorMap()[leaf];
+  return sector ? sector + leaf : leaf;
+}
+
+function _uniqueCodes(codes) {
+  return [...new Set((codes || []).filter(Boolean))];
+}
+
 window.IndustryScope = {
-  /** 八大高碳行业代码（监管口径） */
+  _leafSectorCache: null,
+  _leafSectorMap() {
+    if (!this._leafSectorCache) this._leafSectorCache = _buildLeafSectorMap();
+    return this._leafSectorCache;
+  },
+  /** 八大高碳行业代码（监管口径，带门类字母） */
   getEightCodes() { return INDUSTRY_EIGHT_CODES.slice(); },
-  /** 八大+扩展：行业表全量代码 */
-  getExtendedCodes() { return INDUSTRY_TABLE.map(i => i.code); },
+  /** 八大高碳 — 级联面板用小类码 */
+  getEightCascadeCodes() {
+    return _uniqueCodes(INDUSTRY_EIGHT_CODES.map(toCascadeIndustryCode));
+  },
+  /** 人行八大高碳 + 我行主要行业（带门类字母，用于筛选/台账） */
+  getExtendedCodes() {
+    return _uniqueCodes([
+      ...INDUSTRY_EIGHT_CODES,
+      ...INDUSTRY_BANK_MAJOR_CODES.map(toScopedIndustryCode)
+    ]);
+  },
+  /** 人行八大高碳 + 我行主要行业 — 级联面板用小类码 */
+  getExtendedCascadeCodes() {
+    return _uniqueCodes([
+      ...this.getEightCascadeCodes(),
+      ...INDUSTRY_BANK_MAJOR_CODES
+    ]);
+  },
   /** 按范畴选项解析纳入的行业代码 */
   resolveCodes(scope, customCodes) {
     if (scope === '八大高碳行业') return this.getEightCodes();
-    if (scope === '八大+扩展') return this.getExtendedCodes();
+    if (scope === '八大+扩展' || scope === '八大高碳+重点行业') return this.getExtendedCodes();
     if (scope === '自定义' && customCodes?.length) return customCodes.slice();
     return this.getEightCodes();
   },
@@ -194,8 +252,14 @@ window.IndustryScope = {
   /** 自定义选择摘要 */
   summarizeCustom(codes) {
     if (!codes?.length) return '未选择';
-    const items = INDUSTRY_TABLE.filter(i => codes.includes(i.code));
-    if (items.length <= 3) return items.map(i => this.label(i)).join('、');
-    return items.slice(0, 2).map(i => this.label(i)).join('、') + ' 等' + items.length + '项';
+    const nameMap = window.IndustryCascade?.nameMap() || {};
+    const items = codes.map(code => {
+      const row = INDUSTRY_TABLE.find(i => i.code === code);
+      if (row) return this.label(row);
+      const name = nameMap[code];
+      return name ? `${code} ${name}` : code;
+    });
+    if (items.length <= 3) return items.join('、');
+    return items.slice(0, 2).join('、') + ' 等' + items.length + '项';
   }
 };
