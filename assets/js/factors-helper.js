@@ -113,19 +113,106 @@ function filterFactors(list, filters) {
 }
 
 function factorStats(list) {
-  const all = list || [];
+  const groups = groupFactorRecords(list || []);
   return {
-    total: all.length,
-    energy: all.filter(x => x.methodId === 'energy').length,
-    product: all.filter(x => x.methodId === 'product').length,
-    economy: all.filter(x => x.methodId === 'economy').length,
-    custom: all.filter(x => !x.isBuiltin).length
+    total: groups.length,
+    energy: groups.filter(x => x.methodId === 'energy').length,
+    product: groups.filter(x => x.methodId === 'product').length,
+    economy: groups.filter(x => x.methodId === 'economy').length,
+    custom: groups.filter(x => x.isCustom).length,
+    versionRecords: (list || []).length
   };
+}
+
+const FACTOR_CALIBER_OPTIONS = [
+  { value: 'pbo', label: '人行口径' },
+  { value: 'bank', label: '我行自定义' }
+];
+
+function normalizeFactorCaliber(f) {
+  if (!f) return 'bank';
+  if (f.caliberTag === 'bank' || f.caliberTag === '我行自定义') return 'bank';
+  if (f.caliberTag === 'pbo' || f.caliberTag === '人行口径') return 'pbo';
+  return f.isBuiltin ? 'pbo' : 'bank';
+}
+
+function factorCaliberLabel(f) {
+  if (!f) return '-';
+  return normalizeFactorCaliber(f) === 'bank' ? '我行自定义' : '人行口径';
+}
+
+/** 同一计算方法 + 行业 + 名称/细分 + 口径 视为同一因子 */
+function factorGroupKey(f) {
+  if (!f) return '';
+  const caliber = normalizeFactorCaliber(f);
+  if (f.methodId === 'energy') {
+    return ['energy', f.industryMajor || '', f.energyCategory || '', f.itemName || '', f.subIndustry || '', caliber].join('\u001f');
+  }
+  if (f.methodId === 'product') {
+    return ['product', f.industryMajor || '', f.productMajor || '', f.productSub || '', caliber].join('\u001f');
+  }
+  return ['economy', f.industryMajor || '', f.gbCode || '', caliber].join('\u001f');
+}
+
+function factorVersionKey(f) {
+  return `${factorGroupKey(f)}|${String(f?.versionYear || '')}`;
+}
+
+function pickFactorVersion(versions, preferredYear) {
+  const sorted = [...(versions || [])].sort((a, b) => (Number(b.versionYear) || 0) - (Number(a.versionYear) || 0));
+  if (!sorted.length) return null;
+  if (preferredYear != null && preferredYear !== '') {
+    const y = Number(preferredYear);
+    const exact = sorted.find(v => Number(v.versionYear) === y);
+    if (exact) return exact;
+    const notAfter = sorted.filter(v => Number(v.versionYear) <= y);
+    if (notAfter.length) return notAfter[0];
+  }
+  return sorted[0];
+}
+
+function groupFactorRecords(list) {
+  const map = new Map();
+  (list || []).forEach(f => {
+    const key = factorGroupKey(f);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(f);
+  });
+  const groups = [];
+  map.forEach((versions, groupKey) => {
+    versions.sort((a, b) => (Number(b.versionYear) || 0) - (Number(a.versionYear) || 0));
+    const latest = versions[0];
+    groups.push({
+      groupKey,
+      methodId: latest.methodId,
+      industryMajor: latest.industryMajor,
+      caliberTag: normalizeFactorCaliber(latest),
+      versions,
+      latest,
+      versionCount: versions.length,
+      isBuiltin: versions.every(v => v.isBuiltin),
+      isCustom: versions.some(v => !v.isBuiltin)
+    });
+  });
+  groups.sort((a, b) => {
+    const ma = factorMethodLabel(a.methodId).localeCompare(factorMethodLabel(b.methodId), 'zh-CN');
+    if (ma) return ma;
+    return (a.industryMajor || '').localeCompare(b.industryMajor || '', 'zh-CN');
+  });
+  return groups;
+}
+
+function filterFactorGroups(list, filters) {
+  return groupFactorRecords(filterFactors(list, filters));
+}
+
+function findFactorGroup(list, groupKey) {
+  return groupFactorRecords(list).find(g => g.groupKey === groupKey) || null;
 }
 
 function renderFactorTableHead(methodId) {
   if (methodId === 'unified') {
-    return '<tr><th>计算方法</th><th>行业</th><th>名称/细分项</th><th>因子值</th><th>单位</th><th>来源</th><th>操作</th></tr>';
+    return '<tr><th>计算方法</th><th>行业</th><th>名称/细分项</th><th>最新因子值</th><th>单位</th><th>口径</th><th>版本</th><th>来源</th><th>操作</th></tr>';
   }
   if (methodId === 'energy') {
     return '<tr><th>行业</th><th>排放源类型</th><th>细分项</th><th>子行业</th><th>因子值</th><th>单位</th><th>来源</th><th>操作</th></tr>';
@@ -134,6 +221,40 @@ function renderFactorTableHead(methodId) {
     return '<tr><th>行业</th><th>主要产品</th><th>细分项</th><th>因子值</th><th>单位</th><th>数据来源</th><th>操作</th></tr>';
   }
   return '<tr><th>行业大类</th><th>国标代码</th><th>行业名称</th><th>因子值</th><th>单位</th><th>来源</th><th>操作</th></tr>';
+}
+
+function renderFactorGroupTableRow(g) {
+  const f = g.latest;
+  const ops = [];
+  if (g.isBuiltin && !g.isCustom) {
+    ops.push(`<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制为自定义</button>`);
+  } else if (g.isCustom) {
+    ops.push(`<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑最新</a>`);
+    ops.push(`<button type="button" class="btn btn-sm factor-add-version-btn" data-id="${f.id}">新增版本</button>`);
+    ops.push(`<button type="button" class="btn btn-sm factor-del-group-btn" data-group-key="${encodeURIComponent(g.groupKey)}">删除</button>`);
+  }
+  ops.push(`<button type="button" class="btn btn-sm factor-view-btn" data-group-key="${encodeURIComponent(g.groupKey)}">查看</button>`);
+  const val = formatFactorValue(f);
+  const src = g.isCustom
+    ? (f.sourceNote || '自定义')
+    : (f.sourceSheet || '附2');
+  const versionLabel = g.versionCount > 1
+    ? `<span title="核算任务默认取最新年度版本">${f.versionYear || '—'} · 共${g.versionCount}版</span>`
+    : String(f.versionYear || '—');
+  const badge = g.isBuiltin && !g.isCustom
+    ? factorSourceBadge(f)
+    : (g.isCustom ? '<span class="badge badge-primary">自定义</span>' : factorSourceBadge(f));
+  return `<tr>
+    <td>${factorMethodLabel(f.methodId)}</td>
+    <td>${f.industryMajor || '-'}</td>
+    <td>${factorItemDetailLabel(f)}</td>
+    <td>${val}</td>
+    <td>${f.unit || '-'}</td>
+    <td>${factorCaliberLabel(f)}</td>
+    <td>${versionLabel}</td>
+    <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${src}</span> ${badge}</td>
+    <td class="table-actions">${ops.join(' ')}</td>
+  </tr>`;
 }
 
 function renderFactorTableRow(f, options = {}) {
@@ -150,11 +271,13 @@ function renderFactorTableRow(f, options = {}) {
   const src = f.isBuiltin ? (f.sourceSheet || '附2') : (f.sourceNote || '自定义');
   if (unified) {
     return `<tr>
+      <td>${f.versionYear || '—'}</td>
       <td>${factorMethodLabel(f.methodId)}</td>
       <td>${f.industryMajor || '-'}</td>
       <td>${factorItemDetailLabel(f)}</td>
       <td>${val}</td>
       <td>${f.unit || '-'}</td>
+      <td>${factorCaliberLabel(f)}</td>
       <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${src}</span> ${factorSourceBadge(f)}</td>
       <td class="table-actions">${ops.join(' ')}</td>
     </tr>`;
@@ -273,6 +396,8 @@ function readFactorFormPayload(form) {
     methodId,
     methodName: (GUIDE.METHODS.find(m => m.id === methodId) || {}).name || methodId,
     industryMajor,
+    versionYear: Number(form.querySelector('[name=versionYear]')?.value) || new Date().getFullYear(),
+    caliberTag: form.querySelector('[name=caliberTag]')?.value || 'bank',
     sourceNote: form.querySelector('[name=sourceNote]')?.value?.trim() || '',
     isBuiltin: false,
     status: 'active',
@@ -308,12 +433,15 @@ function readFactorFormPayload(form) {
   return payload;
 }
 
-function renderFactorFormFields(methodId, industryMajor, factor) {
+function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
   const f = factor || {};
+  const { identityReadonly = false, versionReadonly = false, formMode = 'create' } = options;
   const indOpts = GUIDE.INDUSTRIES.map(i => `<option value="${i.major}" ${(f.industryMajor || industryMajor) === i.major ? 'selected' : ''}>${i.major}</option>`).join('');
   const methodOpts = FACTOR_METHOD_TABS.map(t =>
     `<option value="${t.id}" ${(f.methodId || methodId || 'energy') === t.id ? 'selected' : ''}>${t.label}</option>`).join('');
   const subIndRequired = ['建材', '有色'].includes(f.industryMajor || industryMajor);
+  const idDis = identityReadonly ? ' disabled' : '';
+  const verDis = versionReadonly ? ' readonly' : '';
 
   let dynamic = '';
   const m = f.methodId || methodId || 'energy';
@@ -322,12 +450,12 @@ function renderFactorFormFields(methodId, industryMajor, factor) {
       `<option value="${c}" ${f.energyCategory === c ? 'selected' : ''}>${c}</option>`).join('');
     dynamic = `
       <div class="form-item"><label>排放源类型 *</label>
-        <select name="energyCategory" required><option value="">请选择</option>${catOpts}</select></div>
-      <div class="form-item"><label>细分项 *</label><input name="itemName" required value="${f.itemName || ''}" placeholder="如无烟煤、华北电网"></div>
+        <select name="energyCategory" required${idDis}><option value="">请选择</option>${catOpts}</select></div>
+      <div class="form-item"><label>细分项 *</label><input name="itemName" required value="${f.itemName || ''}" placeholder="如无烟煤、华北电网"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>子行业${subIndRequired ? ' *' : ''}</label>
-        <input name="subIndustry" ${subIndRequired ? 'required' : ''} value="${f.subIndustry || ''}" placeholder="建材填水泥/平板玻璃；有色填铝冶炼/铜冶炼"></div>
+        <input name="subIndustry" ${subIndRequired ? 'required' : ''} value="${f.subIndustry || ''}" placeholder="建材填水泥/平板玻璃；有色填铝冶炼/铜冶炼"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>计量单位</label>
-        <select name="unit">
+        <select name="unit"${idDis}>
           <option value="tCO2e/t" ${f.unit === 'tCO2e/t' ? 'selected' : ''}>tCO2e/t</option>
           <option value="tCO2e/MWh" ${f.unit === 'tCO2e/MWh' ? 'selected' : ''}>tCO2e/MWh</option>
           <option value="tCO2e/万m³" ${f.unit === 'tCO2e/万m³' ? 'selected' : ''}>tCO2e/万m³</option>
@@ -335,10 +463,10 @@ function renderFactorFormFields(methodId, industryMajor, factor) {
         </select></div>`;
   } else if (m === 'product') {
     dynamic = `
-      <div class="form-item"><label>主要产品 *</label><input name="productMajor" required value="${f.productMajor || ''}"></div>
-      <div class="form-item"><label>细分项 *</label><input name="productSub" required value="${f.productSub || ''}"></div>
+      <div class="form-item"><label>主要产品 *</label><input name="productMajor" required value="${f.productMajor || ''}"${idDis ? ' readonly' : ''}></div>
+      <div class="form-item"><label>细分项 *</label><input name="productSub" required value="${f.productSub || ''}"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>计量单位</label>
-        <select name="unit">
+        <select name="unit"${idDis}>
           <option value="tCO2e/t" ${f.unit === 'tCO2e/t' ? 'selected' : ''}>tCO2e/t</option>
           <option value="tCO2e/MWh" ${f.unit === 'tCO2e/MWh' ? 'selected' : ''}>tCO2e/MWh</option>
         </select></div>`;
@@ -347,61 +475,95 @@ function renderFactorFormFields(methodId, industryMajor, factor) {
       `<option value="${o.code}" data-name="${o.name}" ${f.gbCode === o.code ? 'selected' : ''}>${o.code} ${o.name}</option>`).join('');
     dynamic = `
       <div class="form-item"><label>国标行业 *</label>
-        <select name="gbCode" required><option value="">请选择</option>${gbOpts}
+        <select name="gbCode" required${idDis}><option value="">请选择</option>${gbOpts}
         <option value="__custom__" ${f.gbCode && !gbOpts.includes(f.gbCode) ? 'selected' : ''}>手动输入</option></select></div>
-      <div class="form-item"><label>行业名称</label><input name="gbIndustryName" value="${f.gbIndustryName || ''}"></div>
+      <div class="form-item"><label>行业名称</label><input name="gbIndustryName" value="${f.gbIndustryName || ''}"${idDis ? ' readonly' : ''}></div>
       <input type="hidden" name="unit" value="tCO2e/万元">`;
   }
 
-  return `
+  const caliberVal = normalizeFactorCaliber(f) || (f.isBuiltin ? 'pbo' : 'bank');
+  const caliberOpts = FACTOR_CALIBER_OPTIONS.map(o =>
+    `<option value="${o.value}" ${caliberVal === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
+
+  const modeHint = formMode === 'newVersion'
+    ? '<p class="candidate-filter-hint" style="margin-bottom:12px">为已有因子新增年度版本；计算方法、行业、名称与口径不可变更。</p>'
+    : formMode === 'editVersion'
+      ? '<p class="candidate-filter-hint" style="margin-bottom:12px">编辑指定年度版本；因子身份不可变更，如需调整维度请新建因子。</p>'
+      : '';
+
+  return `${modeHint}
     <div class="form-grid">
+      <div class="form-item"><label>版本年度 *</label>
+        <input name="versionYear" type="number" min="2020" max="2035" required value="${f.versionYear || new Date().getFullYear()}"${verDis}></div>
+      <div class="form-item"><label>因子口径 *</label>
+        <select name="caliberTag" required${idDis}>${caliberOpts}</select></div>
       <div class="form-item"><label>计算方法 *</label>
-        <select name="methodId" id="factorMethodSelect" required>${methodOpts}</select></div>
+        <select name="methodId" id="factorMethodSelect" required${idDis}>${methodOpts}</select></div>
       <div class="form-item"><label>所属行业 *</label>
-        <select name="industryMajor" id="factorIndustrySelect" required><option value="">请选择</option>${indOpts}</select></div>
+        <select name="industryMajor" id="factorIndustrySelect" required${idDis}><option value="">请选择</option>${indOpts}</select></div>
       ${dynamic}
       <div class="form-item"><label>因子值</label>
         <input name="value" type="number" step="any" value="${f.value != null ? f.value : ''}" placeholder="留空表示需自行核算"></div>
       <div class="form-item full-width"><label>来源说明 *</label>
-        <input name="sourceNote" required value="${f.sourceNote && !f.isBuiltin ? f.sourceNote : ''}" placeholder="请说明因子来源，如内部测算、第三方机构等"></div>
+        <input name="sourceNote" required value="${f.sourceNote && !f.isBuiltin ? f.sourceNote : ''}" placeholder="请说明该版本因子来源，如内部测算、第三方机构等"></div>
     </div>`;
 }
 
-function openFactorViewModal(f) {
+function openFactorGroupViewModal(groupKey, allFactors) {
+  const g = findFactorGroup(allFactors || Store.get().factors || [], groupKey);
+  if (!g) return;
+  const f = g.latest;
   if (!ensureReviewModal()) return;
   qs('#reviewModal')?.querySelector('.modal')?.classList.remove('modal-xl');
-  qs('#reviewModalTitle').textContent = '查看因子 · ' + factorDisplayName(f);
-  const rows = [
-    ['计算方法', f.methodName || f.methodId],
+  qs('#reviewModalTitle').textContent = '因子详情 · ' + factorDisplayName(f);
+  const identityRows = [
+    ['计算方法', factorMethodLabel(f.methodId)],
     ['行业', f.industryMajor],
-    ['因子值', formatFactorValue(f)],
-    ['单位', f.unit],
-    ['来源附表', f.sourceSheet],
-    ['来源说明', f.sourceNote || '-'],
-    ['类型', f.isBuiltin ? '指引内置（只读）' : '自定义']
+    ['名称/细分项', factorItemDetailLabel(f)],
+    ['口径', factorCaliberLabel(f)],
+    ['单位', f.unit || '-'],
+    ['版本数', `${g.versionCount} 个`],
+    ['核算默认', `取最新年度版本（当前 ${f.versionYear || '—'}）`]
   ];
-  if (f.methodId === 'energy') {
-    rows.splice(2, 0, ['排放源', f.energyCategory], ['细分项', f.itemName], ['子行业', f.subIndustry || '—']);
-  } else if (f.methodId === 'product') {
-    rows.splice(2, 0, ['主要产品', f.productMajor], ['细分项', f.productSub]);
-  } else {
-    rows.splice(2, 0, ['国标代码', f.gbCode], ['行业名称', f.gbIndustryName]);
-  }
   qs('#reviewModalBody').innerHTML = `
-    <table class="data-table"><tbody>
-      ${rows.map(r => `<tr><td style="width:120px;color:#909399">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}
+    <table class="data-table" style="margin-bottom:16px"><tbody>
+      ${identityRows.map(r => `<tr><td style="width:120px;color:#909399">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}
     </tbody></table>
-    <p style="margin-top:12px;font-size:13px;color:#909399">内置因子不可直接编辑，可使用「复制为自定义」创建副本后修改。</p>`;
+    <h4 style="margin:0 0 8px;font-size:14px">历史版本</h4>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>版本年度</th><th>因子值</th><th>来源</th><th>类型</th><th>操作</th></tr></thead>
+      <tbody>${g.versions.map(v => `<tr>
+        <td>${v.versionYear || '—'}${v.id === f.id ? ' <span class="badge badge-success">最新</span>' : ''}</td>
+        <td>${formatFactorValue(v)}</td>
+        <td>${v.isBuiltin ? (v.sourceSheet || '附2') : (v.sourceNote || '自定义')}</td>
+        <td>${v.isBuiltin ? '指引内置' : '自定义'}</td>
+        <td>${v.isBuiltin
+          ? '—'
+          : `<a href="#/factors/edit?id=${encodeURIComponent(v.id)}" class="btn-link">编辑</a>`}
+        </td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <p style="margin-top:12px;font-size:13px;color:#909399">同一计算方法、行业、名称与口径视为一条因子；核算任务计算时默认采用最新年度版本。</p>`;
   qs('#reviewModalFooter').innerHTML = `
     <button type="button" class="btn" onclick="hideModal('reviewModal')">关闭</button>
-    <button type="button" class="btn btn-primary" id="factorModalCopyBtn">复制为自定义</button>`;
-  qs('#factorModalCopyBtn').onclick = () => {
+    ${g.isCustom ? `<button type="button" class="btn btn-primary" id="factorModalAddVersionBtn">新增版本</button>` : ''}
+    ${g.isBuiltin && !g.isCustom ? `<button type="button" class="btn btn-primary" id="factorModalCopyBtn">复制为自定义</button>` : ''}`;
+  qs('#factorModalAddVersionBtn')?.addEventListener('click', () => {
+    hideModal('reviewModal');
+    location.hash = '#/factors/new?copy=' + encodeURIComponent(f.id) + '&mode=version';
+  });
+  qs('#factorModalCopyBtn')?.addEventListener('click', () => {
     hideModal('reviewModal');
     const id = Store.copyFactorAsCustom(f.id);
     if (id) {
       toast('已复制为自定义因子', 'success');
       location.hash = '#/factors/edit?id=' + encodeURIComponent(id);
     }
-  };
+  });
   showModal('reviewModal');
+}
+
+function openFactorViewModal(f) {
+  openFactorGroupViewModal(factorGroupKey(f), Store.get().factors);
 }

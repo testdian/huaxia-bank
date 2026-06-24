@@ -36,7 +36,7 @@ const CarbonAccount = {
     ENERGY: '能源法数据',
     PRODUCT_PBOC: '产品法-人行因子数据',
     PRODUCT_BANK: '产品法-我行因子数据',
-    ECONOMY_REVENUE: '经济活动法-营收法数据',
+    ECONOMY_REVENUE: '经济活动法',
     ECONOMY_LOAN: '经济活动法-贷款数据'
   },
 
@@ -333,6 +333,8 @@ const CarbonAccount = {
     const formal = ctx.formal;
     const calc = ctx.calc;
     if (reportDetail?.source) return reportDetail.source;
+    if (supp?.fieldData?.reportAuthority?.source) return supp.fieldData.reportAuthority.source;
+    if (supp?.fieldData?.reportOther?.source) return supp.fieldData.reportOther.source;
     if (supp?.fieldData?.report?.source) return supp.fieldData.report.source;
     if (formal?.gelanPrefill?.reportSource) return formal.gelanPrefill.reportSource;
     if (calc?.source === 'gelan' || formal?.gelanEntityEmission != null) {
@@ -471,7 +473,7 @@ const CarbonAccount = {
 
   _isInvalidDemoCustomerName(name) {
     if (!name || name === '-') return true;
-    return /样本|【补录测试】|配套工程|项目子账户|演示客户/.test(name)
+    return /样本|【收集测试】|配套工程|项目子账户|演示客户/.test(name)
       || /(北京|上海|深圳|杭州|南京|成都).{0,3}样本/.test(name);
   },
 
@@ -755,22 +757,22 @@ const CarbonAccount = {
     const map = {};
     records.forEach(r => {
       const y = String(r.year || r.period || '-');
-      if (!map[y]) map[y] = { year: y, emission: 0, entity: 0, count: 0, balance: 0 };
+      if (!map[y]) map[y] = { year: y, emission: 0, entity: 0, count: 0, revenue: 0 };
       map[y].emission += Number(r.attributedEmission) || 0;
       map[y].entity += Number(r.entityEmission) || 0;
       map[y].count += 1;
-      map[y].balance += Number(r.avgBalance) || 0;
+      map[y].revenue += Number(r.operatingRevenue ?? r.revenue) || 0;
     });
     return Object.values(map)
       .map(row => ({
         ...row,
         label: row.year,
-        intensity: row.balance > 0 ? +((row.emission / row.balance) * 10000).toFixed(4) : null
+        intensity: row.revenue > 0 ? +((row.entity / row.revenue).toFixed(4)) : null
       }))
       .sort((a, b) => String(a.year).localeCompare(String(b.year)));
   },
 
-  /** 贷款余额碳强度趋势 tCO₂e / 万元（AV009） */
+  /** 主体碳强度趋势 tCO₂e / 万元营业收入（主体口径） */
   trendIntensityByYear(records) {
     return this.trendByYear(records).filter(t => t.intensity != null);
   },

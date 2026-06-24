@@ -9,7 +9,7 @@ import puppeteer from 'puppeteer';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'docs', 'manual', 'screenshots');
-const BASE = 'http://127.0.0.1:8765/app.html';
+const BASE = 'http://127.0.0.1:8765/';
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -206,7 +206,8 @@ async function main() {
     await shot(page, 'MGR-03-填报页概览');
     await shot(page, 'MGR-04-基本信息');
     await page.evaluate(() => {
-      const tab = document.querySelector('#methodTabs .tab[data-tab="report"]')
+      const tab = document.querySelector('#methodTabs .tab[data-tab="report_authority"]')
+        || document.querySelector('#methodTabs .tab[data-tab="report"]')
         || document.querySelector('#methodTabs .tab');
       tab?.click();
     });

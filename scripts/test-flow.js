@@ -20,7 +20,9 @@ function load(file) {
 }
 
 load('assets/js/guide-constants.js');
+load('assets/js/industry-gb4754-tree.js');
 load('assets/js/industry-table.js');
+load('assets/js/industry-cascade.js');
 load('assets/js/factors-guide-data.js');
 load('assets/js/supplement-templates-data.js');
 load('assets/js/candidate-sync.js');
@@ -95,7 +97,7 @@ console.log('\n--- 碳账户档案编辑（隔离核算任务）---');
     const suppAfter = JSON.stringify(dAfter.supplements.find(s => s.formalId === caAcc.formalId && s.taskId === caAcc.taskId));
     assert(formalBefore === formalAfter, '碳账户编辑不改正式清单');
     assert(calcBefore === calcAfter, '碳账户编辑不改核算计算');
-    assert(suppBefore === suppAfter, '碳账户编辑不改补录任务');
+    assert(suppBefore === suppAfter, '碳账户编辑不改收集任务');
     const rowAfter = CarbonAccount.buildAccountListRows(
       dAfter,
       [dAfter.carbonAccounts.find(a => a.id === caAcc.id)],
@@ -184,7 +186,7 @@ if (ecoPending.length) {
   const ecoDone = Store.getFormalList(newId).find(f => f.economyDirectStatus === 'done');
   if (ecoDone) {
     const d = Store.dispatchSupplements(newId, [ecoDone.id]);
-    assert(d === 1, '经济法直算后仍可下发补录任务');
+    assert(d === 1, '经济法直算后仍可下发收集任务');
   }
 }
 
@@ -197,7 +199,7 @@ if (ecoId) {
   assert(f.economyDirectStatus === 'done', '经济法直算完成');
   assert(
     resolveFormalAccountingMethodLabel(f, taskId) === CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE,
-    '经济法直算路径展示经济活动法-营收法数据'
+    '经济法直算路径展示经济活动法'
   );
 }
 const ecoPendingRow = economy.find(f => f.status === 'confirmed' && f.economyDirectStatus !== 'done'
@@ -218,13 +220,30 @@ if (manId) {
   Store.submitSupplementForReview(supp.id);
   const branchApr = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'branch');
   assert(branchApr, '总行发起：先进分行初审');
-  Store.resolveApproval(branchApr.id, true);
+  Store.resolveApproval(branchApr.id, true, '', { selectedMethodId: 'report' });
+  assert(Store.get().supplements.find(s => s.id === supp.id).approvedMethodId === 'report', '分行审核可选定核算方法');
   const hqApr = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'hq' && a.status === 'pending');
   assert(hqApr, '分行通过后进入总行终审');
   Store.resolveApproval(hqApr.id, true);
   assert(Store.get().supplements.find(s => s.id === supp.id).auditStage === 'approved', '必收数审核完成');
   const submitNode = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'submit');
   assert(submitNode && submitNode.round >= 1, '提交审核生成轮次节点');
+}
+
+console.log('\n--- 多方法收集 ---');
+{
+  const draftSupp = Store.get().supplements.find(s => s.dispatchedAt && s.status !== 'completed');
+  if (draftSupp) {
+    Store.saveSupplement(draftSupp.id, {
+      reportedEmission: 500000,
+      energyTotalEmission: 600000,
+      economyValue: 10000,
+      economyFactor: 2.35
+    });
+    const m = Store.get().supplements.find(s => s.id === draftSupp.id);
+    assert(m.reportedEmission === 500000 && m.energyTotalEmission === 600000, '多方法数据可并存');
+    assert(Store.matchMethod(m).id === 'report', '未定档前按优先级预览匹配方法');
+  }
 }
 
 console.log('\n--- 驳回须填原因 ---');
@@ -239,7 +258,7 @@ if (supp2) {
     const stillPending = Store.get().approvals.find(a => a.id === apr.id)?.status === 'pending';
     assert(stillPending, '无驳回原因时不生效');
     Store.resolveApproval(apr.id, false, '排放数据与披露报告不一致');
-    assert(Store.get().supplements.find(s => s.id === supp2.id).status === 'returned', '驳回后补录退回');
+    assert(Store.get().supplements.find(s => s.id === supp2.id).status === 'returned', '驳回后收集退回');
   }
 }
 
@@ -250,9 +269,9 @@ const hqList = filterApprovalsForRole(Store.get().approvals, 'hq', role, taskId)
 const brList = filterApprovalsForRole(Store.get().approvals, 'branch', role, taskId);
 const mgList = filterApprovalsForRole(Store.get().approvals, 'manager', role, taskId);
 assert(hqList.length >= brList.length, '总行可见范围 ≥ 分行');
-assert(hqList.every(a => a.docType === 'supplement'), '总行数据审核仅展示补录单据');
-assert(brList.every(a => a.docType === 'supplement'), '分行数据审核仅展示补录单据');
-assert(!canUserReviewApproval(Store.get().approvals.find(a => a.id === 'APR004'), 'hq'), '总行不可审核非补录单据');
+assert(hqList.every(a => a.docType === 'supplement'), '总行数据审核仅展示收集单据');
+assert(brList.every(a => a.docType === 'supplement'), '分行数据审核仅展示收集单据');
+assert(!canUserReviewApproval(Store.get().approvals.find(a => a.id === 'APR004'), 'hq'), '总行不可审核非收集单据');
 assert(mgList.every(a => {
   const s = Store.get().supplements.find(x => x.id === a.docId);
   return !s || s.manager === '王磊';
@@ -260,14 +279,14 @@ assert(mgList.every(a => {
 
 console.log('\n--- 客户经理路由限制 ---');
 assert(isRouteAllowedForRole('#/manager-tasks', 'manager'), '客户经理可访问任务清单');
-assert(isRouteAllowedForRole('#/supplement-fill', 'manager'), '客户经理可访问补录填报');
+assert(isRouteAllowedForRole('#/supplement-fill', 'manager'), '客户经理可访问收集填报');
 assert(!isRouteAllowedForRole('#/data-collect', 'manager'), '客户经理不可访问数据采集');
 assert(!isRouteAllowedForRole('#/approvals', 'manager'), '客户经理不可访问数据审核');
 assert(getDefaultRouteForRole('manager') === '#/manager-tasks', '客户经理默认首页');
 
-console.log('\n--- 管理员不可访问数据补录 ---');
-assert(!isRouteAllowedForRole('#/branch-board', 'hq'), '总行不可访问数据补录');
-assert(!isRouteAllowedForRole('#/branch-board', 'branch'), '分行不可访问数据补录');
+console.log('\n--- 管理员不可访问数据收集 ---');
+assert(!isRouteAllowedForRole('#/branch-board', 'hq'), '总行不可访问数据收集');
+assert(!isRouteAllowedForRole('#/branch-board', 'branch'), '分行不可访问数据收集');
 assert(!isRouteAllowedForRole('#/manager-tasks', 'hq'), '总行不可访问客户经理任务');
 assert(isRouteAllowedForRole('#/data-collect', 'hq'), '总行可访问数据采集');
 assert(isRouteAllowedForRole('#/approvals', 'branch'), '分行可访问数据审核');
@@ -295,7 +314,7 @@ assert(canHqAdminRejectSupplement(approvedForReject, 'branch', { initiatorOrg: '
 assert(canHqAdminRejectSupplement(approvedForReject, 'hq'), '总行可管理员驳回');
 const n = Store.adminRejectSupplements(approvedForReject.taskId, [approvedForReject.id], '复核发现数据有误');
 assert(n === 1, '管理员驳回成功');
-assert(Store.get().supplements.find(s => s.id === approvedForReject.id).status === 'returned', '驳回后补录退回');
+assert(Store.get().supplements.find(s => s.id === approvedForReject.id).status === 'returned', '驳回后收集退回');
 const voided = Store.get().approvals.filter(a => a.docId === approvedForReject.id && a.status === 'voided');
 assert(voided.length >= 1, '已通过审核记录标记已作废');
 const adminApr = Store.get().approvals.find(a => a.docId === approvedForReject.id && a.reviewLevel === 'admin');

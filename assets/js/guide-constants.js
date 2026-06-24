@@ -27,15 +27,15 @@ window.GUIDE = {
   LOAN_TYPES_IN_SCOPE: ['项目贷款', '固定资产贷款', '流动资金贷款', '票据贴现', '贸易融资项下贴现', '保理'],
   /** 贴现、保理必须发放收数任务 */
   MANDATORY_COLLECT_LOAN_TYPES: ['票据贴现', '贸易融资项下贴现', '保理', '商票贴现', '保理融资'],
-  /** 候选/正式清单 — 核算类型（由业务品种映射，见 PRODUCT_TO_ACCOUNTING_TYPE） */
+  /** 候选/正式清单 — 业务种类（由信贷品种映射，见 PRODUCT_TO_ACCOUNTING_TYPE） */
   ACCOUNTING_TYPES: [
     { id: 'non_project', label: '非项目' },
     { id: 'project_as_project', label: '项目（以项目方式计算）' },
     { id: 'project_as_non_project', label: '项目（以非项目方式计算）' }
   ],
-  /** 业务品种 → 核算类型 id；映射待业务侧配置，配置前列表显示「待配置」 */
+  /** 信贷品种 → 业务种类 id；映射待业务侧配置，配置前列表显示「待配置」 */
   PRODUCT_TO_ACCOUNTING_TYPE: {},
-  /** 候选/正式清单 — 业务品种（台账） */
+  /** 候选/正式清单 — 信贷品种（台账） */
   CANDIDATE_PRODUCT_TYPES: [
     '中期流动资金贷款',
     '短期流动资金贷款',

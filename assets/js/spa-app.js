@@ -9,9 +9,9 @@ const ROUTE_TITLES = {
   '#/formal': '正式清单确认',
   '#/boundary': '核算对象与边界',
   '#/data-collect': '数据采集',
-  '#/branch-board': '数据补录',
+  '#/branch-board': '数据收集',
   '#/manager-tasks': '客户经理任务',
-  '#/supplement-fill': '在线补录填报',
+  '#/supplement-fill': '在线收集填报',
   '#/approval-review': '数据审核详情',
   '#/approvals': '数据审核',
   '#/factors': '排放因子库',
@@ -84,6 +84,7 @@ function bindPageEvents(base, ctx) {
       saveTaskFilters({
         name: qs('#tf_name')?.value || '',
         year: qs('#tf_year')?.value || '',
+        investIndustryScope: qs('#tf_invest_industry')?.value || '',
         industryScope: qs('#tf_industry')?.value || '',
         progress: qs('#tf_progress')?.value ?? ''
       });
@@ -103,8 +104,6 @@ function bindPageEvents(base, ctx) {
   if (base === '#/task-create') {
     bindTaskIndustryScopeToggle();
     bindTaskInitiatorToggle();
-    bindCustomIndustryPanel(qs('#customSubjectIndustryWrap'));
-    bindCustomIndustryPanel(qs('#customInvestIndustryWrap'));
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskBtn');
@@ -141,8 +140,6 @@ function bindPageEvents(base, ctx) {
   if (base === '#/task-edit') {
     bindTaskIndustryScopeToggle();
     bindTaskInitiatorToggle();
-    bindCustomIndustryPanel(qs('#customSubjectIndustryWrap'));
-    bindCustomIndustryPanel(qs('#customInvestIndustryWrap'));
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskEditBtn');
@@ -327,14 +324,14 @@ function bindPageEvents(base, ctx) {
       openApprovalActionConfirm('reject', (_approved, reason) => {
         const n = Store.adminRejectSupplements(taskId, [supplementId], reason);
         if (!n) {
-          toast('驳回失败，请确认记录已审批通过', 'warning');
+          toast('退回失败，请确认记录已审批通过', 'warning');
           return;
         }
-        toast('已驳回，请前往「数据补录」重新填报并提交审核', 'warning');
+        toast('已退回，请前往「数据收集」重新填报并提交审核', 'warning');
         route();
       }, {
-        title: '确认驳回',
-        message: '该数据已完成填报，是否确认驳回？'
+        title: '确认退回',
+        message: '该数据已完成填报，是否确认退回至客户经理？'
       });
     };
 
@@ -353,59 +350,57 @@ function bindPageEvents(base, ctx) {
         toast('所选记录无法派发（可能已派发或未锁定）', 'warning');
         return;
       }
-      toast(`已发放 ${n} 笔补录任务`, 'success');
+      toast(`已发放 ${n} 笔收集任务`, 'success');
       route();
     });
 
-    qs('#fetchGelanBtn')?.addEventListener('click', () => {
-      const pendingIds = Store.getFormalList(taskId)
+    qs('#fetchInterfaceDataBtn')?.addEventListener('click', () => {
+      const pendingGelanIds = Store.getFormalList(taskId)
         .filter(f =>
           f.status === 'confirmed'
           && Store.getFormalEntityEmission(taskId, f.id) == null
           && isFormalGelanEligible(f, taskId)
         )
         .map(f => f.id);
-      if (!pendingIds.length) {
-        toast(
-          '当前没有可调取格澜数据的记录（需已锁定、主体排放为空，且核算类型非「项目（以项目方式计算）」）',
-          'warning'
-        );
-        return;
-      }
-      const r = Store.fetchGelanEntityEmissions(taskId, pendingIds);
-      if (!r?.withData && !r?.noData) {
-        toast('格澜数据调取失败', 'warning');
-        return;
-      }
-      const skipHint = r.skippedProject > 0 ? `，${r.skippedProject} 笔项目法（以项目方式计算）已跳过` : '';
-      toast(
-        `格澜数据调取完成：${r.withData} 笔已获取主体排放，${r.noData} 笔无数据${skipHint}`,
-        r.withData ? 'success' : 'warning'
-      );
-      route();
-    });
-
-    qs('#economyDirectBtn')?.addEventListener('click', () => {
       const economyIds = Store.getFormalList(taskId)
         .filter(f => isFormalEconomyDirectEligible(f, taskId))
         .map(f => f.id);
-      if (!economyIds.length) {
+      if (!pendingGelanIds.length && !economyIds.length) {
         const hint = describeEconomyDirectEmptyOutcome(taskId);
-        toast(hint?.msg || '当前没有待直算的经济法记录', hint?.type || 'warning');
+        toast(
+          hint?.msg || '当前没有可调取接口数据的记录（需已锁定、主体排放为空，且非项目法以项目方式计算）',
+          hint?.type || 'warning'
+        );
         return;
       }
-      const n = Store.runEconomyDirectCalc(taskId, economyIds);
-      toast(n ? `已完成 ${n} 笔经济法直算（主体+归因排放）` : '直算失败', n ? 'success' : 'warning');
+      const parts = [];
+      let withData = 0;
+      let ecoN = 0;
+      if (pendingGelanIds.length) {
+        const r = Store.fetchGelanEntityEmissions(taskId, pendingGelanIds);
+        if (!r?.withData && !r?.noData && r?.ok === false) {
+          toast('格澜数据调取失败', 'warning');
+          return;
+        }
+        withData = r?.withData || 0;
+        const skipHint = r?.skippedProject > 0 ? `，${r.skippedProject} 笔项目法已跳过` : '';
+        parts.push(`格澜 ${withData} 笔已获取主体排放，${r?.noData || 0} 笔无数据${skipHint}`);
+      }
+      if (economyIds.length) {
+        ecoN = Store.runEconomyDirectCalc(taskId, economyIds) || 0;
+        parts.push(`经济法直算 ${ecoN} 笔`);
+      }
+      toast(`接口数据调取完成：${parts.join('；')}`, (withData || ecoN) ? 'success' : 'warning');
       route();
     });
 
-    qs('#zeroMissingBtn')?.addEventListener('click', () => {
+    qs('#creditFallbackBtn')?.addEventListener('click', () => {
       const n = Store.zeroMissingEntityEmissions(taskId);
       if (!n) {
-        toast('当前无缺失主体排放的记录', 'warning');
+        toast('当前无适用信贷数据兜底法的记录', 'warning');
         return;
       }
-      toast(`已将 ${n} 笔缺失记录的主体排放置为 0，数据采集已完成`, 'success');
+      toast(`已对 ${n} 笔记录应用信贷数据兜底法，数据采集已完成`, 'success');
       route();
     });
 
@@ -447,6 +442,7 @@ function bindPageEvents(base, ctx) {
     bindSupplementPageTabs(root);
     bindSupplementMethodTabs(!editable, root);
     SUPPLEMENT_FIELDS.bindFileUpload(root, sid, !editable);
+    SUPPLEMENT_FIELDS.bindReportAttachmentRule(root, !editable);
     const projectInfoSelect = qs('#f_project_info_available', root);
     const toggleProjectInfoFields = () => {
       const wrap = qs('[data-project-info-fields]', root);
@@ -460,8 +456,19 @@ function bindPageEvents(base, ctx) {
     if (!editable) return;
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
-      const tab = qs('#methodTabs .tab.active', root)?.dataset.tab || 'report';
-      const payload = SUPPLEMENT_FIELDS.collectFormData(tab, root, s);
+      if (complete) {
+        const attachCheck = SUPPLEMENT_FIELDS.validateReportAttachments(root, s);
+        if (!attachCheck.ok) {
+          toast(attachCheck.message, 'warning');
+          qsa('#methodTabs .tab', root).forEach(x => x.classList.remove('active'));
+          qsa('.tab-panel', root).forEach(x => x.classList.remove('active'));
+          const failTab = attachCheck.tabId || 'report_authority';
+          qs(`#methodTabs .tab[data-tab="${failTab}"]`, root)?.classList.add('active');
+          qs(`.tab-panel[data-panel="${failTab}"]`, root)?.classList.add('active');
+          return;
+        }
+      }
+      const payload = SUPPLEMENT_FIELDS.collectAllFormData(root, s);
       payload.complete = complete;
       payload.fieldsDone = complete ? 15 : 10;
       Store.saveSupplement(sid, payload);
@@ -492,10 +499,10 @@ function bindPageEvents(base, ctx) {
     bindSupplementPageTabs(qs('#viewRoot'));
     bindSupplementMethodTabs(true, qs('#viewRoot'));
     const approvalId = qs('#approvalReviewId')?.value;
-    const finishReview = (approved, rejectReason) => {
+    const finishReview = (approved, rejectReason, extra) => {
       const approval = (Store.get().approvals || []).find(a => a.id === approvalId);
       if (!approval) return;
-      Store.resolveApproval(approvalId, approved, rejectReason);
+      Store.resolveApproval(approvalId, approved, rejectReason, extra);
       const tid = approval.taskId || Store.get().currentTaskId;
       if (approved && approval.docType === 'supplement') {
         const confirmed = Store.getFormalList(tid).filter(f => f.status === 'confirmed');
@@ -509,7 +516,7 @@ function bindPageEvents(base, ctx) {
           toast('审核通过', 'success');
         }
       } else {
-        toast(approved ? '审核通过' : '已驳回，补录任务已退回', approved ? 'success' : 'warning');
+        toast(approved ? '审核通过' : '已退回，收集任务已退回', approved ? 'success' : 'warning');
       }
       location.hash = '#/approvals?taskId=' + tid;
     };
@@ -517,10 +524,18 @@ function bindPageEvents(base, ctx) {
       location.hash = '#/approvals?taskId=' + taskId;
     });
     qs('#approvalApproveBtn')?.addEventListener('click', () => {
-      openApprovalActionConfirm('approve', finishReview);
+      const approval = (Store.get().approvals || []).find(a => a.id === approvalId);
+      if (approval?.docType === 'supplement' && approval?.reviewLevel === 'branch') {
+        openSupplementMethodApprovalConfirm(approval, finishReview);
+      } else {
+        openApprovalActionConfirm('approve', finishReview);
+      }
     });
     qs('#approvalRejectBtn')?.addEventListener('click', () => {
       openApprovalActionConfirm('reject', finishReview);
+    });
+    qs('#approvalLocalFixBtn')?.addEventListener('click', () => {
+      toast('已标记为待本级修正，分行绿金岗可直接修改后再次提交审核', 'success');
     });
   }
 
@@ -555,7 +570,8 @@ function bindPageEvents(base, ctx) {
       const prev = readCaListFilters();
       sessionStorage.setItem('ca_list_filters', JSON.stringify({
         ...prev,
-        keyword: qs('#ca_kw')?.value || ''
+        keyword: qs('#ca_kw')?.value || '',
+        status: qs('#ca_status')?.value || ''
       }));
       setListPage('carbon_accounts', 1);
       route();
@@ -592,6 +608,7 @@ function bindPageEvents(base, ctx) {
     const caSupplementRoot = qs('.ca-profile-supplement');
     if (caSupplementRoot && qs('#caProfileForm')) {
       bindSupplementMethodTabs(false, caSupplementRoot);
+      SUPPLEMENT_FIELDS.bindReportAttachmentRule(caSupplementRoot, false);
     }
     const navigateCaAccountView = (accountId, year, sub, tab) => {
       const p = new URLSearchParams({ id: accountId, tab: tab || 'profile' });
@@ -656,63 +673,6 @@ function bindPageEvents(base, ctx) {
         location.hash = '#/carbon-account?' + params.toString();
       };
     });
-    const readCaDetailFilters = (accountId) => {
-      try {
-        return JSON.parse(sessionStorage.getItem('ca_detail_filters_' + accountId) || '{}');
-      } catch { return {}; }
-    };
-    qs('#caDetailFilterBtn')?.addEventListener('click', () => {
-      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
-      const accountId = params.get('id');
-      sessionStorage.setItem('ca_detail_filters_' + accountId, JSON.stringify({
-        year: qs('#ca_d_year')?.value || '',
-        industry: qs('#ca_d_industry')?.value || '',
-        branch: qs('#ca_d_branch')?.value || '',
-        productType: qs('#ca_d_product')?.value || '',
-        keyword: qs('#ca_d_kw')?.value || ''
-      }));
-      setListPage('ca_records_' + accountId, 1);
-      route();
-    });
-    qs('#caDetailFilterResetBtn')?.addEventListener('click', () => {
-      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
-      const accountId = params.get('id');
-      sessionStorage.removeItem('ca_detail_filters_' + accountId);
-      setListPage('ca_records_' + accountId, 1);
-      route();
-    });
-    qs('#caExportBtn')?.addEventListener('click', () => {
-      const params = new URLSearchParams((location.hash.split('?')[1] || ''));
-      const accountId = params.get('id');
-      const roleKey = Store.get().currentRole;
-      const all = Store.getCarbonContext(roleKey, ctx.role).records.filter(r => r.accountId === accountId);
-      const recs = CarbonAccount.filterRecords(all, readCaDetailFilters(accountId));
-      const lines = [
-        '华夏银行 · 企业碳账户排放明细',
-        '',
-        '账户ID\t一级分行\t经办行\t客户名称\t业务品种\t贷款账号\t投放金额\t投放日\t贷款主体类型\t所属行业\t月均信贷余额(万元)\t营业收入(万元)\t业务经理\t核算年度\t主体排放\t归因排放\t碳强度\t方法\t核算完成时间\t状态'
-      ];
-      recs.forEach(r => {
-        const row = caRecordAsCandidateRow(r);
-        lines.push([
-          accountId, row.tier1Branch, row.handlingBranch, row.customerName,
-          candidateProductType(row), row.loanAccount,
-          row.disbursementAmount ?? '', row.disbursementDate ?? '',
-          candidateBorrowerType(row), candidateIndustryLabel(row),
-          row.avgMonthlyBalance ?? '', row.operatingRevenue ?? '',
-          row.manager ?? '', r.year, r.entityEmission, r.attributedEmission,
-          CarbonAccount.recordIntensity(r) ?? '', r.method,
-          r.confirmedAt || r.mountedAt || '', r.status
-        ].join('\t'));
-      });
-      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = '碳账户排放明细_' + accountId + '.txt';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      toast(`已导出 ${recs.length} 笔明细`, 'success');
-    });
   }
 
   if (base === '#/reports') {
@@ -751,6 +711,30 @@ function bindPageEvents(base, ctx) {
       setListPage('factors', 1);
       route();
     });
+    qs('#copyFactorYearBtn')?.addEventListener('click', () => {
+      const sourceYear = prompt('复制来源年度', String(new Date().getFullYear() - 1));
+      if (!sourceYear) return;
+      const targetYear = prompt('目标年度', String(new Date().getFullYear()));
+      if (!targetYear) return;
+      const n = Store.copyFactorsByYear(sourceYear.trim(), targetYear.trim());
+      toast(n ? `已为 ${n} 个因子新增 ${targetYear} 年度版本` : '未新增任何版本（目标年度可能已存在）', n ? 'success' : 'warning');
+      route();
+    });
+    qsa('.factor-add-version-btn').forEach(btn => {
+      btn.onclick = () => {
+        location.hash = '#/factors/new?copy=' + encodeURIComponent(btn.dataset.id) + '&mode=version';
+      };
+    });
+    qsa('.factor-del-group-btn').forEach(btn => {
+      btn.onclick = () => {
+        if (!confirm('确定删除该自定义因子的全部版本？')) return;
+        const key = decodeURIComponent(btn.dataset.groupKey || '');
+        if (Store.deleteFactorGroup(key)) {
+          toast('已删除', 'success');
+          route();
+        }
+      };
+    });
     qsa('.factor-copy-btn').forEach(btn => {
       btn.onclick = () => {
         const id = Store.copyFactorAsCustom(btn.dataset.id);
@@ -764,8 +748,12 @@ function bindPageEvents(base, ctx) {
     });
     qsa('.factor-view-btn').forEach(btn => {
       btn.onclick = () => {
-        const f = Store.getFactor(btn.dataset.id);
-        if (f) openFactorViewModal(f);
+        const key = decodeURIComponent(btn.dataset.groupKey || '');
+        if (key) openFactorGroupViewModal(key, Store.get().factors);
+        else {
+          const f = Store.getFactor(btn.dataset.id);
+          if (f) openFactorViewModal(f);
+        }
       };
     });
     qsa('.factor-del-btn').forEach(btn => {
@@ -848,6 +836,7 @@ function bindFactorForm(base) {
       }
     }
     const editId = form.dataset.factorId;
+    const formMode = form.dataset.formMode || 'create';
     if (editId) {
       if (!Store.updateFactor(editId, payload)) {
         toast('保存失败（内置因子不可编辑）', 'warning');
@@ -855,9 +844,9 @@ function bindFactorForm(base) {
       }
       toast('已保存', 'success');
     } else {
-      const added = Store.addFactor(payload);
+      const added = Store.addFactor(payload, { mode: formMode === 'newVersion' ? 'newVersion' : 'create' });
       if (!added) {
-        toast('已存在相同维度的自定义因子', 'warning');
+        toast(formMode === 'newVersion' ? '该年度版本已存在或保存失败' : '已存在相同因子，请使用「新增版本」', 'warning');
         return;
       }
       toast('已新增自定义因子', 'success');
@@ -949,12 +938,12 @@ function openApprovalReview(approvalId) {
     <p style="font-size:13px;color:#909399">提交人：${approval.submitter} · ${approval.submitTime}</p>
     ${approval.docType === 'formal' ? '<p style="font-size:13px;color:#e6a23c;margin-top:8px">通过后，已锁定的正式清单将生效，并进入数据采集环节。</p>' : ''}`;
   qs('#reviewModalFooter').innerHTML = `
-    <button class="btn" id="rejectReviewBtn">驳回</button>
+    <button class="btn" id="rejectReviewBtn">退回</button>
     <button class="btn btn-primary" id="approveReviewBtn">通过</button>`;
   qs('#rejectReviewBtn').onclick = () => {
     Store.resolveApproval(approvalId, false);
     hideModal('reviewModal');
-    toast('已驳回', 'success');
+    toast('已退回', 'success');
     route();
   };
   qs('#approveReviewBtn').onclick = () => {
@@ -1013,7 +1002,4 @@ openApproval = function(docType, docId, docName) {
 };
 
 window.addEventListener('hashchange', route);
-window.addEventListener('load', () => {
-  if (!location.hash) location.hash = getDefaultRouteForRole(Store.get().currentRole);
-  route();
-});
+window.addEventListener('load', route);

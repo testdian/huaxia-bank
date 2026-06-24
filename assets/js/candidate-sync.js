@@ -126,6 +126,7 @@ const CandidateSync = {
         projectDetails,
         avgMonthlyBalance,
         totalAssets: avgMonthlyBalance * 80 + idx * 1000,
+        prevYearTotalAssets: avgMonthlyBalance * 75 + idx * 900,
         branch: tier1Branch,
         manager: this.MANAGERS[idx % this.MANAGERS.length],
         isSme,
