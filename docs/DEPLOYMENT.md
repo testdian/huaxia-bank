@@ -2,8 +2,8 @@
 
 | 环境 | 分支 | 公网地址 |
 |------|------|----------|
-| **UAT** | `uat` | https://testdian.github.io/huaxia-bank/uat/app.html |
-| **生产** | `main` | https://testdian.github.io/huaxia-bank/app.html |
+| **UAT** | `uat` | https://testdian.github.io/huaxia-bank/uat/ （或 `/uat/index.html`） |
+| **生产** | `main` | https://testdian.github.io/huaxia-bank/ （或 `/app.html` 会跳转至同目录首页） |
 
 ## 三种「环境」分别是什么？
 
@@ -13,7 +13,9 @@
 | **production** | 你在 Environments 里建的 | 要。生产部署 / 审批挂在这里 |
 | **github-pages** | 开启 Pages 且来源选 **GitHub Actions** 时自动生成 | **可忽略或删除**。与我们的 peaceiris 部署无关 |
 
-## UAT 404 时必查（最重要）
+## UAT 404 时必查
+
+### 1. Pages 来源（最常见配置问题）
 
 打开 **Settings → Pages → Build and deployment**：
 
@@ -21,9 +23,16 @@
 2. **Branch**：`gh-pages`，目录 **`/ (root)`**
 3. 保存后等 2～5 分钟再打开 UAT 链接
 
-原因：当前若选的是 **GitHub Actions**，只会发布 `pages-build-deployment` 打出来的包（通常只有生产根目录），**不会**读 `gh-pages` 分支里我们推的 `uat/` 目录，所以 UAT 会 404。
+### 2. 链接是否带项目子路径
 
-`gh-pages` 分支上已有 `uat/app.html` 时，只要 Pages 来源改对，UAT 即可访问。
+本仓库为 **Project Pages**，根路径是 `/huaxia-bank/`，UAT 在 `/huaxia-bank/uat/`。
+
+- 正确：https://testdian.github.io/huaxia-bank/uat/
+- 错误：https://testdian.github.io/uat/（会 404）
+
+### 3. 旧版 app.html 跳转问题
+
+若打开 `/uat/app.html` 后跳到 `testdian.github.io/` 并 404，说明 `app.html` 使用了错误的绝对路径 `/`。请更新至最新 `uat` 分支（已改为相对目录跳转），或直接使用 `/uat/` 入口。
 
 ## 日常流程
 

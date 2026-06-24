@@ -3,8 +3,8 @@
 ## 在线演示
 
 - **GitHub 仓库**：https://github.com/testdian/huaxia-bank
-- **生产环境**（`main` 分支）：https://testdian.github.io/huaxia-bank/app.html
-- **UAT 环境**（`uat` 分支）：https://testdian.github.io/huaxia-bank/uat/app.html
+- **生产环境**（`main` 分支）：https://testdian.github.io/huaxia-bank/
+- **UAT 环境**（`uat` 分支）：https://testdian.github.io/huaxia-bank/uat/
 
 部署流程见仓库根目录 [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)。
 
