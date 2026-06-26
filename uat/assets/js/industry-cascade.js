@@ -31,6 +31,17 @@ window.IndustryCascade = {
     return name ? `${code} ${name}` : code;
   },
 
+  /** 已选行业展示：C1311农业；C1433航天 */
+  formatSelectedSummary(codes) {
+    const map = this.nameMap();
+    const sorted = [...(codes || [])].sort();
+    if (!sorted.length) return '暂未选择行业';
+    return sorted.map(c => {
+      const name = map[c] || '';
+      return name ? `${c}${name}` : c;
+    }).join('；');
+  },
+
   presetCodes(scope) {
     const s = typeof normalizeIndustryScopeValue === 'function'
       ? normalizeIndustryScopeValue(scope)
@@ -42,6 +53,15 @@ window.IndustryCascade = {
 
   isCustomScope(scope) {
     return scope === '自定义';
+  },
+
+  searchLeaves(keyword, limit = 40) {
+    const kw = String(keyword || '').trim().toLowerCase();
+    if (!kw) return [];
+    const map = this.nameMap();
+    return this.allLeafCodes()
+      .filter(c => c.toLowerCase().includes(kw) || (map[c] || '').toLowerCase().includes(kw))
+      .slice(0, limit);
   },
 
   _scopeValue(scopeEl) {
@@ -66,14 +86,27 @@ window.IndustryCascade = {
     qsa(`input[name="${name}"]`, root).forEach(r => r.addEventListener('change', handler));
   },
 
-  renderPanel(selectedCodes, leafReadonly, options = {}) {
-    const { wrapId = 'industryCascadePanel', countId = 'industryCascadeCount' } = options;
+  renderPanel(selectedCodes, formReadonly, options = {}) {
+    const {
+      wrapId = 'industryCascadePanel',
+      countId = 'industryCascadeCount',
+      summaryId = 'industryCascadeSummary'
+    } = options;
     const selected = selectedCodes || [];
-    const presetReadonly = !!leafReadonly;
+    const readonly = !!formReadonly;
+    const summaryText = this.formatSelectedSummary(selected);
     return `
-      <div class="industry-cascade-panel" id="${wrapId}" data-readonly="${presetReadonly ? '1' : '0'}" data-selected="${selected.join(',')}" data-active-path="">
+      <div class="industry-cascade-panel" id="${wrapId}" data-form-readonly="${readonly ? '1' : '0'}" data-selected="${selected.join(',')}" data-active-path="">
+        <div class="industry-cascade-selected-summary-wrap">
+          <span class="industry-cascade-summary-label">已选行业</span>
+          <div class="industry-cascade-selected-summary" id="${summaryId}">${summaryText}</div>
+        </div>
+        <div class="industry-cascade-search-wrap" style="display:${readonly ? 'none' : ''}">
+          <input type="search" class="industry-cascade-search-input" placeholder="输入行业名称或代码，搜索并勾选">
+          <div class="industry-cascade-search-results"></div>
+        </div>
         <div class="industry-cascade-toolbar">
-          <span class="industry-cascade-actions" style="display:${presetReadonly ? 'none' : ''}">
+          <span class="industry-cascade-actions" style="display:${readonly ? 'none' : ''}">
             <button type="button" class="btn btn-sm industry-cascade-select-all">行业全选</button>
             <button type="button" class="btn btn-sm industry-cascade-clear-all">清空</button>
             <span class="industry-selected-count">已选 <b id="${countId}">${selected.length}</b> 项</span>
@@ -123,21 +156,27 @@ window.IndustryCascade = {
     return new Set((panel.dataset.selected || '').split(',').filter(Boolean));
   },
 
-  _displaySelected(panel, scopeSelectEl) {
-    const scope = this._scopeValue(scopeSelectEl);
-    const readonly = this._isPresetScope(scope);
-    if (readonly) return new Set(this.presetCodes(scope));
+  _isFormReadonly(panel) {
+    return panel.dataset.formReadonly === '1';
+  },
+
+  _displaySelected(panel) {
     return this._selectedSet(panel);
   },
 
-  _isPresetScope(scope) {
-    return !this.isCustomScope(scope);
+  _syncCount(panel) {
+    const countEl = panel.querySelector('.industry-selected-count b');
+    const selected = [...this._displaySelected(panel)];
+    if (countEl) countEl.textContent = selected.length;
+    this._syncSummary(panel, selected);
   },
 
-  _syncCount(panel, scopeSelectEl) {
-    const countEl = panel.querySelector('.industry-selected-count b');
-    const n = this._displaySelected(panel, scopeSelectEl).size;
-    if (countEl) countEl.textContent = n;
+  _syncSummary(panel, codes) {
+    const summaryEl = panel.querySelector('.industry-cascade-selected-summary');
+    if (!summaryEl) return;
+    const list = codes || [...this._displaySelected(panel)];
+    summaryEl.textContent = this.formatSelectedSummary(list);
+    summaryEl.classList.toggle('is-empty', !list.length);
   },
 
   _nodesAtLevel(level, path) {
@@ -189,11 +228,10 @@ window.IndustryCascade = {
       </div>`;
   },
 
-  _renderColumns(panel, scopeSelectEl) {
+  _renderColumns(panel) {
     const path = this._getPath(panel);
-    const scope = this._scopeValue(scopeSelectEl);
-    const readonly = this._isPresetScope(scope);
-    const displaySelected = this._displaySelected(panel, scopeSelectEl);
+    const readonly = this._isFormReadonly(panel);
+    const displaySelected = this._displaySelected(panel);
 
     qsa('.industry-cascade-col', panel).forEach(col => {
       const level = Number(col.dataset.level);
@@ -215,8 +253,8 @@ window.IndustryCascade = {
     panel.dataset.selected = (codes || []).join(',');
   },
 
-  _toggleNode(panel, node, level, checked, scopeSelectEl) {
-    if (this._isPresetScope(this._scopeValue(scopeSelectEl))) return;
+  _toggleNode(panel, node, level, checked) {
+    if (this._isFormReadonly(panel)) return;
     const selected = this._selectedSet(panel);
     const leaves = level === 3 ? [node.c] : this._leafCodesOf(node);
     leaves.forEach(c => {
@@ -224,8 +262,48 @@ window.IndustryCascade = {
       else selected.delete(c);
     });
     this._setSelected(panel, [...selected]);
-    this._syncCount(panel, scopeSelectEl);
-    this._renderColumns(panel, scopeSelectEl);
+    this._syncCount(panel);
+    this._renderColumns(panel);
+    this._renderSearchResults(panel, panel.querySelector('.industry-cascade-search-input')?.value || '');
+  },
+
+  _toggleLeafCode(panel, code, checked) {
+    if (this._isFormReadonly(panel)) return;
+    const selected = this._selectedSet(panel);
+    if (checked) selected.add(code);
+    else selected.delete(code);
+    this._setSelected(panel, [...selected]);
+    this._syncCount(panel);
+    this._renderColumns(panel);
+    this._renderSearchResults(panel, panel.querySelector('.industry-cascade-search-input')?.value || '');
+  },
+
+  _renderSearchResults(panel, keyword) {
+    const box = qs('.industry-cascade-search-results', panel);
+    if (!box) return;
+    const kw = String(keyword || '').trim();
+    if (!kw) {
+      box.innerHTML = '';
+      box.style.display = 'none';
+      return;
+    }
+    const hits = this.searchLeaves(kw);
+    if (!hits.length) {
+      box.innerHTML = '<p class="industry-cascade-search-empty">无匹配行业</p>';
+      box.style.display = 'block';
+      return;
+    }
+    const selected = this._displaySelected(panel);
+    const readonly = this._isFormReadonly(panel);
+    box.innerHTML = hits.map(code => {
+      const label = this.label(code);
+      const checked = selected.has(code);
+      return `<label class="industry-cascade-search-item">
+        <input type="checkbox" class="industry-cascade-search-check" value="${code}" ${checked ? 'checked' : ''} ${readonly ? 'disabled' : ''}>
+        <span>${label}</span>
+      </label>`;
+    }).join('');
+    box.style.display = 'block';
   },
 
   bindPanel(wrapEl, scopeSelectEl) {
@@ -234,23 +312,19 @@ window.IndustryCascade = {
 
     const applyScope = (fromUserChange = false) => {
       const scope = this._scopeValue(scopeSelectEl);
-      const custom = this.isCustomScope(scope);
-      panel.dataset.readonly = custom ? '0' : '1';
-      const toolbar = qs('.industry-cascade-actions', panel);
-      if (toolbar) toolbar.style.display = custom ? '' : 'none';
-
-      if (custom) {
-        if (fromUserChange) {
-          this._setSelected(panel, []);
-          this._setPath(panel, []);
-        }
-      } else {
+      if (fromUserChange && !this.isCustomScope(scope)) {
         this._setSelected(panel, this.presetCodes(scope));
         this._setPath(panel, []);
+      } else if (fromUserChange && this.isCustomScope(scope)) {
+        this._setSelected(panel, []);
+        this._setPath(panel, []);
+      } else if (!fromUserChange && !(panel.dataset.selected || '').length && !this.isCustomScope(scope)) {
+        this._setSelected(panel, this.presetCodes(scope));
       }
 
-      this._syncCount(panel, scopeSelectEl);
-      this._renderColumns(panel, scopeSelectEl);
+      this._syncCount(panel);
+      this._renderColumns(panel);
+      this._renderSearchResults(panel, panel.querySelector('.industry-cascade-search-input')?.value || '');
     };
 
     panel.addEventListener('click', e => {
@@ -262,16 +336,20 @@ window.IndustryCascade = {
       const path = this._getPath(panel).slice(0, level);
       path[level] = code;
       this._setPath(panel, path);
-      this._renderColumns(panel, scopeSelectEl);
+      this._renderColumns(panel);
     });
 
     panel.addEventListener('change', e => {
       const cb = e.target;
+      if (cb.classList.contains('industry-cascade-search-check')) {
+        this._toggleLeafCode(panel, cb.value, cb.checked);
+        return;
+      }
       if (!cb.classList.contains('industry-cascade-check')) return;
       e.stopPropagation();
       const node = this._findNode(cb.value);
       if (!node) return;
-      this._toggleNode(panel, node, Number(cb.dataset.level), cb.checked, scopeSelectEl);
+      this._toggleNode(panel, node, Number(cb.dataset.level), cb.checked);
     });
 
     panel.addEventListener('click', e => {
@@ -279,18 +357,30 @@ window.IndustryCascade = {
     }, true);
 
     qs('.industry-cascade-select-all', panel)?.addEventListener('click', () => {
-      if (this._isPresetScope(this._scopeValue(scopeSelectEl))) return;
+      if (this._isFormReadonly(panel)) return;
       this._setSelected(panel, this.allLeafCodes());
-      this._syncCount(panel, scopeSelectEl);
-      this._renderColumns(panel, scopeSelectEl);
+      this._syncCount(panel);
+      this._renderColumns(panel);
+      this._renderSearchResults(panel, panel.querySelector('.industry-cascade-search-input')?.value || '');
     });
 
     qs('.industry-cascade-clear-all', panel)?.addEventListener('click', () => {
-      if (this._isPresetScope(this._scopeValue(scopeSelectEl))) return;
+      if (this._isFormReadonly(panel)) return;
       this._setSelected(panel, []);
-      this._syncCount(panel, scopeSelectEl);
-      this._renderColumns(panel, scopeSelectEl);
+      this._syncCount(panel);
+      this._renderColumns(panel);
+      this._renderSearchResults(panel, panel.querySelector('.industry-cascade-search-input')?.value || '');
     });
+
+    const searchInput = qs('.industry-cascade-search-input', panel);
+    if (searchInput) {
+      searchInput.addEventListener('input', e => {
+        this._renderSearchResults(panel, e.target.value);
+      });
+      searchInput.addEventListener('focus', e => {
+        if (e.target.value.trim()) this._renderSearchResults(panel, e.target.value);
+      });
+    }
 
     this._bindScopeChange(scopeSelectEl, () => applyScope(true));
 

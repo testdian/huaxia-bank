@@ -88,7 +88,7 @@ const routes = [
   '#/tasks', '#/task-create', '#/task-view?id=' + taskId, '#/task-detail?id=' + taskId,
   '#/candidates', '#/formal', '#/boundary', '#/data-collect', '#/calculation', '#/results', '#/reports',
   '#/branch-board', '#/manager-tasks', '#/supplement-fill?id=S001', '#/approvals',
-  '#/factors', '#/factors/new', '#/factors/edit?id=CF001', '#/interfaces'
+  '#/factors', '#/factors/import', '#/factors/new', '#/factors/edit?id=CF001', '#/interfaces'
 ];
 routes.forEach(route => {
   const base = route.split('?')[0];

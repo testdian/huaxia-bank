@@ -166,7 +166,8 @@ window.INDUSTRY_TABLE = [
     "major": "民航"
   }
 ];
-window.INDUSTRY_EIGHT_CODES = ["C2211", "C2221", "C2511", "C2611", "C2612", "C2614", "C2621", "C2651", "C3011", "C3041", "C3110", "C3120", "C3130", "C3211", "C3216", "D4411", "D4412", "D4417", "D4420", "G5631"];
+/** 人行八大高碳 — 四级行业完整代码（与 INDUSTRY_TABLE 同步） */
+window.INDUSTRY_EIGHT_CODES = INDUSTRY_TABLE.map(r => r.code);
 
 /** 我行主要行业（GB/T 4754 小类，级联用小类码） */
 window.INDUSTRY_BANK_MAJOR_CODES = [
@@ -179,6 +180,34 @@ function toCascadeIndustryCode(code) {
   const s = String(code || '').trim();
   if (/^[A-Z]\d/.test(s)) return s.slice(1);
   return s;
+}
+
+/** 八大高碳行业大类映射（用于行业配置展示） */
+window.INDUSTRY_EIGHT_MAJOR_BY_CASCADE = Object.fromEntries(
+  INDUSTRY_TABLE.map(r => [toCascadeIndustryCode(r.code), r.major])
+);
+
+function isPboEightIndustryCode(code) {
+  const cascade = toCascadeIndustryCode(code);
+  const scoped = /^[A-Z]\d/.test(String(code || '').trim())
+    ? String(code).trim()
+    : toScopedIndustryCode(cascade);
+  return INDUSTRY_EIGHT_CODES.includes(scoped)
+    || INDUSTRY_EIGHT_CODES.some(c => toCascadeIndustryCode(c) === cascade);
+}
+
+function isBankMajorIndustryCode(code) {
+  const cascade = toCascadeIndustryCode(code);
+  const scoped = toScopedIndustryCode(cascade);
+  return INDUSTRY_BANK_MAJOR_CODES.includes(cascade)
+    || INDUSTRY_BANK_MAJOR_CODES.some(c => toScopedIndustryCode(c) === scoped);
+}
+
+function inferIndustryMajor(code) {
+  const cascade = toCascadeIndustryCode(code);
+  if (INDUSTRY_EIGHT_MAJOR_BY_CASCADE[cascade]) return INDUSTRY_EIGHT_MAJOR_BY_CASCADE[cascade];
+  const scoped = /^[A-Z]\d/.test(String(code || '').trim()) ? String(code).trim() : toScopedIndustryCode(cascade);
+  return INDUSTRY_TABLE.find(r => r.code === scoped || toCascadeIndustryCode(r.code) === cascade)?.major || '';
 }
 
 function _buildLeafSectorMap() {
@@ -212,13 +241,24 @@ window.IndustryScope = {
     return this._leafSectorCache;
   },
   /** 八大高碳行业代码（监管口径，带门类字母） */
-  getEightCodes() { return INDUSTRY_EIGHT_CODES.slice(); },
+  getEightCodes() {
+    if (typeof IndustryConfig !== 'undefined' && IndustryConfig.isImported()) {
+      const codes = IndustryConfig.getTaggedCodes(IndustryConfig.TAG_PBO_EIGHT);
+      if (codes.length) return codes;
+    }
+    return INDUSTRY_EIGHT_CODES.slice();
+  },
   /** 八大高碳 — 级联面板用小类码 */
   getEightCascadeCodes() {
     return _uniqueCodes(INDUSTRY_EIGHT_CODES.map(toCascadeIndustryCode));
   },
   /** 人行八大高碳 + 我行主要行业（带门类字母，用于筛选/台账） */
   getExtendedCodes() {
+    if (typeof IndustryConfig !== 'undefined' && IndustryConfig.isImported()) {
+      const pbo = IndustryConfig.getTaggedCodes(IndustryConfig.TAG_PBO_EIGHT);
+      const bank = IndustryConfig.getTaggedCodes(IndustryConfig.TAG_BANK_MAJOR);
+      if (pbo.length || bank.length) return _uniqueCodes([...pbo, ...bank]);
+    }
     return _uniqueCodes([
       ...INDUSTRY_EIGHT_CODES,
       ...INDUSTRY_BANK_MAJOR_CODES.map(toScopedIndustryCode)
@@ -231,11 +271,19 @@ window.IndustryScope = {
       ...INDUSTRY_BANK_MAJOR_CODES
     ]);
   },
-  /** 按范畴选项解析纳入的行业代码 */
+  /** 按范畴选项解析纳入的行业代码（仅「自定义」时使用 customCodes） */
   resolveCodes(scope, customCodes) {
-    if (scope === '八大高碳行业') return this.getEightCodes();
-    if (scope === '八大+扩展' || scope === '八大高碳+重点行业') return this.getExtendedCodes();
-    if (scope === '自定义' && customCodes?.length) return customCodes.slice();
+    const normalized = scope === '八大+扩展' ? '八大高碳+重点行业' : scope;
+    if (normalized === '自定义') {
+      return _uniqueCodes((customCodes || []).map(c => {
+        const s = String(c || '').trim();
+        if (!s) return '';
+        if (/^[A-Z]\d/.test(s)) return s;
+        return typeof toScopedIndustryCode === 'function' ? (toScopedIndustryCode(s) || s) : s;
+      }).filter(Boolean));
+    }
+    if (normalized === '八大高碳+重点行业') return this.getExtendedCodes();
+    if (normalized === '八大高碳行业') return this.getEightCodes();
     return this.getEightCodes();
   },
   /** 按行业大类分组 */
