@@ -309,6 +309,8 @@ window.IndustryCascade = {
   bindPanel(wrapEl, scopeSelectEl) {
     const panel = wrapEl ? qs('.industry-cascade-panel', wrapEl) : null;
     if (!panel || !window.GB4754_TREE) return;
+    if (panel.dataset.bound === '1') return;
+    panel.dataset.bound = '1';
 
     const applyScope = (fromUserChange = false) => {
       const scope = this._scopeValue(scopeSelectEl);

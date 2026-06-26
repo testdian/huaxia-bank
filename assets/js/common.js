@@ -1158,8 +1158,12 @@ function bindTaskIndustryScopeToggle() {
   const subjectWrap = qs('#subjectIndustryCascadeWrap');
   const investWrap = qs('#investIndustryCascadeWrap');
   if (!subjectGroup || !investGroup) return;
-  IndustryCascade.bindPanel(investWrap, investGroup);
-  IndustryCascade.bindPanel(subjectWrap, subjectGroup);
+  try {
+    IndustryCascade.bindPanel(investWrap, investGroup);
+    IndustryCascade.bindPanel(subjectWrap, subjectGroup);
+  } catch (err) {
+    console.error('行业级联绑定失败', err);
+  }
 
   const kindGroup = qs('#industryScopeKindGroup');
   const investBlock = qs('#investIndustryScopeBlock');

@@ -182,6 +182,7 @@ const Store = {
     this._migrateTaskBranchDeadline();
     this._ensureIndustryConfig();
     this._ensureMenuPermissions();
+    this._ensureTasksArray();
     this._initDone = true;
     } finally {
       this._initRunning = false;
@@ -561,7 +562,8 @@ const Store = {
 
   getCurrentTask() {
     const d = this.get();
-    return d.tasks.find(t => t.id === d.currentTaskId) || d.tasks[0];
+    const tasks = Array.isArray(d.tasks) ? d.tasks : [];
+    return tasks.find(t => t.id === d.currentTaskId) || tasks[0] || null;
   },
   getTask(id) { return this.get().tasks.find(t => t.id === id); },
   getCandidates(taskId) { return this.get().candidates.filter(c => c.taskId === taskId); },
@@ -1328,6 +1330,22 @@ const Store = {
         }
       });
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 兼容旧 localStorage：tasks 缺失或为空时从演示种子恢复 */
+  _ensureTasksArray() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || !DemoSeed.build) return;
+    try {
+      const d = JSON.parse(raw);
+      if (Array.isArray(d.tasks) && d.tasks.length) return;
+      const seed = DemoSeed.build();
+      if (!Array.isArray(seed.tasks) || !seed.tasks.length) return;
+      d.tasks = seed.tasks;
+      if (!d.currentTaskId) d.currentTaskId = seed.tasks[0]?.id || d.currentTaskId;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+      this._cache = null;
     } catch { /* ignore */ }
   },
 

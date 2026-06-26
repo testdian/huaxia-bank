@@ -136,7 +136,7 @@ SPA_VIEWS['#/task-create'] = function() {
     </form></div>
     <div style="padding:12px 20px;text-align:right;border-top:1px solid #eee">
       <a href="#/tasks" class="btn">取消</a>
-      <button class="btn btn-primary" id="saveTaskBtn">保存并启动</button>
+      <button type="button" class="btn btn-primary" id="saveTaskBtn">保存并启动</button>
     </div></div>`;
 };
 

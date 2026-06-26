@@ -189,8 +189,9 @@ function refreshSpaChrome(pageTitle) {
 
   const taskSel = document.getElementById('taskSwitch');
   if (taskSel) {
-    if (taskSel.options.length !== data.tasks.length) {
-      taskSel.innerHTML = data.tasks.map(t =>
+    const tasks = data.tasks || [];
+    if (taskSel.options.length !== tasks.length) {
+      taskSel.innerHTML = tasks.map(t =>
         `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`
       ).join('');
     } else {
@@ -227,7 +228,7 @@ function mountSpaShell(pageTitle) {
           <option value="manager" ${data.currentRole === 'manager' ? 'selected' : ''}>客户经理</option>
         </select>
         <select id="taskSwitch">
-          ${data.tasks.map(t => `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`).join('')}
+          ${(data.tasks || []).map(t => `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`).join('')}
         </select>
         ${data.currentRole !== 'manager' ? `<a href="${SPA_INTERFACES_ENTRY.hash}" class="btn-ghost btn-sm header-nav-btn ${navIsActive(SPA_INTERFACES_ENTRY, hash) ? 'active' : ''}" id="interfacesBtn">${SPA_INTERFACES_ENTRY.label}</a>` : ''}
         <button class="btn-ghost btn-sm" id="resetBtn">重置数据</button>
