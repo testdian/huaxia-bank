@@ -4,6 +4,24 @@ window.SUPPLEMENT_FIELDS = {
   ATTACH_MAX_COUNT: 3,
   ATTACH_MAX_MB: 20,
 
+  /** 项目类且可提供项目信息时：项目号、客户号非必填，其余必填 */
+  PROJECT_INFO_OPTIONAL_IDS: ['f_prj_no', 'f_prj_customer_no'],
+  PROJECT_INFO_REQUIRED: [
+    { id: 'f_prj_name', label: '项目名称', type: 'text' },
+    { id: 'f_prj_province', label: '项目所在地区域（省）', type: 'text' },
+    { id: 'f_prj_industry', label: '项目所属行业', type: 'text' },
+    { id: 'f_prj_customer_name', label: '客户名称', type: 'text' },
+    { id: 'f_prj_credit_code', label: '统一社会信用代码', type: 'text' },
+    { id: 'f_prj_industry_code_lv4', label: '国民经济行业代码（4级）', type: 'text' },
+    { id: 'f_prj_avg_loan', label: '月均贷款余额（万元）', type: 'number' },
+    { id: 'f_prj_revenue', label: '项目收入（万元）', type: 'number' },
+    { id: 'f_prj_total_invest', label: '项目总投资（万元）', type: 'number' }
+  ],
+
+  reqLabel(text, required = true) {
+    return required ? `<span class="req">*</span>${text}` : text;
+  },
+
   allTemplates() {
     return (typeof SUPPLEMENT_TEMPLATES !== 'undefined' ? SUPPLEMENT_TEMPLATES : []);
   },
@@ -47,6 +65,7 @@ window.SUPPLEMENT_FIELDS = {
       gbIndustryName: formal?.gbIndustryName || s.gbIndustryName || '',
       bizType,
       isProject,
+      isPowerIndustry: String(industryMajor).includes('电力'),
       template,
       templateKey: template?.id || 'default',
       sheetName: template?.sheetName || this.inferSheetName(industryMajor, formal?.gbIndustryCode || s.gbIndustryCode)
@@ -127,25 +146,30 @@ window.SUPPLEMENT_FIELDS = {
 
   renderReportExtendedFieldsForTab(s, dis, tabId) {
     const r = this.reportKindFieldValues(s, tabId);
+    const ctx = this.getContext(s);
+    const powerUnitField = ctx.isPowerIndustry
+      ? `<div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_unit_total`, r.unitTotalCo2Emission, dis, '0.01')}</div>`
+      : '';
     return `
       <div class="form-item"><label>碳数据年份</label>${this.numInput(`f_${tabId}_carbon_year`, r.carbonDataYear, dis, '1')}</div>
       <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
         ${this.numInput(`f_${tabId}_emission`, r.ghgTotalEmission, dis, '0.01')}</div>
       <div class="form-item"><label>范围一的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope1`, r.scope1Emission, dis, '0.01')}</div>
       <div class="form-item"><label>范围二的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope2`, r.scope2Emission, dis, '0.01')}</div>
-      <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_unit_total`, r.unitTotalCo2Emission, dis, '0.01')}</div>`;
+      ${powerUnitField}`;
   },
 
   collectReportExtendedFieldsForTab(rootEl, tabId) {
     const carbonDataYear = numVal(`#f_${tabId}_carbon_year`, rootEl);
     const ghgTotalEmission = numVal(`#f_${tabId}_emission`, rootEl);
+    const hasPowerUnit = !!qs(`#f_${tabId}_unit_total`, rootEl);
     return {
       carbonDataYear: carbonDataYear != null ? Math.round(carbonDataYear) : null,
       ghgTotalEmission,
       emission: ghgTotalEmission,
       scope1Emission: numVal(`#f_${tabId}_scope1`, rootEl),
       scope2Emission: numVal(`#f_${tabId}_scope2`, rootEl),
-      unitTotalCo2Emission: numVal(`#f_${tabId}_unit_total`, rootEl)
+      unitTotalCo2Emission: hasPowerUnit ? numVal(`#f_${tabId}_unit_total`, rootEl) : null
     };
   },
 
@@ -180,6 +204,12 @@ window.SUPPLEMENT_FIELDS = {
     return `<input id="${id}" type="number"${st} value="${v}" ${dis}>`;
   },
 
+  numField(value, dis, step, attrs) {
+    const st = step ? ` step="${step}"` : '';
+    const v = value == null ? '' : value;
+    return `<input type="number"${st} value="${v}" ${attrs || 'data-field="amount"'} ${dis}>`;
+  },
+
   selectFromOptions(list, selected, dis, id, placeholder) {
     const opts = (placeholder !== false ? `<option value="">${placeholder || '请选择'}</option>` : '')
       + (list || []).map(o => {
@@ -188,6 +218,136 @@ window.SUPPLEMENT_FIELDS = {
         return `<option value="${v}" ${selected === v ? 'selected' : ''}>${l}</option>`;
       }).join('');
     return `<select id="${id}" ${dis}>${opts}</select>`;
+  },
+
+  selectField(list, selected, dis, placeholder, attrs) {
+    const placeholderText = placeholder === false ? false : (typeof placeholder === 'string' && placeholder ? placeholder : '请选择');
+    const opts = (placeholderText !== false ? `<option value="">${placeholderText}</option>` : '')
+      + (list || []).map(o => {
+        const v = typeof o === 'string' ? o : o.value;
+        const l = typeof o === 'string' ? o : o.label;
+        return `<option value="${v}" ${selected === v ? 'selected' : ''}>${l}</option>`;
+      }).join('');
+    return `<select ${attrs || 'data-field="type"'} ${dis}>${opts}</select>`;
+  },
+
+  /** 从 legacy 编号字段或数组归一化为 { type, amount }[] */
+  normalizePairRows(d, arrayKey, legacyPrefix, minRows = 1) {
+    if (Array.isArray(d[arrayKey]) && d[arrayKey].length) {
+      return d[arrayKey].map(r => ({ type: r?.type ?? null, amount: r?.amount ?? null }));
+    }
+    const rows = [];
+    if (legacyPrefix === 'otherFuel') {
+      if (d.otherFuel1Type || d.otherFuel1Amount != null) {
+        rows.push({ type: d.otherFuel1Type || null, amount: d.otherFuel1Amount ?? null });
+      }
+      if (d.otherFuel2Type || d.otherFuel2Amount != null) {
+        rows.push({ type: d.otherFuel2Type || null, amount: d.otherFuel2Amount ?? null });
+      }
+    } else if (legacyPrefix === 'desulfur') {
+      for (let i = 1; i <= 20; i++) {
+        const type = d['desulfur' + i + 'Type'];
+        const amount = d['desulfur' + i + 'Amount'];
+        if (type || amount != null) rows.push({ type: type || null, amount: amount ?? null });
+      }
+    } else {
+      const type = d[legacyPrefix + 'Type'];
+      const amount = d[legacyPrefix + 'Amount'];
+      if (type || amount != null) rows.push({ type: type || null, amount: amount ?? null });
+    }
+    while (rows.length < minRows) rows.push({ type: null, amount: null });
+    return rows;
+  },
+
+  renderRepeatablePairRow(row, config, dis) {
+    const { typeLabel, amountLabel, typeOptions, amountStep } = config;
+    const removeBtn = dis === 'disabled' ? '' : `<div class="form-item repeatable-row-actions"><button type="button" class="btn btn-sm btn-link repeatable-remove-row">删除</button></div>`;
+    return `<div class="repeatable-row">
+      <div class="repeatable-row-inner form-grid">
+        <div class="form-item"><label>${typeLabel}</label>${this.selectField(typeOptions, row.type, dis, '请选择', 'data-field="type"')}</div>
+        <div class="form-item"><label>${amountLabel}</label>${this.numField(row.amount, dis, amountStep, 'data-field="amount"')}</div>
+        ${removeBtn}
+      </div>
+    </div>`;
+  },
+
+  renderRepeatablePairSection(listId, rows, config, dis) {
+    const minRows = config.minRows ?? 1;
+    const maxRows = config.maxRows ?? 20;
+    const rowHtml = rows.map(r => this.renderRepeatablePairRow(r, config, dis)).join('');
+    const addBtn = dis === 'disabled' ? '' : `<button type="button" class="btn btn-sm repeatable-add-row" data-repeatable-id="${listId}">+ 添加一行</button>`;
+    return `<div class="repeatable-list-wrap">
+      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}">
+        ${rowHtml}
+      </div>
+      ${addBtn}
+    </div>`;
+  },
+
+  collectRepeatablePairList(rootEl, listId) {
+    const list = qs(`.repeatable-list[data-repeatable-id="${listId}"]`, rootEl);
+    if (!list) return [];
+    return qsa('.repeatable-row', list).map(row => ({
+      type: qs('[data-field="type"]', row)?.value || null,
+      amount: numVal('[data-field="amount"]', row)
+    })).filter(r => r.type || (r.amount != null && r.amount !== '' && !Number.isNaN(Number(r.amount))));
+  },
+
+  syncLegacyPairRows(d, arrayKey, legacyPrefix) {
+    const rows = d[arrayKey] || [];
+    for (let i = 1; i <= 20; i++) {
+      delete d[legacyPrefix + i + 'Type'];
+      delete d[legacyPrefix + i + 'Amount'];
+    }
+    rows.forEach((r, i) => {
+      const n = i + 1;
+      d[legacyPrefix + n + 'Type'] = r.type ?? null;
+      d[legacyPrefix + n + 'Amount'] = r.amount ?? null;
+    });
+    if (legacyPrefix === 'otherFuel') {
+      d.otherFuel1Type = rows[0]?.type ?? null;
+      d.otherFuel1Amount = rows[0]?.amount ?? null;
+      d.otherFuel2Type = rows[1]?.type ?? null;
+      d.otherFuel2Amount = rows[1]?.amount ?? null;
+    } else if (legacyPrefix !== 'desulfur') {
+      d[legacyPrefix + 'Type'] = rows[0]?.type ?? null;
+      d[legacyPrefix + 'Amount'] = rows[0]?.amount ?? null;
+    }
+  },
+
+  bindRepeatableLists(rootEl, readonly) {
+    const root = rootEl || document;
+    if (readonly) return;
+    const bindRemove = (listEl) => {
+      qsa('.repeatable-remove-row', listEl).forEach(btn => {
+        if (btn._repeatableBound) return;
+        btn._repeatableBound = true;
+        btn.onclick = () => {
+          const min = Number(listEl.dataset.minRows) || 1;
+          if (qsa('.repeatable-row', listEl).length <= min) return;
+          btn.closest('.repeatable-row')?.remove();
+        };
+      });
+    };
+    qsa('.repeatable-list', root).forEach(listEl => {
+      bindRemove(listEl);
+      const wrap = listEl.closest('.repeatable-list-wrap');
+      const addBtn = wrap?.querySelector('.repeatable-add-row');
+      if (addBtn && !addBtn._repeatableBound) {
+        addBtn._repeatableBound = true;
+        addBtn.onclick = () => {
+          const max = Number(listEl.dataset.maxRows) || 20;
+          const rows = qsa('.repeatable-row', listEl);
+          if (rows.length >= max) return;
+          const last = rows[rows.length - 1];
+          const clone = last.cloneNode(true);
+          qsa('select', clone).forEach(s => { s.selectedIndex = 0; });
+          qsa('input', clone).forEach(i => { i.value = ''; });
+          listEl.appendChild(clone);
+          bindRemove(listEl);
+        };
+      }
+    });
   },
 
   renderBasicInfo(s, dis, basicEditable = false) {
@@ -217,22 +377,23 @@ window.SUPPLEMENT_FIELDS = {
       ${ctx.isProject ? `<div class="form-item full project-info-fields" data-project-info-fields style="${projectInfoAvailable === 'yes' ? '' : 'display:none'}">
         <div class="form-section-title">项目信息填报</div>
         <div class="form-grid">
-          <div class="form-item"><label>项目号</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
-          <div class="form-item"><label>项目名称</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
-          <div class="form-item"><label>项目所在地区域（省）</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
-          <div class="form-item"><label>项目所属行业</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
-          <div class="form-item"><label>客户号</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
-          <div class="form-item"><label>客户名称</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
-          <div class="form-item"><label>统一社会信用代码</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
-          <div class="form-item"><label>国民经济行业代码（4级）</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
-          <div class="form-item"><label>项目均贷款余额（万元）</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
-          <div class="form-item"><label>项目收入（万元）</label>${this.numInput('f_prj_revenue', projectVal('projectRevenueWan', s.revenue), dis, '0.01')}</div>
-          <div class="form-item"><label>项目总投资（万元）</label>${this.numInput('f_prj_total_invest', projectVal('projectTotalInvestmentWan', formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目号', false)}</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目名称')}</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目所在地区域（省）')}</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目所属行业')}</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('客户号', false)}</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('客户名称')}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('统一社会信用代码')}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('国民经济行业代码（4级）')}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('月均贷款余额（万元）')}</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目收入（万元）')}</label>${this.numInput('f_prj_revenue', projectVal('projectRevenueWan', s.revenue), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目总投资（万元）')}</label>${this.numInput('f_prj_total_invest', projectVal('projectTotalInvestmentWan', formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
         </div>
       </div>` : ''}
+      ${!ctx.isProject ? `
       <div class="form-item"><label>总资产(万元)</label>${this.numInput('f_total_assets', s.totalAssets, dis)}</div>
       <div class="form-item"><label>年报营业收入(元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
-      <div class="form-item"><label>月均贷款余额（元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>`;
+      <div class="form-item"><label>月均贷款余额（元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>` : ''}`;
   },
 
   renderAttachmentSection(tabId, attachments, dis, options = {}) {
@@ -316,23 +477,28 @@ window.SUPPLEMENT_FIELDS = {
     const tpl = this.resolveTemplate(s);
     if (!tpl?.methods?.energy) return this.renderEnergyPanelDefault(s, dis, panelCls, panelId);
     const en = tpl.methods.energy;
-    const d = this.fieldData(s).energy || {};
+    const d = { ...(this.fieldData(s).energy || {}) };
     const fuelHtml = (en.fuelFixed || []).map(f =>
       `<div class="form-item"><label>${f.required ? '<span class="req">*</span>' : ''}${f.label}</label>${this.numInput('f_en_' + f.key, d[f.key], dis, f.step)}</div>`
     ).join('');
     const otherFuelOpts = en.otherFuelOptions || [];
+    const otherFuelRows = this.normalizePairRows(d, 'otherFuels', 'otherFuel', 1);
+    const otherFuelSection = otherFuelOpts.length
+      ? this.renderRepeatablePairSection('otherFuels', otherFuelRows, {
+        typeLabel: '燃料品种',
+        amountLabel: '消耗量（吨或万立方米）',
+        typeOptions: otherFuelOpts,
+        amountStep: '0.0001',
+        minRows: 1,
+        maxRows: 20
+      }, dis)
+      : '';
     const gridLabel = en.gridLabel || '所属电网';
     return `
       <div class="${panelCls}" data-panel="${panelId}">
         <div class="form-section-title">燃料燃烧排放</div>
         <div class="form-grid form-grid-3">${fuelHtml}</div>
-        <div class="form-section-title">其他能源（下拉选择）</div>
-        <div class="form-grid">
-          <div class="form-item"><label>其他燃料1 · 燃料品种</label>${this.selectFromOptions(otherFuelOpts, d.otherFuel1Type, dis, 'f_en_of1_type')}</div>
-          <div class="form-item"><label>其他燃料1 · 消耗量（吨或万立方米）</label>${this.numInput('f_en_of1_amt', d.otherFuel1Amount, dis, '0.0001')}</div>
-          <div class="form-item"><label>其他燃料2 · 燃料品种</label>${this.selectFromOptions(otherFuelOpts, d.otherFuel2Type, dis, 'f_en_of2_type')}</div>
-          <div class="form-item"><label>其他燃料2 · 消耗量（吨或万立方米）</label>${this.numInput('f_en_of2_amt', d.otherFuel2Amount, dis, '0.0001')}</div>
-        </div>
+        ${otherFuelSection ? `<div class="form-section-title">其他能源（下拉选择）</div>${otherFuelSection}` : ''}
         <div class="form-section-title">净购入电量</div>
         <div class="form-grid">
           <div class="form-item"><label><span class="req">*</span>${gridLabel}</label>${this.selectFromOptions(en.gridOptions || [], d.powerGrid || '全国平均', dis, 'f_en_grid', false)}</div>
@@ -351,29 +517,42 @@ window.SUPPLEMENT_FIELDS = {
 
   renderProcessBlocks(blocks, d, dis) {
     if (!blocks.length) return '';
-    let html = '<div class="form-section-title">过程排放</div><div class="form-grid">';
-    blocks.forEach((block, bi) => {
+    let html = '';
+    const amountBlocks = blocks.filter(b => b.type === 'amount');
+    blocks.forEach(block => {
       if (block.type === 'desulfur') {
-        const slots = block.slots || 2;
-        for (let i = 1; i <= slots; i++) {
-          html += `
-            <div class="form-item"><label>${block.label}${i} · 试剂类型</label>
-              ${this.selectFromOptions(block.typeOptions, d['desulfur' + i + 'Type'], dis, 'f_en_ds' + i + '_type')}</div>
-            <div class="form-item"><label>${block.label}${i} · 消耗量（吨）</label>
-              ${this.numInput('f_en_ds' + i + '_amt', d['desulfur' + i + 'Amount'], dis, '0.01')}</div>`;
-        }
+        const rows = this.normalizePairRows(d, 'desulfurRows', 'desulfur', 1);
+        html += `<div class="form-section-title">过程排放 — ${block.label || '脱硫试剂'}（下拉选择）</div>`;
+        html += this.renderRepeatablePairSection('desulfurRows', rows, {
+          typeLabel: `${block.label || '脱硫试剂'} · 试剂类型`,
+          amountLabel: `${block.label || '脱硫试剂'} · 消耗量（吨）`,
+          typeOptions: block.typeOptions || [],
+          amountStep: '0.01',
+          minRows: 1,
+          maxRows: 20
+        }, dis);
       } else if (block.type === 'carbonate') {
         const prefix = block.keyPrefix || 'carbonate';
-        html += `
-          <div class="form-item"><label>${block.label} · 类型</label>
-            ${this.selectFromOptions(block.typeOptions, d[prefix + 'Type'], dis, 'f_en_' + prefix + '_type')}</div>
-          <div class="form-item"><label>${block.label} · 消耗量（吨）</label>
-            ${this.numInput('f_en_' + prefix + '_amt', d[prefix + 'Amount'], dis, '0.01')}</div>`;
-      } else if (block.type === 'amount') {
-        html += `<div class="form-item"><label>${block.label}</label>${this.numInput('f_en_' + block.key, d[block.key], dis, '0.01')}</div>`;
+        const arrayKey = prefix + 'Rows';
+        const rows = this.normalizePairRows(d, arrayKey, prefix, 1);
+        html += `<div class="form-section-title">过程排放 — ${block.label || '碳酸盐分解'}（下拉选择）</div>`;
+        html += this.renderRepeatablePairSection(arrayKey, rows, {
+          typeLabel: `${block.label || '碳酸盐分解'} · 类型`,
+          amountLabel: `${block.label || '碳酸盐分解'} · 消耗量（吨）`,
+          typeOptions: block.typeOptions || [],
+          amountStep: '0.01',
+          minRows: 1,
+          maxRows: 20
+        }, dis);
       }
     });
-    html += '</div>';
+    if (amountBlocks.length) {
+      html += '<div class="form-section-title">过程排放</div><div class="form-grid">';
+      amountBlocks.forEach(block => {
+        html += `<div class="form-item"><label>${block.label}</label>${this.numInput('f_en_' + block.key, d[block.key], dis, '0.01')}</div>`;
+      });
+      html += '</div>';
+    }
     return html;
   },
 
@@ -490,6 +669,28 @@ window.SUPPLEMENT_FIELDS = {
     return { ok: true };
   },
 
+  validateProjectInfo(rootEl, supplement) {
+    const ctx = this.getContext(supplement);
+    if (!ctx.isProject) return { ok: true };
+
+    const flagEl = qs('#f_project_info_available', rootEl);
+    const flag = flagEl?.value || '';
+    if (!flag) {
+      return { ok: false, message: '请选择是否可提供项目信息' };
+    }
+    if (flag !== 'yes') return { ok: true };
+
+    for (const field of this.PROJECT_INFO_REQUIRED) {
+      const val = field.type === 'number'
+        ? numVal('#' + field.id, rootEl)
+        : txtVal('#' + field.id, rootEl);
+      if (val == null || val === '') {
+        return { ok: false, message: `项目信息填报：请填写${field.label}` };
+      }
+    }
+    return { ok: true };
+  },
+
   validateAttachments(files, existingCount) {
     const allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpeg', 'jpg'];
     const maxBytes = this.ATTACH_MAX_MB * 1024 * 1024;
@@ -551,23 +752,20 @@ window.SUPPLEMENT_FIELDS = {
     const en = tpl.methods.energy;
     const d = {};
     (en.fuelFixed || []).forEach(f => { d[f.key] = numVal('#f_en_' + f.key, rootEl); });
-    d.otherFuel1Type = qs('#f_en_of1_type', rootEl)?.value || null;
-    d.otherFuel1Amount = numVal('#f_en_of1_amt', rootEl);
-    d.otherFuel2Type = qs('#f_en_of2_type', rootEl)?.value || null;
-    d.otherFuel2Amount = numVal('#f_en_of2_amt', rootEl);
+    d.otherFuels = this.collectRepeatablePairList(rootEl, 'otherFuels');
+    this.syncLegacyPairRows(d, 'otherFuels', 'otherFuel');
     d.powerGrid = qs('#f_en_grid', rootEl)?.value;
     d.purchasedElectricity = numVal('#f_en_elec', rootEl);
     if (en.hasPurchasedHeat) d.purchasedHeat = numVal('#f_en_heat', rootEl);
     (en.processBlocks || []).forEach(block => {
       if (block.type === 'desulfur') {
-        for (let i = 1; i <= (block.slots || 2); i++) {
-          d['desulfur' + i + 'Type'] = qs('#f_en_ds' + i + '_type', rootEl)?.value || null;
-          d['desulfur' + i + 'Amount'] = numVal('#f_en_ds' + i + '_amt', rootEl);
-        }
+        d.desulfurRows = this.collectRepeatablePairList(rootEl, 'desulfurRows');
+        this.syncLegacyPairRows(d, 'desulfurRows', 'desulfur');
       } else if (block.type === 'carbonate') {
         const prefix = block.keyPrefix || 'carbonate';
-        d[prefix + 'Type'] = qs('#f_en_' + prefix + '_type', rootEl)?.value || null;
-        d[prefix + 'Amount'] = numVal('#f_en_' + prefix + '_amt', rootEl);
+        const arrayKey = prefix + 'Rows';
+        d[arrayKey] = this.collectRepeatablePairList(rootEl, arrayKey);
+        this.syncLegacyPairRows(d, arrayKey, prefix);
       } else if (block.type === 'amount') {
         d[block.key] = numVal('#f_en_' + block.key, rootEl);
       }
@@ -584,14 +782,17 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   _collectBasicFormData(rootEl, supplement) {
+    const ctx = this.getContext(supplement);
     const payload = {
       customerName: txtVal('#f_customer_name', rootEl) || supplement.customerName,
       industryMajor: txtVal('#f_industry_major', rootEl) || supplement.industryMajor,
-      totalAssets: numVal('#f_total_assets', rootEl),
-      revenue: numVal('#f_revenue', rootEl),
-      avgLoanBalance: numVal('#f_avg_loan', rootEl),
       fieldData: { ...(supplement.fieldData || {}) }
     };
+    if (!ctx.isProject) {
+      payload.totalAssets = numVal('#f_total_assets', rootEl);
+      payload.revenue = numVal('#f_revenue', rootEl);
+      payload.avgLoanBalance = numVal('#f_avg_loan', rootEl);
+    }
     const projectInfoFlagEl = qs('#f_project_info_available', rootEl);
     if (projectInfoFlagEl) {
       const v = projectInfoFlagEl.value;
@@ -718,7 +919,9 @@ window.SUPPLEMENT_FIELDS = {
     if (!(typeof isEconomyInterfaceReadonly === 'function' && isEconomyInterfaceReadonly(supplement))) {
       this._mergeEconomyTab(rootEl, payload);
     }
-    this._mergeOtherTab(rootEl, supplement, payload);
+    if (!(typeof isOtherCalcReadonly === 'function' && isOtherCalcReadonly(supplement))) {
+      this._mergeOtherTab(rootEl, supplement, payload);
+    }
     payload.activeMethodTab = qs('#methodTabs .tab.active', rootEl)?.dataset.tab
       || supplement.activeMethodTab
       || (typeof supplementActiveTab === 'function' ? supplementActiveTab(supplement) : 'report_authority');
@@ -736,7 +939,11 @@ window.SUPPLEMENT_FIELDS = {
       if (!(typeof isEconomyInterfaceReadonly === 'function' && isEconomyInterfaceReadonly(supplement))) {
         this._mergeEconomyTab(rootEl, payload);
       }
-    } else if (tab === 'other') this._mergeOtherTab(rootEl, supplement, payload);
+    } else if (tab === 'other') {
+      if (!(typeof isOtherCalcReadonly === 'function' && isOtherCalcReadonly(supplement))) {
+        this._mergeOtherTab(rootEl, supplement, payload);
+      }
+    }
     return payload;
   },
 

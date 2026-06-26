@@ -1282,17 +1282,9 @@ function getEffectiveEntityEmission(taskId, formalId) {
 }
 
 function formatEffectiveEntityEmission(taskId, formalId) {
-  const manual = getManualEntityEmissionValue(taskId, formalId);
-  const system = getSystemEntityEmissionValue(taskId, formalId);
-  const effective = manual != null ? manual : system;
+  const effective = getEffectiveEntityEmission(taskId, formalId);
   if (effective == null) return '—';
-  if (manual != null && system != null && manual !== system) {
-    return `${formatNum(effective)}<div style="font-size:11px;color:#409eff;margin-top:2px">已采用手动核算（系统 ${formatNum(system)}）</div>`;
-  }
-  if (manual != null) {
-    return formatNum(effective);
-  }
-  return formatSystemEntityEmission(taskId, formalId);
+  return formatNum(effective);
 }
 
 /** 数据采集列表行：基于预索引 formal/supp/calc，避免逐行 Store.get */
@@ -1327,14 +1319,7 @@ function formatDataCollectEmissionCells(formal, supp, calc) {
   }
 
   const effective = manualVal != null ? manualVal : systemVal;
-  let effectiveHtml = '—';
-  if (effective != null) {
-    if (manualVal != null && systemVal != null && manualVal !== systemVal) {
-      effectiveHtml = `${formatNum(effective)}<div style="font-size:11px;color:#409eff;margin-top:2px">已采用手动核算（系统 ${formatNum(systemVal)}）</div>`;
-    } else {
-      effectiveHtml = formatNum(effective);
-    }
-  }
+  const effectiveHtml = effective != null ? formatNum(effective) : '—';
   return { systemHtml, manualHtml, effectiveHtml };
 }
 
@@ -1345,6 +1330,20 @@ function formatFormalEntityEmission(taskId, formalId) {
 
 /** 格澜接口预填时，报告法数据来源固定为「报告法-其他数据来源」 */
 const GELAN_REPORT_DATA_SOURCE = '报告法-其他数据来源';
+
+/** 格澜接口平台来源（数据采集列表、填报页展示） */
+const GELAN_INTERFACE_PLATFORM = '格澜数据-各地区企业环境信息披露平台';
+
+function resolveGelanInterfacePlatformLabel(formal) {
+  if (!formal || formal.gelanEntityEmission == null) return null;
+  const gelan = formal.gelanPrefill || {};
+  return gelan.platformSource || GELAN_INTERFACE_PLATFORM;
+}
+
+function renderInterfaceSourceSubline(label) {
+  if (!label) return '';
+  return `<div class="interface-source-subline" style="font-size:11px;color:#909399;margin-top:3px;line-height:1.4">来源：${escapeHtml(label)}</div>`;
+}
 
 /** 格澜主体排放调取：仅适用于主体碳排放；「项目（以项目方式计算）」不适用 */
 function isFormalGelanEligible(formal, taskId, d) {
@@ -1413,7 +1412,7 @@ function fetchGelanEntityDataMock(row, task) {
   const ghgTotalEmission = Math.round(8500 + tail * 163);
   const scope1Emission = Math.round(ghgTotalEmission * 0.58);
   const scope2Emission = Math.round(ghgTotalEmission * 0.42);
-  const isPower = String(row?.industryMajor || '').includes('电力');
+  const isPower = isPowerIndustryMajor(row?.industryMajor);
   return {
     ok: true,
     data: {
@@ -1428,6 +1427,7 @@ function fetchGelanEntityDataMock(row, task) {
       thirdPartyVerified: true,
       reportSource: GELAN_REPORT_DATA_SOURCE,
       apiSource: '格澜数据',
+      platformSource: GELAN_INTERFACE_PLATFORM,
       fetchedAt: new Date().toLocaleString('zh-CN')
     }
   };
@@ -1457,25 +1457,37 @@ function formatReportFieldNum(v) {
   return v != null && v !== '' && !Number.isNaN(Number(v)) ? formatNum(v) : '—';
 }
 
-function renderReportMethodSummaryReadonly(fields) {
+function isPowerIndustryMajor(major) {
+  return String(major || '').includes('电力');
+}
+
+function renderReportMethodSummaryReadonly(fields, options = {}) {
   const f = fields || {};
+  const showPowerUnit = options.isPowerIndustry ?? isPowerIndustryMajor(options.industryMajor);
+  const powerField = showPowerUnit
+    ? `<div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.unitTotalCo2Emission)}" readonly></div>`
+    : '';
   return `
     <div class="form-item"><label>碳数据年份</label><input value="${f.carbonDataYear || '—'}" readonly></div>
     <div class="form-item"><label>核算周期内碳排放量（温室气体排放总量，tCO2e）</label><input value="${formatReportFieldNum(f.ghgTotalEmission)}" readonly></div>
     <div class="form-item"><label>范围一的排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.scope1Emission)}" readonly></div>
     <div class="form-item"><label>范围二的排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.scope2Emission)}" readonly></div>
-    <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label><input value="${formatReportFieldNum(f.unitTotalCo2Emission)}" readonly></div>`;
+    ${powerField}`;
 }
 
-function renderReportMethodSummaryEditable(fields, year) {
+function renderReportMethodSummaryEditable(fields, year, options = {}) {
   const f = fields || {};
   const numVal = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : '');
+  const showPowerUnit = options.isPowerIndustry ?? isPowerIndustryMajor(options.industryMajor);
+  const powerField = showPowerUnit
+    ? `<div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label><input name="reportUnitTotalCo2Emission" type="number" step="0.01" value="${numVal(f.unitTotalCo2Emission)}"></div>`
+    : '';
   return `
     <div class="form-item"><label>碳数据年份</label><input name="reportCarbonDataYear" type="number" value="${f.carbonDataYear || year || ''}"></div>
     <div class="form-item"><label>核算周期内碳排放量（温室气体排放总量，tCO2e）</label><input name="reportGhgTotalEmission" type="number" step="0.01" value="${numVal(f.ghgTotalEmission)}"></div>
     <div class="form-item"><label>范围一的排放总量（tCO2e）</label><input name="reportScope1Emission" type="number" step="0.01" value="${numVal(f.scope1Emission)}"></div>
     <div class="form-item"><label>范围二的排放总量（tCO2e）</label><input name="reportScope2Emission" type="number" step="0.01" value="${numVal(f.scope2Emission)}"></div>
-    <div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label><input name="reportUnitTotalCo2Emission" type="number" step="0.01" value="${numVal(f.unitTotalCo2Emission)}"></div>`;
+    ${powerField}`;
 }
 
 function collectCarbonAccountProfileForm(form) {
@@ -1628,7 +1640,7 @@ function applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d) {
 function renderCalculationListCells(f, calc, taskId) {
   const emissions = resolveCalculationEmissionDisplay(f, calc, taskId);
   return `
-    ${renderCandidateListCells(formalLedgerRow(f, taskId), { finalizeAccountingType: true })}
+    ${renderCandidateListCells(formalLedgerRow(f, taskId), { finalizeAccountingType: true, listKind: 'formal' })}
     <td>${formatCalculationEmissionCell(emissions.legalEntityEmission)}</td>
     <td>${formatCalculationEmissionCell(emissions.projectEntityEmission)}</td>
     <td>${calc?.attributedEmission != null ? formatNum(calc.attributedEmission) : '—'}</td>
@@ -1768,7 +1780,11 @@ function accountingMethodBadge(label) {
 }
 
 function systemAccountingMethodBadge(formal, taskId, d) {
-  return accountingMethodBadge(resolveSystemAccountingMethodLabel(formal, taskId, d));
+  const label = resolveSystemAccountingMethodLabel(formal, taskId, d);
+  let html = accountingMethodBadge(label);
+  const platform = resolveGelanInterfacePlatformLabel(formal);
+  if (platform) html += renderInterfaceSourceSubline(platform);
+  return html;
 }
 
 function manualAccountingMethodBadge(formal, taskId, d) {
@@ -2180,6 +2196,7 @@ function applyInterfacePrefillToSupplement(s, formal, taskId) {
     s.gelanPrefill = { ...gelan };
     s.interfaceReportSource = source;
     s.interfaceReportApi = gelan.apiSource || '格澜数据';
+    s.interfaceReportPlatform = gelan.platformSource || GELAN_INTERFACE_PLATFORM;
     s.reportedEmission = ghg;
     s.disclosureChannel = source;
     s.activeMethodTab = s.activeMethodTab || 'report_other';
@@ -2218,6 +2235,7 @@ function applyInterfacePrefillToSupplement(s, formal, taskId) {
       s.economyEntityEmission = ecoCalc.entityEmission;
     }
   }
+  ensureOtherCalcPrefill(s, formal, taskId);
   return s;
 }
 
@@ -2230,6 +2248,7 @@ function getGelanReportPrefillView(s) {
     gelan: gelan || {},
     source: s.interfaceReportSource || gelan?.reportSource || GELAN_REPORT_DATA_SOURCE,
     api: s.interfaceReportApi || gelan?.apiSource || '格澜数据',
+    platform: s.interfaceReportPlatform || gelan?.platformSource || GELAN_INTERFACE_PLATFORM,
     fetchedAt: formal?.gelanFetchedAt || gelan?.fetchedAt || ''
   };
 }
@@ -2240,6 +2259,44 @@ function isEconomyInterfaceReadonly(s) {
   if (!formal) return false;
   const mode = formal.collectMode || resolveCollectMode(formal.loanType || s.loanType);
   return mode === 'economy_direct';
+}
+
+/** 客户经理收集：其他计算法由系统行业因子预填，不可编辑 */
+function isOtherCalcReadonly(s) {
+  return !!s?.dispatchedAt;
+}
+
+function resolveOtherCalcFactor(s, opts = {}) {
+  if (!opts.forceLookup && s?.fallbackFactor != null && s.fallbackFactor !== '') {
+    return Number(s.fallbackFactor);
+  }
+  if (!opts.forceLookup && s?.economyFactor != null && s.economyFactor !== '') {
+    return Number(s.economyFactor);
+  }
+  const formal = getFormalForSupplement(s);
+  const task = typeof Store !== 'undefined' ? Store.getTask(s?.taskId) : null;
+  const d = typeof Store !== 'undefined' ? Store.get() : null;
+  if (d && typeof Store._getIndustryFactor === 'function') {
+    return Store._getIndustryFactor(
+      d,
+      s?.industryMajor || formal?.industryMajor,
+      s?.gbIndustryCode || formal?.gbIndustryCode,
+      task?.year
+    );
+  }
+  return 2.46;
+}
+
+function ensureOtherCalcPrefill(s, formal, taskId) {
+  if (!s) return s;
+  if (s.fallbackFactor == null || s.fallbackFactor === '') {
+    const factor = resolveOtherCalcFactor(s, { forceLookup: true });
+    if (factor != null && !Number.isNaN(Number(factor))) {
+      s.fallbackFactor = Number(factor);
+    }
+  }
+  s.interfaceOtherCalcSource = s.interfaceOtherCalcSource || '行业排放因子库（系统预填）';
+  return s;
 }
 
 const SUPPLEMENT_METHOD_TABS = [
@@ -2425,10 +2482,12 @@ function renderSupplementFillBody(s, options = {}) {
   const economyPrefill = getEconomyDirectPrefill(s);
   const economyLocked = isEconomyInterfaceReadonly(s);
   const economyDis = readonly || economyLocked ? 'disabled' : dis;
+  const otherCalcLocked = isOtherCalcReadonly(s);
+  const otherDis = readonly || otherCalcLocked ? 'disabled' : dis;
   const gelanView = getGelanReportPrefillView(s);
   const gelanInterfaceTip = gelanView
     ? `<div class="demo-tip interface-prefill-tip report-interface-tip">
-      <strong>报告法（外部接口）</strong> · 数据来源：${escapeHtml(gelanView.source)}（${escapeHtml(gelanView.api)}）${gelanView.fetchedAt ? ` · 调取：${escapeHtml(gelanView.fetchedAt)}` : ''}
+      <strong>报告法（外部接口）</strong> · 数据来源：${escapeHtml(gelanView.platform)}${gelanView.fetchedAt ? ` · 调取：${escapeHtml(gelanView.fetchedAt)}` : ''}
       ${readonly ? '' : '<br>数值与来源已预填，客户经理可核实并修改。'}
     </div>`
     : '';
@@ -2446,7 +2505,13 @@ function renderSupplementFillBody(s, options = {}) {
   const basis = economyPrefill?.economyBasis || s.economyBasis || 'revenue';
   const economyValue = economyPrefill?.economyValue ?? s.economyValue ?? s.revenue ?? '';
   const economyFactor = economyPrefill?.economyFactor ?? s.economyFactor ?? 2.35;
-  const fallbackFactor = s.fallbackFactor ?? s.economyFactor ?? 2.46;
+  const fallbackFactor = resolveOtherCalcFactor(s);
+  const otherCalcTip = otherCalcLocked
+    ? `<div class="demo-tip interface-prefill-tip other-calc-interface-tip">
+      <strong>其他计算法（系统数据）</strong> · ${escapeHtml(s.interfaceOtherCalcSource || '行业排放因子库（系统预填）')}
+      <br>由系统按行业自动匹配排放因子，客户经理仅可查看，不可编辑。
+    </div>`
+    : '';
   const methodTabs = getSupplementMethodTabs(s);
   const economyEntityDisplay = economyPrefill?.entityEmission != null
     ? economyPrefill.entityEmission
@@ -2486,10 +2551,12 @@ function renderSupplementFillBody(s, options = {}) {
         <div class="form-item"><label>行业因子</label><input id="f_economy_factor" type="number" step="0.01" value="${economyFactor}" ${economyDis}></div>
         ${economyLocked && economyEntityDisplay != null ? `<div class="form-item"><label>主体排放(tCO₂e)</label><input type="text" value="${formatNum(economyEntityDisplay)}" disabled></div>` : ''}
       </div></div>
-      <div class="${panelCls('other')}" data-panel="other"><div class="form-grid">
-        <div class="form-item"><label>行业排放因子</label><input id="f_fallback_factor" type="number" step="0.01" value="${fallbackFactor}" ${dis}></div>
+      <div class="${panelCls('other')}" data-panel="other">
+        ${otherCalcTip}
+        <div class="form-grid">
+        <div class="form-item"><label>行业排放因子</label><input id="f_fallback_factor" type="number" step="0.01" value="${fallbackFactor}" ${otherDis}></div>
         <div class="form-item full"><small style="color:#909399">${GUIDE.FORMULAS.attribution_fallback}（无法获取主体排放数据时使用）</small></div>
-        ${SUPPLEMENT_FIELDS.renderAttachmentSection('other', s.fieldData?.other?.attachments || [], dis)}
+        ${SUPPLEMENT_FIELDS.renderAttachmentSection('other', s.fieldData?.other?.attachments || [], otherDis)}
       </div></div>
     </div></div>`;
 }
@@ -2942,14 +3009,21 @@ function bindApprovalAuditAdjustPanel(rootEl, supplementId) {
 }
 
 /** 审核页底部操作栏（审核模式） */
-function renderApprovalReviewActions(canReview) {
+function renderApprovalReviewActions(canReview, approval, task) {
   if (!canReview) {
     return `<div style="padding:12px 20px;border-top:1px solid #eee;text-align:right">
       <button class="btn" onclick="location.hash='#/approvals'">返回列表</button>
     </div>`;
   }
+  const showRejectToBranch = approval?.reviewLevel === 'hq'
+    && task?.initiatorOrg !== 'branch'
+    && approval?.docType === 'supplement';
+  const rejectToBranchBtn = showRejectToBranch
+    ? `<button type="button" class="btn" id="approvalRejectToBranchBtn">退回到分行</button>`
+    : '';
   return `<div style="padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;background:#fff;margin-top:16px">
     <button type="button" class="btn btn-success" id="approvalApproveBtn">审核通过</button>
+    ${rejectToBranchBtn}
     <button type="button" class="btn btn-danger" id="approvalRejectBtn">退回至客户经理</button>
     <button type="button" class="btn" id="approvalLocalFixBtn">本级修正</button>
     <button type="button" class="btn" id="approvalCancelBtn">取消</button>
@@ -3063,6 +3137,9 @@ function bindSupplementMethodTabs(readonly, rootEl) {
       qs(`.tab-panel[data-panel="${tab.dataset.tab}"]`, root)?.classList.add('active');
     };
   });
+  if (typeof SUPPLEMENT_FIELDS !== 'undefined' && SUPPLEMENT_FIELDS.bindRepeatableLists) {
+    SUPPLEMENT_FIELDS.bindRepeatableLists(root, readonly);
+  }
 }
 
 function candidateBorrowerType(c) {
@@ -3252,7 +3329,7 @@ function renderCaProjectDetailRow(acc, colspan = 10) {
           <table class="data-table project-detail-table">
             <thead><tr>
               <th>序号</th><th>项目号</th><th>项目名称</th><th>客户名称</th><th>统一社会信用代码</th>
-              <th>项目所属行业</th><th>项目均贷款余额（万元）</th><th>项目收入（万元）</th>
+              <th>项目所属行业</th><th>项目月均贷款余额（万元）</th><th>项目收入（万元）</th>
             </tr></thead>
             <tbody>${details.map((p, i) => `<tr>
               <td>${i + 1}</td>
@@ -3430,19 +3507,20 @@ function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo, options = {
       <div class="form-item"><label>主体排放(tCO2e)</label><input name="entityEmission" type="number" step="0.01" value="${entityVal}"></div>
       <div class="form-item"><label>碳数据年份</label><input name="reportCarbonDataYear" type="number" value="${carbonDataYear}"></div>
     </form>`
-    : `<div class="form-grid">
-      <div class="form-item"><label>企业名称</label><input value="${profile.customerName}" readonly></div>
-      <div class="form-item"><label>统一社会信用代码</label><input value="${profile.creditCode}" readonly></div>
-      <div class="form-item"><label>客户号</label><input value="${profile.customerNo}" readonly></div>
-      <div class="form-item"><label>核算方法</label><input value="${profile.method}" readonly></div>
-      <div class="form-item"><label>主体排放(tCO2e)</label><input value="${profile.entityEmission != null ? formatNum(profile.entityEmission) : '—'}" readonly></div>
-      <div class="form-item"><label>碳数据年份</label><input value="${carbonDataYear || '—'}" readonly></div>
+    : `<div class="form-grid ca-profile-fields">
+      <div class="form-item"><label>企业名称</label><input value="${profile.customerName}" disabled></div>
+      <div class="form-item"><label>统一社会信用代码</label><input value="${profile.creditCode}" disabled></div>
+      <div class="form-item"><label>客户号</label><input value="${profile.customerNo}" disabled></div>
+      <div class="form-item"><label>核算方法</label><input value="${profile.method}" disabled></div>
+      <div class="form-item"><label>主体排放(tCO2e)</label><input value="${profile.entityEmission != null ? formatNum(profile.entityEmission) : '—'}" disabled></div>
+      <div class="form-item"><label>碳数据年份</label><input value="${carbonDataYear || '—'}" disabled></div>
     </div>`;
   const supplementHint = editable
     ? '可编辑；保存后仅更新本碳账户及列表展示，不影响核算任务中的收集与计算数据'
     : '';
+  const readonlyCls = editable ? '' : ' ca-profile-readonly';
   return `${subHint}
-    <div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body">${profileFields}</div></div>
+    <div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body${readonlyCls}">${profileFields}</div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理收集数据</h3>
       ${supplementHint ? `<span style="font-size:12px;color:#909399">${supplementHint}</span>` : ''}</div>
       <div class="card-body ca-profile-supplement${editable ? '' : ' is-readonly'}">${renderSupplementFillBody(supplementView, { readonly: !editable, editableBasicInfo: editable })}</div>
@@ -3461,7 +3539,7 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
             <thead><tr>
               <th>序号</th><th>项目号</th><th>项目名称</th><th>项目所在地区域（省）</th><th>项目所属行业</th>
               <th>客户号</th><th>客户名称</th><th>统一社会信用代码</th><th>国民经济行业代码（4级）</th>
-              <th>项目均贷款余额（万元）</th><th>项目收入（万元）</th><th>项目总投资（万元）</th>
+              <th>项目月均贷款余额（万元）</th><th>项目收入（万元）</th><th>项目总投资（万元）</th>
             </tr></thead>
             <tbody>${details.map((p, i) => `<tr>
               <td>${i + 1}</td>
@@ -3536,7 +3614,8 @@ function normalizeCandidateFilterRules(rules, task) {
 
 function isCandidateInGuideAccountingScope(c) {
   const minBal = Number(GUIDE.BALANCE_THRESHOLD_WAN || 500);
-  if (Number(c.avgMonthlyBalance) < minBal) return false;
+  const bal = computeCandidateAvgMonthlyBalance(c, c?.accountingYear);
+  if (bal < minBal) return false;
   if (c.isSme || c.isIndividual || c.isOverseas) return false;
   const bt = candidateBorrowerType(c);
   if (['个体工商户', '农户', '境外主体', '小微企业'].includes(bt)) return false;
@@ -3694,13 +3773,84 @@ function formatLedgerAmountYuan(wanValue) {
   return (n * 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function candidateAvgTotalAssets(c) {
-  if (c?.avgTotalAssets != null) return formatLedgerAmountYuan(c.avgTotalAssets);
+/** 核算年度内该笔贷款在华夏银行的存续月份 */
+function computeHuaxiaTenureMonths(c, accountingYear) {
+  if (c?.huaxiaTenureMonths != null) return Math.max(1, Number(c.huaxiaTenureMonths));
+  if (typeof CandidateSync !== 'undefined' && CandidateSync.tenureMonths) {
+    return CandidateSync.tenureMonths(c?.disbursementDate, accountingYear || c?.accountingYear);
+  }
+  const year = Number(accountingYear || c?.accountingYear) || new Date().getFullYear();
+  const disb = c?.disbursementDate;
+  if (!disb) return 12;
+  const m = String(disb).match(/^(\d{4})-(\d{1,2})/);
+  if (!m) return 12;
+  const dy = parseInt(m[1], 10);
+  const dm = parseInt(m[2], 10);
+  if (dy > year) return 1;
+  if (dy < year) return 12;
+  return Math.max(1, 12 - dm + 1);
+}
+
+/** 月末余额合计（万元）= 各月月末余额之和 */
+function candidateMonthEndBalanceSum(c, accountingYear) {
+  if (c?.monthEndBalanceSum != null) return Number(c.monthEndBalanceSum);
+  const months = computeHuaxiaTenureMonths(c, accountingYear);
+  const avg = Number(c?.avgMonthlyBalance) || 0;
+  return avg * months;
+}
+
+/** 月均贷款余额（万元）= 月末余额合计 / 华夏存续月份 */
+function computeCandidateAvgMonthlyBalance(c, accountingYear) {
+  const months = computeHuaxiaTenureMonths(c, accountingYear);
+  const sum = candidateMonthEndBalanceSum(c, accountingYear);
+  if (!months) return Number(c?.avgMonthlyBalance) || 0;
+  return sum / months;
+}
+
+/** 平均资产总额（万元）=（上一年末 + 当年末合并报表资产总额）/ 2 */
+function computeCandidateAvgTotalAssets(c) {
+  if (c?.avgTotalAssets != null) return Number(c.avgTotalAssets);
   const cur = Number(c?.totalAssets);
   const prev = Number(c?.prevYearTotalAssets);
-  if (!cur && !prev) return '-';
-  const avgWan = prev ? (cur + prev) / 2 : cur;
-  return formatLedgerAmountYuan(avgWan);
+  if (!cur && !prev) return null;
+  return prev ? (cur + prev) / 2 : cur;
+}
+
+/** 同步/展示前归一化候选台账金额字段 */
+function normalizeCandidateLedgerFields(c, accountingYear) {
+  if (!c) return c;
+  const year = accountingYear || c.accountingYear;
+  const months = computeHuaxiaTenureMonths(c, year);
+  c.huaxiaTenureMonths = months;
+  if (c.monthEndBalanceSum == null && c.avgMonthlyBalance != null) {
+    c.monthEndBalanceSum = Number(c.avgMonthlyBalance) * months;
+  }
+  if (c.monthEndBalanceSum != null && months > 0) {
+    c.avgMonthlyBalance = Number(c.monthEndBalanceSum) / months;
+  }
+  const avgAssets = computeCandidateAvgTotalAssets(c);
+  if (avgAssets != null) c.avgTotalAssets = avgAssets;
+  return c;
+}
+
+function formatCandidateMonthEndBalance(c, accountingYear) {
+  return formatLedgerAmountYuan(candidateMonthEndBalanceSum(c, accountingYear));
+}
+
+function formatCandidateConsolidatedTotalAssets(c) {
+  const cur = Number(c?.totalAssets);
+  if (!cur) return '-';
+  return formatLedgerAmountYuan(cur);
+}
+
+function formatFormalAvgTotalAssets(c) {
+  const avg = computeCandidateAvgTotalAssets(c);
+  if (avg == null) return '-';
+  return formatLedgerAmountYuan(avg);
+}
+
+function candidateAvgTotalAssets(c) {
+  return formatFormalAvgTotalAssets(c);
 }
 
 function balanceYuanToWan(yuan) {
@@ -3731,6 +3881,8 @@ function candidateCustomerScale(c) {
 
 /** 候选清单表格数据列（含核算类型、客户规模） */
 function renderCandidateListCells(c, options = {}) {
+  const listKind = options.listKind === 'formal' ? 'formal' : 'candidate';
+  normalizeCandidateLedgerFields(c, c?.accountingYear);
   const hasProjectDetails = !!options.showProjectToggle && getCandidateProjectDetails(c).length > 0;
   const toggle = hasProjectDetails
     ? `<button type="button" class="candidate-expand-toggle ${options.projectExpanded ? 'is-expanded' : ''}" data-id="${c.id}" aria-expanded="${options.projectExpanded ? 'true' : 'false'}" title="${options.projectExpanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>`
@@ -3750,19 +3902,28 @@ function renderCandidateListCells(c, options = {}) {
     <td>${candidateBorrowerType(c)}</td>
     <td>${candidateIndustryLabel(c)}</td>
     <td>${candidateInvestIndustryLabel(c)}</td>
-    <td>${formatLedgerAmountYuan(c.avgMonthlyBalance)}</td>
+    <td>${listKind === 'formal'
+      ? formatLedgerAmountYuan(computeCandidateAvgMonthlyBalance(c, c.accountingYear))
+      : formatCandidateMonthEndBalance(c, c.accountingYear)}</td>
     <td>${formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue)}</td>
-    <td>${candidateAvgTotalAssets(c)}</td>
+    <td>${listKind === 'formal'
+      ? formatFormalAvgTotalAssets(c)
+      : formatCandidateConsolidatedTotalAssets(c)}</td>
     <td>${c.manager || '-'}</td>`;
 }
 
 const CANDIDATE_LIST_TABLE_HEAD = `
   <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
   <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
+  <th>月末余额（元）</th><th>年报营业收入（元）</th><th>合并报表资产总额（元）</th><th>主办客户经理</th>`;
+
+const FORMAL_LIST_TABLE_HEAD = `
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
   <th>月均贷款余额（元）</th><th>年报营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
 
 const CALCULATION_LIST_TABLE_HEAD = `
-  ${CANDIDATE_LIST_TABLE_HEAD}
+  ${FORMAL_LIST_TABLE_HEAD}
   <th>法人主体排放(tCO₂e)</th><th>项目主体排放(tCO₂e)</th><th>归因排放(tCO₂e)</th><th>质量等级</th>`;
 
 /** 碳账户排放明细 → 候选清单同款行（复用台账列） */
@@ -3864,6 +4025,11 @@ function formalLedgerRow(f, taskId) {
     gbIndustryName: f.gbIndustryName,
     industryMajor: f.industryMajor,
     avgMonthlyBalance: f.avgMonthlyBalance,
+    monthEndBalanceSum: f.monthEndBalanceSum,
+    huaxiaTenureMonths: f.huaxiaTenureMonths,
+    totalAssets: f.totalAssets,
+    prevYearTotalAssets: f.prevYearTotalAssets,
+    avgTotalAssets: f.avgTotalAssets,
     operatingRevenue: f.operatingRevenue,
     manager: f.manager,
     projectDetails: f.projectDetails,

@@ -25,6 +25,19 @@ const CandidateSync = {
     民航: ['G5631']
   },
 
+  /** 该笔贷款在核算年度内于华夏银行的存续月份（非固定 12） */
+  tenureMonths(disbursementDate, accountingYear) {
+    const year = Number(accountingYear) || new Date().getFullYear();
+    if (!disbursementDate) return 12;
+    const m = String(disbursementDate).match(/^(\d{4})-(\d{1,2})/);
+    if (!m) return 12;
+    const dy = parseInt(m[1], 10);
+    const dm = parseInt(m[2], 10);
+    if (dy > year) return 1;
+    if (dy < year) return 12;
+    return Math.max(1, 12 - dm + 1);
+  },
+
   /** 格澜 mock：信用代码数字末两位 %5===0 则接口无数据 */
   _creditCodeForGelan(idx, loanType, bizType) {
     const mandatory = (GUIDE.MANDATORY_COLLECT_LOAN_TYPES || []).some(t => (loanType || '').includes(t));
@@ -44,7 +57,7 @@ const CandidateSync = {
       const idx = i + yearOff;
       const major = majors[idx % majors.length];
       const names = this.NAMES[major] || ['示范'];
-      const name = names[idx % names.length] + (major === '电力' ? '发电' : major === '钢铁' ? '炼钢' : '') + '有限公司' + (idx > 20 ? String.fromCharCode(65 + (idx % 5)) : '');
+      const name = names[idx % names.length] + (major === '电力' ? '发电' : major === '钢铁' ? '炼钢' : '') + '有限公司';
       const code = this.CODE_MAP[major][idx % this.CODE_MAP[major].length];
       const loanType = this.LOAN_TYPES[idx % this.LOAN_TYPES.length];
       const bizType = ['一般性固定资产贷款', '出口退税账户托管贷款'].includes(loanType) ? 'project' : 'non_project';
@@ -77,7 +90,14 @@ const CandidateSync = {
 
       const excluded = !!excludeReason;
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
-      const disbursementDate = `${year || 2024}-${String((idx % 12) + 1).padStart(2, '0')}-${String(10 + (idx % 18)).padStart(2, '0')}`;
+      const accountingYear = year || 2024;
+      const disbursementDate = `${accountingYear}-${String((idx % 12) + 1).padStart(2, '0')}-${String(10 + (idx % 18)).padStart(2, '0')}`;
+      const huaxiaTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
+      const monthEndBalanceSum = Math.round(avgMonthlyBalance * huaxiaTenureMonths);
+      avgMonthlyBalance = monthEndBalanceSum / huaxiaTenureMonths;
+      const totalAssets = avgMonthlyBalance * 80 + idx * 1000;
+      const prevYearTotalAssets = avgMonthlyBalance * 75 + idx * 900;
+      const avgTotalAssets = (totalAssets + prevYearTotalAssets) / 2;
       const operatingRevenue = Math.round(avgMonthlyBalance * 6 + idx * 500);
       const hasSyncedProjectInfo = bizType === 'project' && (idx % 3 !== 0);
       const projectTotalInvestmentWan = hasSyncedProjectInfo
@@ -124,9 +144,12 @@ const CandidateSync = {
         operatingRevenue,
         projectTotalInvestmentWan,
         projectDetails,
+        monthEndBalanceSum,
+        huaxiaTenureMonths,
         avgMonthlyBalance,
-        totalAssets: avgMonthlyBalance * 80 + idx * 1000,
-        prevYearTotalAssets: avgMonthlyBalance * 75 + idx * 900,
+        totalAssets,
+        prevYearTotalAssets,
+        avgTotalAssets,
         branch: tier1Branch,
         manager: this.MANAGERS[idx % this.MANAGERS.length],
         isSme,
@@ -147,8 +170,7 @@ const CandidateSync = {
     const names = this.NAMES[major] || ['华夏示范'];
     const brand = names[idx % names.length];
     const mid = major === '电力' ? '发电' : (major === '钢铁' ? '炼钢' : '');
-    const variant = idx > 20 ? String.fromCharCode(65 + (idx % 5)) : '';
-    return `${brand}${mid}有限公司${variant}`;
+    return `${brand}${mid}有限公司`;
   },
 
   /** 接口管理批次查看：按数据月份生成台账预览（字段与候选清单一致） */

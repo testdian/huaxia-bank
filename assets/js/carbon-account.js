@@ -1,5 +1,5 @@
 /**
- * 企业碳账户：法人+贷款号建档，核算确认后挂载排放记录；总行/分行按一级分行过滤
+ * 企业碳账户：统一社会信用代码建档（同一主体一个账户），核算确认后挂载排放记录；总行/分行按一级分行过滤
  */
 const CarbonAccount = {
   ACCOUNT_STATUS_LABEL: { active: '正常', disabled: '停用', cancelled: '注销' },
@@ -37,7 +37,7 @@ const CarbonAccount = {
     PRODUCT_PBOC: '产品法-人行因子数据',
     PRODUCT_BANK: '产品法-我行因子数据',
     ECONOMY_REVENUE: '经济活动法',
-    ECONOMY_LOAN: '经济活动法-贷款数据'
+    ECONOMY_LOAN: '其他计算法'
   },
 
   /** 演示：产品法因子来源（行业×项目/非项目，待客户确认正式规则） */
@@ -73,15 +73,35 @@ const CarbonAccount = {
   },
 
   makeAccountId(creditCode, loanAccount) {
-    const raw = `${creditCode || 'UNKNOWN'}|${loanAccount || 'UNKNOWN'}`;
+    const raw = (creditCode || 'UNKNOWN').trim();
     return 'CA_' + raw.replace(/[^0-9A-Za-z\u4e00-\u9fa5]/g, '_').slice(0, 48);
   },
 
   accountUniqueKey(creditCode, loanAccount) {
-    return `${creditCode || ''}|${loanAccount || ''}`;
+    return (creditCode || '').trim();
   },
 
-  /** 法人+贷款号唯一：合并重复账户并重挂排放记录 */
+  _mergeLoanAccountsInto(canonical, acc) {
+    const loans = new Set();
+    if (canonical.loanAccount) loans.add(canonical.loanAccount);
+    (canonical.loanAccounts || []).forEach(l => loans.add(l));
+    if (acc.loanAccount) loans.add(acc.loanAccount);
+    (acc.loanAccounts || []).forEach(l => loans.add(l));
+    const arr = [...loans].filter(Boolean);
+    if (!arr.length) return;
+    canonical.loanAccount = canonical.loanAccount || arr[0];
+    canonical.loanAccounts = arr.length > 1 ? arr : undefined;
+  },
+
+  _mergeProjectDetailsInto(canonical, acc) {
+    const list = [...(canonical.projectDetails || [])];
+    (acc.projectDetails || []).forEach(p => {
+      if (!list.some(x => x.projectNo && x.projectNo === p.projectNo)) list.push(p);
+    });
+    if (list.length) canonical.projectDetails = list;
+  },
+
+  /** 统一社会信用代码唯一：合并同主体多贷款号账户并重挂排放记录 */
   dedupeCarbonAccounts(accounts, records) {
     const kept = [];
     const keyToAccount = new Map();
@@ -89,17 +109,30 @@ const CarbonAccount = {
 
     (accounts || []).forEach(acc => {
       const key = this.accountUniqueKey(acc.creditCode, acc.loanAccount);
+      if (!key) {
+        kept.push(acc);
+        return;
+      }
+      const normId = this.makeAccountId(acc.creditCode);
       const canonical = keyToAccount.get(key);
       if (!canonical) {
+        if (acc.id !== normId) {
+          idRemap.set(acc.id, normId);
+          acc.id = normId;
+        }
         keyToAccount.set(key, acc);
         kept.push(acc);
         return;
       }
       idRemap.set(acc.id, canonical.id);
+      this._mergeLoanAccountsInto(canonical, acc);
+      this._mergeProjectDetailsInto(canonical, acc);
       if (!canonical.customerName && acc.customerName) canonical.customerName = acc.customerName;
       if (!canonical.industryMajor && acc.industryMajor) canonical.industryMajor = acc.industryMajor;
       if (!canonical.gbIndustryCode && acc.gbIndustryCode) canonical.gbIndustryCode = acc.gbIndustryCode;
       if (!canonical.primaryBranch && acc.primaryBranch) canonical.primaryBranch = acc.primaryBranch;
+      if (!canonical.formalId && acc.formalId) canonical.formalId = acc.formalId;
+      if (!canonical.bizType && acc.bizType) canonical.bizType = acc.bizType;
       if (acc.statusHistory?.length) {
         canonical.statusHistory = (canonical.statusHistory || []).concat(acc.statusHistory);
       }
@@ -491,6 +524,13 @@ const CarbonAccount = {
       || /(北京|上海|深圳|杭州|南京|成都).{0,3}样本/.test(name);
   },
 
+  _sanitizeDemoCompanyName(name) {
+    if (!name) return name;
+    return String(name)
+      .replace(/\s+[A-E]$/, '')
+      .replace(/有限公司\s*([A-E])$/, '有限公司');
+  },
+
   _formatDemoCompanyName(major, idx) {
     if (typeof CandidateSync !== 'undefined') {
       return CandidateSync.formatCompanyName(major, idx);
@@ -503,7 +543,9 @@ const CarbonAccount = {
   resolveEnterpriseDisplayName(cand, formal, acc) {
     const pick = [cand?.customerName, formal?.customerName, acc?.customerName];
     for (const n of pick) {
-      if (n && !this._isInvalidDemoCustomerName(n)) return n;
+      if (n && !this._isInvalidDemoCustomerName(n)) {
+        return this._sanitizeDemoCompanyName(n);
+      }
     }
     const major = formal?.industryMajor || acc?.industryMajor || cand?.industryMajor || '电力';
     const idx = parseInt(String(acc?.id || formal?.id || cand?.id || '0').replace(/\D/g, ''), 10) || 0;
@@ -537,13 +579,14 @@ const CarbonAccount = {
       const formal = (d.formalList || []).find(f => f.id === acc.formalId);
       const cand = formal
         ? (d.candidates || []).find(c => c.id === formal.customerId)
-        : (d.candidates || []).find(c => c.creditCode === acc.creditCode && c.loanAccount === acc.loanAccount);
+        : (d.candidates || []).find(c => c.creditCode === acc.creditCode);
       let name = this.resolveEnterpriseDisplayName(cand, formal, acc);
       if (!name || this._isInvalidDemoCustomerName(name)) {
         const major = acc.industryMajor || formal?.industryMajor || majors[i % majors.length];
         const idx = parseInt(String(acc.id || i).replace(/\D/g, ''), 10) || i;
         name = this._formatDemoCompanyName(major, idx);
       }
+      name = this._sanitizeDemoCompanyName(name);
       acc.customerName = name;
       if (formal && this._isInvalidDemoCustomerName(formal.customerName)) formal.customerName = name;
       if (cand && this._isInvalidDemoCustomerName(cand.customerName)) cand.customerName = name;
@@ -767,7 +810,7 @@ const CarbonAccount = {
       .sort((a, b) => b.emission - a.emission);
   },
 
-  /** 趋势分析：汇总该客户（法人+贷款号）全部核算年度的排放记录 */
+  /** 趋势分析：汇总该主体（统一社会信用代码）全部核算年度的排放记录 */
   collectTrendRecordsForAccount(d, account) {
     if (!account) return [];
     const key = this.accountUniqueKey(account.creditCode, account.loanAccount);
@@ -796,8 +839,19 @@ const CarbonAccount = {
     });
 
     Object.keys(account.annualProfiles || {}).forEach(yearStr => {
-      if (records.some(r => String(r.year) === yearStr)) return;
       const p = account.annualProfiles[yearStr];
+      const idx = records.findIndex(r => String(r.year) === yearStr);
+      if (idx >= 0) {
+        const r = records[idx];
+        if ((r.entityEmission == null || r.entityEmission === 0) && p.entityEmission != null) {
+          records[idx] = {
+            ...r,
+            entityEmission: p.entityEmission,
+            operatingRevenue: r.operatingRevenue ?? p.operatingRevenue ?? p.revenue
+          };
+        }
+        return;
+      }
       records.push({
         accountId: account.id,
         creditCode: account.creditCode,
@@ -815,6 +869,27 @@ const CarbonAccount = {
     return records;
   },
 
+  /** 碳强度：tCO₂e / 万元营业收入（营收为元） */
+  calcEntityIntensity(entity, revenueYuan) {
+    const em = Number(entity);
+    const rev = Number(revenueYuan);
+    if (!Number.isFinite(em) || !rev || rev <= 0) return null;
+    return +((em / rev) * 10000).toFixed(4);
+  },
+
+  resolveYearRevenue(d, account, yearStr, metrics) {
+    const p = account.annualProfiles?.[yearStr];
+    if (p?.operatingRevenue != null) return Number(p.operatingRevenue);
+    if (p?.revenue != null) return Number(p.revenue);
+    const formal = metrics?.formal || (d.formalList || []).find(f => f.id === account.formalId);
+    const calc = metrics?.calc;
+    if (formal?.operatingRevenue != null) return Number(formal.operatingRevenue);
+    const cand = (d.candidates || []).find(c => c.id === (formal?.customerId || account.customerId));
+    if (cand?.operatingRevenue != null) return Number(cand.operatingRevenue);
+    if (calc?.revenue != null) return Number(calc.revenue);
+    return null;
+  },
+
   trendByYear(records) {
     const map = {};
     records.forEach(r => {
@@ -829,9 +904,48 @@ const CarbonAccount = {
       .map(row => ({
         ...row,
         label: row.year,
-        intensity: row.revenue > 0 ? +((row.entity / row.revenue).toFixed(4)) : null
+        intensity: this.calcEntityIntensity(row.entity, row.revenue)
       }))
       .sort((a, b) => String(a.year).localeCompare(String(b.year)));
+  },
+
+  /** 趋势分析：与账户档案同一口径，按年度解析主体排放与碳强度 */
+  buildTrendForAccount(d, account, years) {
+    const records = this.collectTrendRecordsForAccount(d, account);
+    const trendMap = {};
+    this.trendByYear(records).forEach(t => { trendMap[String(t.year)] = { ...t }; });
+
+    const allYears = [...new Set([
+      ...(years || []).map(y => String(y)),
+      ...Object.keys(trendMap)
+    ])].filter(Boolean);
+
+    allYears.forEach(yearStr => {
+      const metrics = this.resolveYearMetrics(d, account, yearStr);
+      let row = trendMap[yearStr];
+      if (!row) {
+        row = {
+          year: yearStr,
+          label: yearStr,
+          emission: null,
+          entity: null,
+          count: 0,
+          revenue: null,
+          intensity: null
+        };
+        trendMap[yearStr] = row;
+      }
+      if (metrics.entityEmission != null) row.entity = metrics.entityEmission;
+      const rev = this.resolveYearRevenue(d, account, yearStr, metrics);
+      if (rev != null && rev > 0) row.revenue = rev;
+      else if (row.revenue === 0) row.revenue = null;
+      row.intensity = this.calcEntityIntensity(row.entity, row.revenue);
+      row.label = yearStr;
+    });
+
+    const trend = Object.values(trendMap)
+      .sort((a, b) => String(a.year).localeCompare(String(b.year)));
+    return this.fillTrendYearGaps(trend, years);
   },
 
   /** 主体碳强度趋势 tCO₂e / 万元营业收入（主体口径） */
@@ -992,7 +1106,9 @@ const CarbonAccount = {
 
   upsertAccount(d, row, openedAt) {
     const id = this.makeAccountId(row.creditCode, row.loanAccount);
-    let acc = d.carbonAccounts.find(a => a.id === id);
+    let acc = d.carbonAccounts.find(a =>
+      a.id === id || (row.creditCode && a.creditCode === row.creditCode)
+    );
     if (!acc) {
       acc = {
         id,
@@ -1008,14 +1124,18 @@ const CarbonAccount = {
       };
       d.carbonAccounts.push(acc);
     } else {
+      if (acc.id !== id) acc.id = id;
+      this._mergeLoanAccountsInto(acc, row);
       if (!acc.customerName && row.customerName) acc.customerName = row.customerName;
       if (!acc.industryMajor && row.industryMajor) acc.industryMajor = row.industryMajor;
+      if (!acc.gbIndustryCode && row.gbIndustryCode) acc.gbIndustryCode = row.gbIndustryCode;
+      if (!acc.primaryBranch && row.tier1Branch) acc.primaryBranch = row.tier1Branch;
     }
     return acc;
   },
 
   /**
-   * 【业务规则】对象边界「确认锁定」后，按正式清单逐笔生成企业碳账户（法人+贷款号）
+   * 【业务规则】对象边界「确认锁定」后，按正式清单逐笔生成企业碳账户（同一主体一个账户）
    * 有项目明细的账户保留 projectDetails，供列表展开展示项目客户名称
    */
   provisionFromFormalLock(d, taskId, formals) {
@@ -1277,7 +1397,7 @@ const CarbonAccount = {
       });
     })();
 
-    // 场景3：集团多贷款号（同法人不同贷款）
+    // 场景3：同主体多贷款号（合并为一个碳账户，记录按贷款号区分）
     (() => {
       const creditCode = '91310000MA0000GROUP01';
       const customerName = '万华化学示范集团股份有限公司';

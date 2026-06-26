@@ -538,6 +538,11 @@ function bindPageEvents(base, ctx) {
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
       if (complete) {
+        const projectCheck = SUPPLEMENT_FIELDS.validateProjectInfo(root, s);
+        if (!projectCheck.ok) {
+          toast(projectCheck.message, 'warning');
+          return;
+        }
         const attachCheck = SUPPLEMENT_FIELDS.validateReportAttachments(root, s);
         if (!attachCheck.ok) {
           toast(attachCheck.message, 'warning');
@@ -604,6 +609,8 @@ function bindPageEvents(base, ctx) {
         } else {
           toast('审核通过', 'success');
         }
+      } else if (!approved && extra?.rejectTarget === 'branch') {
+        toast('已退回至分行，请分行重新初审', 'warning');
       } else {
         toast(approved ? '审核通过' : '已退回，收集任务已退回', approved ? 'success' : 'warning');
       }
@@ -621,7 +628,16 @@ function bindPageEvents(base, ctx) {
       }
     });
     qs('#approvalRejectBtn')?.addEventListener('click', () => {
-      openApprovalActionConfirm('reject', finishReview);
+      openApprovalActionConfirm('reject', finishReview, {
+        title: '退回至客户经理',
+        message: '是否确认退回至客户经理重新填报？'
+      });
+    });
+    qs('#approvalRejectToBranchBtn')?.addEventListener('click', () => {
+      openApprovalActionConfirm('reject', (approved, reason) => finishReview(false, reason, { rejectTarget: 'branch' }), {
+        title: '退回到分行',
+        message: '是否确认退回至分行重新初审？客户经理已填报内容将保留，分行需重新审核。'
+      });
     });
     qs('#approvalLocalFixBtn')?.addEventListener('click', () => {
       saveAuditAdjustIfPresent();
