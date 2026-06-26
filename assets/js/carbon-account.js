@@ -254,6 +254,40 @@ const CarbonAccount = {
     const calc = (d.calculations || []).find(c =>
       c.formalId === account.formalId && c.taskId === account.taskId
     );
+    const supp = (d.supplements || []).find(s =>
+      s.formalId === account.formalId && s.taskId === account.taskId
+    );
+    if (typeof getEffectiveEntityEmission === 'function' && formal) {
+      const entityEmission = getEffectiveEntityEmission(account.taskId, account.formalId);
+      if (entityEmission != null && (!task?.year || String(task.year) === yearStr)) {
+        const manualVal = typeof getManualEntityEmissionValue === 'function'
+          ? getManualEntityEmissionValue(account.taskId, account.formalId)
+          : null;
+        const methodLabel = manualVal != null && typeof resolveManualAccountingMethodLabel === 'function'
+          ? resolveManualAccountingMethodLabel(formal, account.taskId, d)
+          : (typeof resolveSystemAccountingMethodLabel === 'function'
+            ? resolveSystemAccountingMethodLabel(formal, account.taskId, d)
+            : '-');
+        return this._finalizeMetrics(d, account, yearStr, {
+          entityEmission,
+          method: methodLabel !== '—' ? methodLabel : (calc?.method || '-'),
+          methodId: manualVal != null && supp
+            ? (supp.approvedMethodId || Store.matchMethod(supp)?.id)
+            : (calc?.methodId || this.mapMethodId(calc?.method)),
+          methodLabel: methodLabel !== '—' ? methodLabel : undefined,
+          customerNo,
+          source: manualVal != null ? 'supplement' : (calc?.source || (formal.gelanEntityEmission != null ? 'gelan' : 'calc')),
+          formal,
+          task,
+          supplement: manualVal != null ? supp : null,
+          calc,
+          reportDetail: manualVal != null
+            ? (supp?.fieldData?.report || null)
+            : (calc?.reportDetail || formal.gelanPrefill || null)
+        });
+      }
+    }
+
     if (calc?.entityEmission != null && (!task?.year || String(task.year) === yearStr)) {
       return this._finalizeMetrics(d, account, yearStr, {
         entityEmission: calc.entityEmission,
@@ -283,26 +317,6 @@ const CarbonAccount = {
           source: formal.gelanPrefill.reportSource || '其他',
           ...formal.gelanPrefill
         } : null
-      });
-    }
-
-    const supp = (d.supplements || []).find(s =>
-      s.formalId === account.formalId && s.taskId === account.taskId &&
-      (s.auditStage === 'approved' || s.status === 'completed')
-    );
-    if (supp && typeof Store !== 'undefined') {
-      const m = Store.matchMethod(supp);
-      const entityEmission = Store.calcEntityEmission(supp);
-      return this._finalizeMetrics(d, account, yearStr, {
-        entityEmission,
-        method: m?.name || '-',
-        methodId: m?.id || null,
-        customerNo,
-        source: 'supplement',
-        formal,
-        task,
-        supplement: supp,
-        calc
       });
     }
 
@@ -753,6 +767,54 @@ const CarbonAccount = {
       .sort((a, b) => b.emission - a.emission);
   },
 
+  /** 趋势分析：汇总该客户（法人+贷款号）全部核算年度的排放记录 */
+  collectTrendRecordsForAccount(d, account) {
+    if (!account) return [];
+    const key = this.accountUniqueKey(account.creditCode, account.loanAccount);
+    const matchRow = row => this.accountUniqueKey(row?.creditCode, row?.loanAccount) === key;
+    const records = [];
+    const calcIds = new Set();
+
+    (d.carbonAccountRecords || []).forEach(r => {
+      if (r.accountId !== account.id && !matchRow(r)) return;
+      records.push(r);
+      if (r.calcId) calcIds.add(r.calcId);
+    });
+
+    (d.tasks || []).forEach(task => {
+      if (!task?.resultsConfirmed) return;
+      (d.calculations || []).forEach(calc => {
+        if (calc.taskId !== task.id || calc.status !== 'done' || calc.entityEmission == null) return;
+        if (calcIds.has(calc.id)) return;
+        const formal = (d.formalList || []).find(f => f.id === calc.formalId);
+        if (!formal || formal.status !== 'confirmed') return;
+        const row = this.resolveLedgerRow(d, formal, calc);
+        if (!matchRow(row)) return;
+        records.push(this.buildRecordPayload(d, task, formal, calc, account.id));
+        calcIds.add(calc.id);
+      });
+    });
+
+    Object.keys(account.annualProfiles || {}).forEach(yearStr => {
+      if (records.some(r => String(r.year) === yearStr)) return;
+      const p = account.annualProfiles[yearStr];
+      records.push({
+        accountId: account.id,
+        creditCode: account.creditCode,
+        loanAccount: account.loanAccount,
+        customerName: account.customerName,
+        year: yearStr,
+        period: yearStr,
+        entityEmission: p.entityEmission,
+        attributedEmission: p.attributedEmission ?? null,
+        operatingRevenue: p.operatingRevenue ?? p.revenue,
+        method: p.methodLabel || p.method
+      });
+    });
+
+    return records;
+  },
+
   trendByYear(records) {
     const map = {};
     records.forEach(r => {
@@ -775,6 +837,25 @@ const CarbonAccount = {
   /** 主体碳强度趋势 tCO₂e / 万元营业收入（主体口径） */
   trendIntensityByYear(records) {
     return this.trendByYear(records).filter(t => t.intensity != null);
+  },
+
+  /** 补齐列表可选年度，避免趋势图 X 轴缺少年份 */
+  fillTrendYearGaps(trend, years) {
+    const map = {};
+    (trend || []).forEach(t => { map[String(t.year)] = t; });
+    const allYears = [...new Set([
+      ...(years || []).map(y => String(y)),
+      ...(trend || []).map(t => String(t.year))
+    ])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return allYears.map(y => map[y] || {
+      year: y,
+      label: y,
+      emission: null,
+      entity: null,
+      count: 0,
+      revenue: null,
+      intensity: null
+    });
   },
 
   getAvailableYears(records) {

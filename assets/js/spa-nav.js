@@ -1,19 +1,71 @@
 /** SPA 导航配置 - 一级菜单 */
 const SPA_NAV = [
   {
+    id: 'tasks',
     hash: '#/tasks',
     label: '核算任务管理',
     match: ['#/tasks', '#/task-create', '#/task-detail', '#/task-view', '#/task-edit', '#/candidates', '#/formal', '#/boundary', '#/data-collect', '#/calculation', '#/results', '#/reports']
   },
   {
+    id: 'branch-board',
     hash: '#/branch-board',
     label: '数据收集',
     match: ['#/branch-board', '#/manager-tasks', '#/supplement-fill']
   },
-  { hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },
-  { hash: '#/carbon-accounts', label: '企业碳账户', match: ['#/carbon-accounts', '#/carbon-account'] },
-  { hash: '#/factors', label: '排放因子库', match: ['#/factors', '#/factors/new', '#/factors/edit'] }
+  { id: 'approvals', hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },
+  { id: 'ledger', hash: '#/ledger', label: '台账管理', match: ['#/ledger', '#/ledger/detail'] },
+  { id: 'carbon-accounts', hash: '#/carbon-accounts', label: '企业碳账户', match: ['#/carbon-accounts', '#/carbon-account'] },
+  { id: 'factors', hash: '#/factors', label: '排放因子库', match: ['#/factors', '#/factors/new', '#/factors/edit', '#/factors/import'] }
 ];
+
+/** 基础配置 — 二级菜单（仅总行） */
+const SPA_METHOD_CONFIG_NAV = {
+  title: '基础配置',
+  match: [
+    '#/method-config/params', '#/method-config/params/new', '#/method-config/params/edit',
+    '#/method-config/templates', '#/method-config/templates/new', '#/method-config/templates/edit',
+    '#/industry-config'
+  ],
+  items: [
+    { id: 'method-params', hash: '#/method-config/params', label: '参数字段库', match: ['#/method-config/params', '#/method-config/params/new', '#/method-config/params/edit'] },
+    { id: 'method-templates', hash: '#/method-config/templates', label: '方法模板', match: ['#/method-config/templates', '#/method-config/templates/new', '#/method-config/templates/edit'] },
+    { id: 'industry-config', hash: '#/industry-config', label: '行业配置', match: ['#/industry-config'] }
+  ]
+};
+
+const SPA_ADMIN_NAV = [
+  { id: 'permission-mgmt', hash: '#/permission-mgmt', label: '权限管理', match: ['#/permission-mgmt'], roles: ['hq'] }
+];
+
+const METHOD_CONFIG_ROUTES = SPA_METHOD_CONFIG_NAV.match;
+
+function navIsMethodConfigActive(hash) {
+  const base = (hash || '').split('?')[0];
+  return METHOD_CONFIG_ROUTES.includes(base);
+}
+
+function renderMethodConfigNavGroup(hash, roleKey) {
+  const items = SPA_METHOD_CONFIG_NAV.items.filter(i =>
+    (!roleKey || roleKey === 'hq') &&
+    (!i.id || typeof MenuPermissions === 'undefined' || MenuPermissions.isVisible(i.id, roleKey))
+  );
+  if (!items.length) return '';
+  const overviewItem = items.find(i => i.id === 'method-templates') || items[0];
+  const overviewHref = overviewItem.hash;
+  const overviewMatch = items.flatMap(i => i.match || [i.hash]);
+  return `<div class="nav-group">
+    <a href="${overviewHref}" class="nav-group-title nav-group-title-link ${navIsActive({ hash: overviewHref, match: overviewMatch }, hash) ? 'active' : ''}">${SPA_METHOD_CONFIG_NAV.title}</a>
+    ${items.map(i => `
+      <a href="${i.hash}" class="nav-item nav-item-sub ${navIsActive(i, hash) ? 'active' : ''}">${i.label}</a>
+    `).join('')}
+  </div>`;
+}
+
+function isNavItemVisible(item, roleKey) {
+  if (!item?.id) return true;
+  if (typeof MenuPermissions === 'undefined') return true;
+  return MenuPermissions.isVisible(item.id, roleKey);
+}
 
 /** 接口管理：顶栏入口，不参与侧栏菜单 */
 const SPA_INTERFACES_ENTRY = { hash: '#/interfaces', label: '接口管理' };
@@ -22,7 +74,7 @@ function getNavItemsForRole(roleKey) {
   if (roleKey === 'manager') {
     return SPA_NAV.filter(i => i.hash === '#/branch-board');
   }
-  return SPA_NAV.filter(i => i.hash !== '#/branch-board');
+  return SPA_NAV.filter(i => i.hash !== '#/branch-board' && !(i.hqOnly && roleKey !== 'hq'));
 }
 
 function navIsActive(item, hash) {
@@ -55,7 +107,110 @@ function initSidebarToggle() {
   }
 }
 
-function renderSpaLayout(pageTitle) {
+let _spaShellMounted = false;
+
+function invalidateSpaLayout() {
+  _spaShellMounted = false;
+}
+
+function buildSpaContext() {
+  const data = Store.get();
+  return { data, role: ROLES[data.currentRole] || ROLES.hq, task: Store.getCurrentTask() };
+}
+
+function bindSpaShellEvents() {
+  const roleSwitch = document.getElementById('roleSwitch');
+  if (roleSwitch && !roleSwitch.dataset.bound) {
+    roleSwitch.dataset.bound = '1';
+    roleSwitch.onchange = e => {
+      const roleKey = e.target.value;
+      Store.update(d => { d.currentRole = roleKey; d.currentUser = ROLES[roleKey].user; });
+      toast('已切换角色', 'success');
+      invalidateSpaLayout();
+      const base = (location.hash || '').split('?')[0];
+      if (!isRouteAllowedForRole(base, roleKey)) {
+        location.hash = getDefaultRouteForRole(roleKey);
+      } else {
+        route();
+      }
+    };
+  }
+
+  const taskSwitch = document.getElementById('taskSwitch');
+  if (taskSwitch && !taskSwitch.dataset.bound) {
+    taskSwitch.dataset.bound = '1';
+    taskSwitch.onchange = e => {
+      Store.update(d => { d.currentTaskId = e.target.value; });
+      toast('已切换任务', 'success');
+      route();
+    };
+  }
+
+  const resetBtn = document.getElementById('resetBtn');
+  if (resetBtn && !resetBtn.dataset.bound) {
+    resetBtn.dataset.bound = '1';
+    resetBtn.onclick = () => {
+      Store.reset();
+      toast('已重置', 'success');
+      route();
+    };
+  }
+
+  initSidebarToggle();
+}
+
+function renderSideNav(data, hash) {
+  const navEl = document.getElementById('sideNav');
+  if (!navEl) return;
+  const mainItems = getNavItemsForRole(data.currentRole).filter(i => isNavItemVisible(i, data.currentRole));
+  const adminItems = (SPA_ADMIN_NAV || []).filter(i =>
+    (!i.roles || i.roles.includes(data.currentRole)) && isNavItemVisible(i, data.currentRole)
+  );
+  navEl.innerHTML = mainItems.map(i => `
+    <a href="${i.hash}" class="nav-item ${navIsActive(i, hash) ? 'active' : ''}">${i.label}</a>
+  `).join('')
+    + (data.currentRole === 'hq' ? renderMethodConfigNavGroup(hash, data.currentRole) : '')
+    + (adminItems.length ? `<div class="nav-group nav-group-admin">${adminItems.map(i => `
+      <a href="${i.hash}" class="nav-item ${navIsActive(i, hash) ? 'active' : ''}">${i.label}</a>
+    `).join('')}</div>` : '');
+}
+
+function refreshSpaChrome(pageTitle) {
+  const data = Store.get();
+  const role = ROLES[data.currentRole] || ROLES.hq;
+  const hash = location.hash || '#/tasks';
+  document.body.classList.toggle('sidebar-collapsed', isSidebarCollapsed());
+
+  const bc = document.querySelector('.app-header .breadcrumb');
+  if (bc) bc.innerHTML = `投融资碳核算 <span>/</span> ${pageTitle}`;
+
+  const roleSel = document.getElementById('roleSwitch');
+  if (roleSel) roleSel.value = data.currentRole;
+
+  const taskSel = document.getElementById('taskSwitch');
+  if (taskSel) {
+    if (taskSel.options.length !== data.tasks.length) {
+      taskSel.innerHTML = data.tasks.map(t =>
+        `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`
+      ).join('');
+    } else {
+      taskSel.value = data.currentTaskId;
+    }
+  }
+
+  const userEl = document.querySelector('.app-header .user');
+  if (userEl) userEl.textContent = `${role.user} · ${role.label}`;
+
+  const ifaceBtn = document.getElementById('interfacesBtn');
+  if (ifaceBtn) {
+    ifaceBtn.classList.toggle('active', navIsActive(SPA_INTERFACES_ENTRY, hash));
+    ifaceBtn.style.display = data.currentRole === 'manager' ? 'none' : '';
+  }
+
+  renderSideNav(data, hash);
+}
+
+function mountSpaShell(pageTitle) {
   const data = Store.get();
   const role = ROLES[data.currentRole] || ROLES.hq;
   const hash = location.hash || '#/tasks';
@@ -67,12 +222,12 @@ function renderSpaLayout(pageTitle) {
       <div class="breadcrumb">投融资碳核算 <span>/</span> ${pageTitle}</div>
       <div class="header-actions">
         <select id="roleSwitch">
-          <option value="hq" ${data.currentRole==='hq'?'selected':''}>总行绿金部</option>
-          <option value="branch" ${data.currentRole==='branch'?'selected':''}>分行负责人</option>
-          <option value="manager" ${data.currentRole==='manager'?'selected':''}>客户经理</option>
+          <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行绿金部</option>
+          <option value="branch" ${data.currentRole === 'branch' ? 'selected' : ''}>分行负责人</option>
+          <option value="manager" ${data.currentRole === 'manager' ? 'selected' : ''}>客户经理</option>
         </select>
         <select id="taskSwitch">
-          ${data.tasks.map(t=>`<option value="${t.id}" ${t.id===data.currentTaskId?'selected':''}>${t.name}</option>`).join('')}
+          ${data.tasks.map(t => `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`).join('')}
         </select>
         ${data.currentRole !== 'manager' ? `<a href="${SPA_INTERFACES_ENTRY.hash}" class="btn-ghost btn-sm header-nav-btn ${navIsActive(SPA_INTERFACES_ENTRY, hash) ? 'active' : ''}" id="interfacesBtn">${SPA_INTERFACES_ENTRY.label}</a>` : ''}
         <button class="btn-ghost btn-sm" id="resetBtn">重置数据</button>
@@ -88,31 +243,20 @@ function renderSpaLayout(pageTitle) {
     <div id="modalRoot"></div>
   `;
 
-  const navEl = document.getElementById('sideNav');
-  navEl.innerHTML = getNavItemsForRole(data.currentRole).map(i => `
-    <a href="${i.hash}" class="nav-item ${navIsActive(i, hash) ? 'active' : ''}">${i.label}</a>
-  `).join('');
+  renderSideNav(data, hash);
+  bindSpaShellEvents();
+}
 
-  document.getElementById('roleSwitch').onchange = e => {
-    const roleKey = e.target.value;
-    Store.update(d => { d.currentRole = roleKey; d.currentUser = ROLES[roleKey].user; });
-    toast('已切换角色', 'success');
-    const base = (location.hash || '').split('?')[0];
-    if (!isRouteAllowedForRole(base, roleKey)) {
-      location.hash = getDefaultRouteForRole(roleKey);
-    } else {
-      route();
-    }
-  };
-  document.getElementById('taskSwitch').onchange = e => {
-    Store.update(d => { d.currentTaskId = e.target.value; });
-    toast('已切换任务', 'success'); route();
-  };
-  document.getElementById('resetBtn').onclick = () => {
-    Store.reset(); toast('已重置', 'success'); route();
-  };
+function ensureSpaLayout(pageTitle) {
+  if (!_spaShellMounted || !document.getElementById('viewRoot')) {
+    mountSpaShell(pageTitle);
+    _spaShellMounted = true;
+  } else {
+    refreshSpaChrome(pageTitle);
+  }
+  return buildSpaContext();
+}
 
-  initSidebarToggle();
-
-  return { data, role: ROLES[data.currentRole], task: Store.getCurrentTask() };
+function renderSpaLayout(pageTitle) {
+  return ensureSpaLayout(pageTitle);
 }

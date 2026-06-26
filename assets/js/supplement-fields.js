@@ -43,6 +43,8 @@ window.SUPPLEMENT_FIELDS = {
     return {
       formal,
       industryMajor,
+      gbIndustryCode: formal?.gbIndustryCode || s.gbIndustryCode || '',
+      gbIndustryName: formal?.gbIndustryName || s.gbIndustryName || '',
       bizType,
       isProject,
       template,
@@ -202,6 +204,7 @@ window.SUPPLEMENT_FIELDS = {
     return `
       <div class="form-item"><label>客户名称</label><input id="f_customer_name" value="${s.customerName || ''}" ${basicDis}></div>
       <div class="form-item"><label>所属行业</label><input id="f_industry_major" value="${ctx.industryMajor}" ${basicDis}></div>
+      ${ctx.gbIndustryCode ? `<div class="form-item"><label>国民经济行业（4级）</label><input value="${ctx.gbIndustryCode} ${ctx.gbIndustryName || ''}" disabled></div>` : ''}
       <div class="form-item"><label>业务类型</label><input id="f_biz_type" value="${this.bizTypeLabel(ctx.bizType)}" ${basicDis}></div>
       ${ctx.isProject ? `<div class="form-item"><label>是否可提供项目信息</label>
         <select id="f_project_info_available" ${dis}>
@@ -712,7 +715,9 @@ window.SUPPLEMENT_FIELDS = {
     if (this.productSupported(supplement)) {
       this._mergeProductTab(rootEl, supplement, payload, tpl);
     }
-    this._mergeEconomyTab(rootEl, payload);
+    if (!(typeof isEconomyInterfaceReadonly === 'function' && isEconomyInterfaceReadonly(supplement))) {
+      this._mergeEconomyTab(rootEl, payload);
+    }
     this._mergeOtherTab(rootEl, supplement, payload);
     payload.activeMethodTab = qs('#methodTabs .tab.active', rootEl)?.dataset.tab
       || supplement.activeMethodTab
@@ -727,8 +732,11 @@ window.SUPPLEMENT_FIELDS = {
       this._mergeReportTabs(rootEl, supplement, payload, tpl);
     } else if (tab === 'energy') this._mergeEnergyTab(rootEl, supplement, payload, tpl);
     else if (tab === 'product') this._mergeProductTab(rootEl, supplement, payload, tpl);
-    else if (tab === 'economy') this._mergeEconomyTab(rootEl, payload);
-    else if (tab === 'other') this._mergeOtherTab(rootEl, supplement, payload);
+    else if (tab === 'economy') {
+      if (!(typeof isEconomyInterfaceReadonly === 'function' && isEconomyInterfaceReadonly(supplement))) {
+        this._mergeEconomyTab(rootEl, payload);
+      }
+    } else if (tab === 'other') this._mergeOtherTab(rootEl, supplement, payload);
     return payload;
   },
 

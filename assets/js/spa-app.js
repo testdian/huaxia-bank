@@ -14,15 +14,26 @@ const ROUTE_TITLES = {
   '#/supplement-fill': '在线收集填报',
   '#/approval-review': '数据审核详情',
   '#/approvals': '数据审核',
+  '#/ledger': '台账管理',
+  '#/ledger/detail': '排放计算清单',
   '#/factors': '排放因子库',
   '#/factors/new': '新增排放因子',
   '#/factors/edit': '编辑排放因子',
+  '#/factors/import': '导入因子',
   '#/calculation': '碳排放计算',
   '#/results': '核算结果查询',
   '#/reports': '生成报告',
   '#/interfaces': '接口管理',
   '#/carbon-accounts': '企业碳账户',
-  '#/carbon-account': '碳账户详情'
+  '#/carbon-account': '碳账户详情',
+  '#/method-config/params': '参数字段库',
+  '#/method-config/params/new': '新增参数',
+  '#/method-config/params/edit': '编辑参数',
+  '#/method-config/templates': '方法模板配置',
+  '#/method-config/templates/new': '新增方法模板',
+  '#/method-config/templates/edit': '编辑方法模板',
+  '#/industry-config': '行业配置',
+  '#/permission-mgmt': '权限管理'
 };
 
 function syncRouteTaskContext() {
@@ -44,7 +55,14 @@ function route() {
   let hash = location.hash || getDefaultRouteForRole(roleKey);
   let base = hash.split('?')[0];
   if (!isRouteAllowedForRole(base, roleKey)) {
-    location.hash = getDefaultRouteForRole(roleKey);
+    const fallback = getDefaultRouteForRole(roleKey);
+    if (fallback !== base) {
+      location.hash = fallback;
+      return;
+    }
+  }
+  if (base === '#/method-config' || base === '#/method-config/guide' || base === '#/methods') {
+    location.hash = '#/method-config/templates';
     return;
   }
   if (base === '#/calculation') {
@@ -69,9 +87,37 @@ function route() {
   const fn = SPA_VIEWS[base] || SPA_VIEWS['#/tasks'];
   const root = document.getElementById('viewRoot');
   if (!root) return;
+  if (base === '#/supplement-fill') {
+    const sid = new URLSearchParams((location.hash.split('?')[1] || '')).get('id') || 'S002';
+    const s0 = Store.get().supplements.find(x => x.id === sid);
+    if (s0?.formalId) Store.syncSupplementInterfacePrefill(s0.taskId, s0.formalId);
+  }
   root.innerHTML = fn(ctx);
   bindPageEvents(base, ctx);
   document.title = title + ' - 华夏银行投融资碳核算';
+}
+
+function bindParamFormFormatPanels() {
+  const form = qs('#paramForm');
+  if (!form) return;
+  const sync = () => {
+    const fmt = form.querySelector('[name="format"]:checked')?.value || 'number';
+    form.querySelectorAll('[data-format-panel]').forEach(el => {
+      el.hidden = el.dataset.formatPanel !== fmt;
+    });
+    const numType = form.querySelector('[name="numberUnitType"]:checked')?.value;
+    const optType = form.querySelector('[name="optionUnitType"]:checked')?.value;
+    form.querySelectorAll('[data-unit-field="number"]').forEach(el => {
+      el.hidden = numType === 'none';
+    });
+    form.querySelectorAll('[data-unit-field="option"]').forEach(el => {
+      el.hidden = optType === 'none';
+    });
+  };
+  form.addEventListener('change', e => {
+    if (['format', 'numberUnitType', 'optionUnitType'].includes(e.target.name)) sync();
+  });
+  sync();
 }
 
 function bindPageEvents(base, ctx) {
@@ -103,20 +149,24 @@ function bindPageEvents(base, ctx) {
 
   if (base === '#/task-create') {
     bindTaskIndustryScopeToggle();
-    bindTaskInitiatorToggle();
+    bindTaskOrgScopeToggle();
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskBtn');
     if (btn) btn.onclick = () => {
       const f = document.getElementById('taskForm');
-      if (!f.reportValidity()) return;
+      if (!validateTaskForm(f)) return;
       const payload = readTaskFormPayload(f);
-      if (payload.subjectIndustryScope === '自定义' && !payload.industryCustomCodes.length) {
-        toast('所属行业范围为自定义时，请至少选择一项行业', 'warning');
+      if (!payload.investIndustryCodes?.length) {
+        toast('投向行业范围请至少选择一项行业', 'warning');
         return;
       }
-      if (payload.investIndustryScope === '自定义' && !payload.investIndustryCustomCodes.length) {
-        toast('投向行业范围为自定义时，请至少选择一项行业', 'warning');
+      if (!payload.industryCodes?.length) {
+        toast('所属行业范围请至少选择一项行业', 'warning');
+        return;
+      }
+      if (!payload.branches.length) {
+        toast('组织范围请至少选择全行或一个一级分行', 'warning');
         return;
       }
       const id = 'T' + Date.now();
@@ -124,7 +174,6 @@ function bindPageEvents(base, ctx) {
         id,
         ...payload,
         balanceThreshold: 500, accountingPeriod: '自然年度',
-        branches: ['北京分行', '上海分行'],
         status: 'running', progress: 10, candidateCount: 0, formalCount: 0,
         supplementDone: 0, supplementTotal: 0, approvalStatus: 'none',
         syncedFromInterface: false,
@@ -139,21 +188,25 @@ function bindPageEvents(base, ctx) {
 
   if (base === '#/task-edit') {
     bindTaskIndustryScopeToggle();
-    bindTaskInitiatorToggle();
+    bindTaskOrgScopeToggle();
     bindTaskYearStepper(qs('#viewRoot'));
 
     const btn = document.getElementById('saveTaskEditBtn');
     if (btn) btn.onclick = () => {
       const f = document.getElementById('taskForm');
-      if (!f.reportValidity()) return;
+      if (!validateTaskForm(f)) return;
       const taskId = f.dataset.taskId;
       const payload = readTaskFormPayload(f);
-      if (payload.subjectIndustryScope === '自定义' && !payload.industryCustomCodes.length) {
-        toast('所属行业范围为自定义时，请至少选择一项行业', 'warning');
+      if (!payload.investIndustryCodes?.length) {
+        toast('投向行业范围请至少选择一项行业', 'warning');
         return;
       }
-      if (payload.investIndustryScope === '自定义' && !payload.investIndustryCustomCodes.length) {
-        toast('投向行业范围为自定义时，请至少选择一项行业', 'warning');
+      if (!payload.industryCodes?.length) {
+        toast('所属行业范围请至少选择一项行业', 'warning');
+        return;
+      }
+      if (!payload.branches.length) {
+        toast('组织范围请至少选择全行或一个一级分行', 'warning');
         return;
       }
       Store.updateTask(taskId, payload);
@@ -299,13 +352,40 @@ function bindPageEvents(base, ctx) {
     });
   }
 
+  if (base === '#/approvals') {
+    qs('#approvalFilterBtn')?.addEventListener('click', () => {
+      saveApprovalFilters(taskId, readApprovalFilterInputs());
+      setListPage('approvals', 1);
+      route();
+    });
+    qs('#approvalFilterResetBtn')?.addEventListener('click', () => {
+      saveApprovalFilters(taskId, {});
+      setListPage('approvals', 1);
+      route();
+    });
+  }
+
+  if (base === '#/manager-tasks') {
+    qs('#managerTaskFilterBtn')?.addEventListener('click', () => {
+      saveManagerTaskFilters(taskId, readManagerTaskFilterInputs());
+      setListPage('manager_tasks_' + taskId, 1);
+      route();
+    });
+    qs('#managerTaskFilterResetBtn')?.addEventListener('click', () => {
+      saveManagerTaskFilters(taskId, {});
+      setListPage('manager_tasks_' + taskId, 1);
+      route();
+    });
+  }
+
   if (base === '#/data-collect') {
     if (!viewOnly) {
     qs('#dataCollectFilterBtn')?.addEventListener('click', () => {
       saveDataCollectFilters(taskId, {
         keyword: qs('#dcf_keyword')?.value || '',
         accountingMethod: qs('#dcf_accountingMethod')?.value || '',
-        status: qs('#dcf_status')?.value || ''
+        collectStatus: qs('#dcf_collect_status')?.value || '',
+        auditStatus: qs('#dcf_audit_status')?.value || ''
       });
       route();
     });
@@ -355,15 +435,16 @@ function bindPageEvents(base, ctx) {
     });
 
     qs('#fetchInterfaceDataBtn')?.addEventListener('click', () => {
-      const pendingGelanIds = Store.getFormalList(taskId)
+      const d = Store.get();
+      const confirmed = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
+      const pendingGelanIds = confirmed
         .filter(f =>
-          f.status === 'confirmed'
-          && Store.getFormalEntityEmission(taskId, f.id) == null
-          && isFormalGelanEligible(f, taskId)
+          !Store._formalHasEntityEmission(d, taskId, f)
+          && isFormalGelanEligible(f, taskId, d)
         )
         .map(f => f.id);
-      const economyIds = Store.getFormalList(taskId)
-        .filter(f => isFormalEconomyDirectEligible(f, taskId))
+      const economyIds = confirmed
+        .filter(f => isFormalEconomyDirectEligible(f, taskId, d))
         .map(f => f.id);
       if (!pendingGelanIds.length && !economyIds.length) {
         const hint = describeEconomyDirectEmptyOutcome(taskId);
@@ -499,9 +580,17 @@ function bindPageEvents(base, ctx) {
     bindSupplementPageTabs(qs('#viewRoot'));
     bindSupplementMethodTabs(true, qs('#viewRoot'));
     const approvalId = qs('#approvalReviewId')?.value;
+    const saveAuditAdjustIfPresent = () => {
+      const panel = qs('#approvalAuditAdjustPanel', qs('#viewRoot'));
+      const sid = panel?.dataset?.supplementId;
+      if (!sid || !qs('#auditSaveAdjustBtn', qs('#viewRoot'))) return;
+      Store.applyApprovalAuditAdjustments(sid, readApprovalAuditAdjustForm(qs('#viewRoot')));
+    };
+    bindApprovalAuditAdjustPanel(qs('#viewRoot'), qs('#approvalAuditAdjustPanel')?.dataset?.supplementId);
     const finishReview = (approved, rejectReason, extra) => {
       const approval = (Store.get().approvals || []).find(a => a.id === approvalId);
       if (!approval) return;
+      if (approved) saveAuditAdjustIfPresent();
       Store.resolveApproval(approvalId, approved, rejectReason, extra);
       const tid = approval.taskId || Store.get().currentTaskId;
       if (approved && approval.docType === 'supplement') {
@@ -535,7 +624,8 @@ function bindPageEvents(base, ctx) {
       openApprovalActionConfirm('reject', finishReview);
     });
     qs('#approvalLocalFixBtn')?.addEventListener('click', () => {
-      toast('已标记为待本级修正，分行绿金岗可直接修改后再次提交审核', 'success');
+      saveAuditAdjustIfPresent();
+      toast('审核调整已保存，可继续在本级修正归属行业与排放因子', 'success');
     });
   }
 
@@ -606,9 +696,10 @@ function bindPageEvents(base, ctx) {
 
   if (base === '#/carbon-account') {
     const caSupplementRoot = qs('.ca-profile-supplement');
-    if (caSupplementRoot && qs('#caProfileForm')) {
-      bindSupplementMethodTabs(false, caSupplementRoot);
-      SUPPLEMENT_FIELDS.bindReportAttachmentRule(caSupplementRoot, false);
+    if (caSupplementRoot) {
+      bindSupplementMethodTabs(!!caSupplementRoot.classList.contains('is-readonly'), caSupplementRoot);
+      const isCaEdit = !!qs('#caProfileForm');
+      SUPPLEMENT_FIELDS.bindReportAttachmentRule(caSupplementRoot, !isCaEdit);
     }
     const navigateCaAccountView = (accountId, year, sub, tab) => {
       const p = new URLSearchParams({ id: accountId, tab: tab || 'profile' });
@@ -699,6 +790,80 @@ function bindPageEvents(base, ctx) {
     });
   }
 
+  if (base === '#/industry-config') {
+    qs('#icImportBtn')?.addEventListener('click', () => {
+      const cfg = Store.getIndustryConfig();
+      const msg = cfg.imported
+        ? '重新导入将覆盖当前全部行业列表（含标识设置），是否继续？'
+        : '将从 GB/T 4754 导入全部四级行业，并自动标识人行八大高碳与我行主要行业，是否继续？';
+      if (!confirm(msg)) return;
+      const r = Store.importIndustryConfigFromGb4754();
+      toast(r.ok ? `已导入 ${r.count} 条四级行业分类` : (r.message || '导入失败'), r.ok ? 'success' : 'warning');
+      route();
+    });
+    qs('#icAddBtn')?.addEventListener('click', () => {
+      IndustryConfig.openEditModal(null, (payload) => {
+        const added = Store.addIndustryConfigRow(payload);
+        if (!added) {
+          toast('新增失败，行业代码可能已存在', 'warning');
+          return;
+        }
+        hideModal('reviewModal');
+        toast('已新增行业', 'success');
+        route();
+      });
+    });
+    qs('#icf_search')?.addEventListener('click', () => {
+      saveIndustryConfigFilters(readIndustryConfigFilterInputs());
+      setListPage('industry_config', 1);
+      route();
+    });
+    qs('#icf_reset')?.addEventListener('click', () => {
+      saveIndustryConfigFilters({});
+      setListPage('industry_config', 1);
+      route();
+    });
+    qsa('.ic-edit-btn').forEach(btn => {
+      btn.onclick = () => {
+        const row = Store.getIndustryConfig().rows.find(r => r.id === btn.dataset.id);
+        if (!row) return;
+        IndustryConfig.openEditModal(row, (payload, id) => {
+          if (!Store.updateIndustryConfigRow(id, payload)) {
+            toast('保存失败', 'warning');
+            return;
+          }
+          hideModal('reviewModal');
+          toast('已保存', 'success');
+          route();
+        });
+      };
+    });
+    qsa('.ic-del-btn').forEach(btn => {
+      btn.onclick = () => {
+        if (!confirm('确定删除该行业分类？')) return;
+        if (Store.deleteIndustryConfigRow(btn.dataset.id)) {
+          toast('已删除', 'success');
+          route();
+        }
+      };
+    });
+  }
+
+  if (base === '#/permission-mgmt') {
+    qs('#menuPermSaveBtn')?.addEventListener('click', () => {
+      const next = MenuPermissions.readPanelSelections(document);
+      MenuPermissions.saveVisibility(next);
+      toast('菜单权限已保存', 'success');
+      route();
+    });
+    qs('#menuPermResetBtn')?.addEventListener('click', () => {
+      if (!confirm('恢复为默认菜单配置？（基础配置默认不展示）')) return;
+      MenuPermissions.resetVisibility();
+      toast('已恢复默认', 'success');
+      route();
+    });
+  }
+
   if (base === '#/factors') {
     qs('#ff_search')?.addEventListener('click', () => {
       const f = readFactorFilterInputsFromDom();
@@ -711,23 +876,9 @@ function bindPageEvents(base, ctx) {
       setListPage('factors', 1);
       route();
     });
-    qs('#copyFactorYearBtn')?.addEventListener('click', () => {
-      const sourceYear = prompt('复制来源年度', String(new Date().getFullYear() - 1));
-      if (!sourceYear) return;
-      const targetYear = prompt('目标年度', String(new Date().getFullYear()));
-      if (!targetYear) return;
-      const n = Store.copyFactorsByYear(sourceYear.trim(), targetYear.trim());
-      toast(n ? `已为 ${n} 个因子新增 ${targetYear} 年度版本` : '未新增任何版本（目标年度可能已存在）', n ? 'success' : 'warning');
-      route();
-    });
-    qsa('.factor-add-version-btn').forEach(btn => {
-      btn.onclick = () => {
-        location.hash = '#/factors/new?copy=' + encodeURIComponent(btn.dataset.id) + '&mode=version';
-      };
-    });
     qsa('.factor-del-group-btn').forEach(btn => {
       btn.onclick = () => {
-        if (!confirm('确定删除该自定义因子的全部版本？')) return;
+        if (!confirm('确定删除该自定义因子？')) return;
         const key = decodeURIComponent(btn.dataset.groupKey || '');
         if (Store.deleteFactorGroup(key)) {
           toast('已删除', 'success');
@@ -739,7 +890,7 @@ function bindPageEvents(base, ctx) {
       btn.onclick = () => {
         const id = Store.copyFactorAsCustom(btn.dataset.id);
         if (id) {
-          toast('已复制为自定义因子', 'success');
+          toast('已复制因子', 'success');
           location.hash = '#/factors/edit?id=' + encodeURIComponent(id);
         } else {
           toast('复制失败', 'warning');
@@ -767,6 +918,39 @@ function bindPageEvents(base, ctx) {
     });
   }
 
+  if (base === '#/factors/import') {
+    paginationHook = 'factor_import_history';
+    qs('#factorImportDownloadBtn')?.addEventListener('click', () => downloadFactorImportTemplate());
+    qs('#factorImportUploadBtn')?.addEventListener('click', () => qs('#factorImportFile')?.click());
+    qs('#factorImportFile')?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) {
+        toast('文件大小不能超过 5M', 'warning');
+        e.target.value = '';
+        return;
+      }
+      handleFactorImportFile(file, { stayOnPage: true }).finally(() => { e.target.value = ''; });
+    });
+    qsa('.factor-import-err-btn').forEach(btn => {
+      btn.onclick = () => {
+        const rec = Store.getFactorImportRecord(btn.dataset.id);
+        if (!rec?.errorReport) {
+          toast('暂无异常明细', 'warning');
+          return;
+        }
+        if (!ensureReviewModal()) return;
+        qs('#reviewModalTitle').textContent = '异常数据 · ' + (rec.fileName || '');
+        qs('#reviewModalBody').innerHTML = `<pre class="factor-import-error-report">${rec.errorReport.replace(/</g, '&lt;')}</pre>`;
+        qs('#reviewModalFooter').innerHTML = `<button type="button" class="btn" onclick="hideModal('reviewModal')">关闭</button>`;
+        showModal('reviewModal');
+      };
+    });
+    qsa('.factor-import-src-btn').forEach(btn => {
+      btn.onclick = () => toast('演示环境未保留源文件，请重新上传', 'warning');
+    });
+  }
+
   if (base === '#/factors/new' || base === '#/factors/edit') {
     bindFactorForm(base);
   }
@@ -788,18 +972,180 @@ function bindPageEvents(base, ctx) {
     });
   }
 
+  if (base === '#/ledger') {
+    qs('#ledgerFilterBtn')?.addEventListener('click', () => {
+      saveLedgerFilters({
+        taskName: qs('#lf_task_name')?.value || '',
+        year: qs('#lf_year')?.value || '',
+        branch: getLedgerFilters().branch || '',
+        handlingBranch: getLedgerFilters().handlingBranch || '',
+        customer: getLedgerFilters().customer || ''
+      });
+      setListPage('ledger_tasks', 1);
+      route();
+    });
+    qs('#ledgerFilterResetBtn')?.addEventListener('click', () => {
+      saveLedgerFilters({});
+      setListPage('ledger_tasks', 1);
+      route();
+    });
+    qs('#ledgerExportBtn')?.addEventListener('click', () => {
+      const filters = getLedgerFilters();
+      const tasks = filterLedgerTasks(Store.get().tasks, filters, Store.get().currentRole);
+      if (!tasks.length) {
+        toast('没有可导出的台账数据', 'warning');
+        return;
+      }
+      exportLedgerDetailCsv(tasks, filters);
+      toast(`已导出 ${tasks.length} 个任务的排放计算清单`, 'success');
+    });
+  }
+
+  if (base === '#/ledger/detail') {
+    const taskId = new URLSearchParams((location.hash.split('?')[1] || '')).get('taskId') || ctx.task.id;
+    qs('#ledgerDetailFilterBtn')?.addEventListener('click', () => {
+      saveLedgerFilters({
+        branch: qs('#ldf_branch')?.value || '',
+        handlingBranch: qs('#ldf_handling')?.value || '',
+        customer: qs('#ldf_customer')?.value || '',
+        year: getLedgerFilters().year || ''
+      });
+      setListPage('ledger_detail_' + taskId, 1);
+      location.hash = '#/ledger/detail?taskId=' + encodeURIComponent(taskId);
+      route();
+    });
+    qs('#ledgerDetailFilterResetBtn')?.addEventListener('click', () => {
+      saveLedgerFilters({ year: getLedgerFilters().year || '' });
+      setListPage('ledger_detail_' + taskId, 1);
+      location.hash = '#/ledger/detail?taskId=' + encodeURIComponent(taskId);
+      route();
+    });
+    qs('#ledgerDetailExportBtn')?.addEventListener('click', () => {
+      const t = Store.getTask(taskId);
+      const filters = getLedgerFilters();
+      const rows = getLedgerDetailRows(taskId, filters);
+      if (!rows.length) {
+        toast('当前筛选无数据可导出', 'warning');
+        return;
+      }
+      exportLedgerDetailCsv(t ? [t] : [], filters);
+      toast('已导出排放计算清单', 'success');
+    });
+  }
+
+  if (base === '#/method-config/params') {
+    qs('#viewRoot')?.addEventListener('click', e => {
+      const btn = e.target.closest('[data-param-delete]');
+      if (!btn) return;
+      const id = btn.dataset.paramDelete;
+      if (!id) return;
+      if (!confirm(`确定删除参数「${id}」？\n\n若已被方法模板引用将无法删除。`)) return;
+      const result = METHOD_CONFIG.deleteParam(id);
+      if (!result.ok) {
+        alert(result.message);
+        return;
+      }
+      toast(result.message, 'success');
+      route();
+    });
+  }
+
+  if (base === '#/method-config/params/new' || base === '#/method-config/params/edit') {
+    bindParamFormFormatPanels();
+    qs('#paramSaveBtn')?.addEventListener('click', () => {
+      const f = qs('#paramForm');
+      if (f && !f.reportValidity()) return;
+      const payload = METHOD_CONFIG.readParamForm(f);
+      const isNew = base === '#/method-config/params/new';
+      const result = METHOD_CONFIG.saveParam(payload, isNew);
+      if (!result.ok) {
+        toast(result.message, 'error');
+        return;
+      }
+      toast(result.message, 'success');
+      location.hash = '#/method-config/params';
+    });
+  }
+
+  if (base === '#/method-config/templates/new') {
+    const syncTplCreateMethods = (methods) => {
+      const sel = qs('#tplCreateMethod');
+      if (!sel) return;
+      const list = (methods && methods.length) ? methods : (METHOD_CONFIG.DEFAULT_INDUSTRY_METHODS || ['report', 'energy', 'product']);
+      sel.innerHTML = list.map(mid =>
+        `<option value="${mid}">${METHOD_CONFIG.methodLabel(mid)}</option>`
+      ).join('');
+    };
+    const syncTplCreateIndustryMode = () => {
+      const sel = qs('#tplCreateIndustry');
+      const wrap = qs('#tplCreateIndustryNewWrap');
+      const input = qs('#tplCreateIndustryNew');
+      const isNew = sel?.value === '__new__';
+      if (wrap) wrap.hidden = !isNew;
+      if (input) {
+        input.required = isNew;
+        if (!isNew) input.value = '';
+      }
+      if (isNew) {
+        syncTplCreateMethods(METHOD_CONFIG.DEFAULT_INDUSTRY_METHODS);
+      } else {
+        const opt = sel?.selectedOptions?.[0];
+        syncTplCreateMethods((opt?.dataset.methods || '').split(',').filter(Boolean));
+      }
+    };
+    qs('#tplCreateIndustry')?.addEventListener('change', syncTplCreateIndustryMode);
+    syncTplCreateIndustryMode();
+    qs('#tplCreateBtn')?.addEventListener('click', () => {
+      const form = qs('#tplCreateForm');
+      const industrySel = qs('#tplCreateIndustry');
+      const isNewIndustry = industrySel?.value === '__new__';
+      const industry = isNewIndustry
+        ? qs('#tplCreateIndustryNew')?.value?.trim()
+        : industrySel?.value;
+      if (!industry) {
+        toast(isNewIndustry ? '请填写新行业名称' : '请选择行业', 'warning');
+        return;
+      }
+      if (!form?.reportValidity()) return;
+      const fd = new FormData(form);
+      const result = METHOD_CONFIG.createTemplate({
+        industry,
+        bizType: fd.get('bizType'),
+        methodId: fd.get('methodId'),
+        copyFromId: (fd.get('copyFromId') || '').toString() || null,
+        isNewIndustry
+      });
+      if (!result.ok) {
+        toast(result.message, result.id ? 'warning' : 'error');
+        if (result.id) {
+          setTimeout(() => {
+            location.hash = `#/method-config/templates/edit?id=${encodeURIComponent(result.id)}&step=1`;
+          }, 600);
+        }
+        return;
+      }
+      toast('模板已创建', 'success');
+      location.hash = `#/method-config/templates/edit?id=${encodeURIComponent(result.id)}&step=1`;
+    });
+  }
+
+  if (base === '#/method-config/templates/edit') {
+    MethodConfigEditor.bindTemplateEdit();
+  }
+
   bindListPagination(paginationHook);
 }
 
 function bindFactorForm(base) {
   const form = qs('#factorForm');
   if (!form) return;
+  bindFactorGbIndustrySearch(form.closest('.card-body') || qs('#viewRoot'));
 
   qs('#factorCopyBuiltinBtn')?.addEventListener('click', () => {
     const id = new URLSearchParams((location.hash.split('?')[1] || '')).get('id');
     const newId = Store.copyFactorAsCustom(id);
     if (newId) {
-      toast('已复制为自定义因子', 'success');
+      toast('已复制因子', 'success');
       location.hash = '#/factors/edit?id=' + encodeURIComponent(newId);
     }
   });
@@ -829,11 +1175,13 @@ function bindFactorForm(base) {
       toast('请填写来源说明', 'warning');
       return;
     }
-    if (payload.methodId === 'economy') {
-      const gbSel = form.querySelector('[name=gbCode]');
-      if (gbSel?.value === '__custom__') {
-        payload.gbCode = form.querySelector('[name=gbIndustryName]')?.value?.trim() || '';
-      }
+    if (payload.methodId === 'economy' && !payload.gbCode) {
+      toast('请选择 GB/T 4754 四级行业', 'warning');
+      return;
+    }
+    if (!payload.industryMajor) {
+      toast('请选择行业大类', 'warning');
+      return;
     }
     const editId = form.dataset.factorId;
     const formMode = form.dataset.formMode || 'create';
@@ -844,9 +1192,9 @@ function bindFactorForm(base) {
       }
       toast('已保存', 'success');
     } else {
-      const added = Store.addFactor(payload, { mode: formMode === 'newVersion' ? 'newVersion' : 'create' });
+      const added = Store.addFactor(payload);
       if (!added) {
-        toast(formMode === 'newVersion' ? '该年度版本已存在或保存失败' : '已存在相同因子，请使用「新增版本」', 'warning');
+        toast('已存在相同因子，请直接编辑或调整口径/名称', 'warning');
         return;
       }
       toast('已新增自定义因子', 'success');

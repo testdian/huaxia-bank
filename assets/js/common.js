@@ -43,17 +43,54 @@ const MANAGER_ALLOWED_ROUTES = ['#/branch-board', '#/manager-tasks', '#/suppleme
 const MANAGER_ONLY_ROUTES = MANAGER_ALLOWED_ROUTES;
 /** 企业碳账户：仅总行、分行 */
 const CARBON_ACCOUNT_ROUTES = ['#/carbon-accounts', '#/carbon-account'];
+const LEDGER_ROUTES = ['#/ledger', '#/ledger/detail'];
+/** 计算方法配置：仅总行 */
+const METHOD_CONFIG_ROUTE_PREFIXES = ['#/method-config'];
+/** 行业配置：仅总行 */
+const INDUSTRY_CONFIG_ROUTES = ['#/industry-config'];
+
+function isIndustryConfigRoute(routeBase) {
+  return INDUSTRY_CONFIG_ROUTES.includes(routeBase);
+}
+
+function isMethodConfigRoute(routeBase) {
+  return routeBase.startsWith('#/method-config');
+}
+
+/** 权限管理：仅总行 */
+function isPermissionMgmtRoute(routeBase) {
+  return routeBase === '#/permission-mgmt';
+}
 
 function isRouteAllowedForRole(routeBase, roleKey) {
   if (roleKey === 'manager') return MANAGER_ALLOWED_ROUTES.includes(routeBase);
+  if (isPermissionMgmtRoute(routeBase)) return roleKey === 'hq';
+  if (isMethodConfigRoute(routeBase)) return roleKey === 'hq';
+  if (isIndustryConfigRoute(routeBase)) return roleKey === 'hq';
   if (CARBON_ACCOUNT_ROUTES.includes(routeBase)) {
     return roleKey === 'hq' || roleKey === 'branch';
   }
-  return !MANAGER_ONLY_ROUTES.includes(routeBase);
+  if (LEDGER_ROUTES.includes(routeBase)) {
+    return roleKey === 'hq' || roleKey === 'branch';
+  }
+  if (MANAGER_ONLY_ROUTES.includes(routeBase)) return false;
+  return true;
 }
 
+/** 侧栏可见菜单中的首个默认入口（权限仅控制展示，不拦截路由） */
 function getDefaultRouteForRole(roleKey) {
-  return roleKey === 'manager' ? '#/manager-tasks' : '#/tasks';
+  if (roleKey === 'manager') return '#/manager-tasks';
+  if (typeof SPA_NAV !== 'undefined' && typeof MenuPermissions !== 'undefined') {
+    const items = typeof getNavItemsForRole === 'function'
+      ? getNavItemsForRole(roleKey)
+      : SPA_NAV.filter(i => i.hash !== '#/branch-board');
+    const first = items.find(i => i?.hash && MenuPermissions.isVisible(i.id, roleKey));
+    if (first) return first.hash;
+    if (roleKey === 'hq' && MenuPermissions.isVisible('permission-mgmt', roleKey)) {
+      return '#/permission-mgmt';
+    }
+  }
+  return '#/tasks';
 }
 
 function renderLayout(pageTitle, activeHref) {
@@ -493,9 +530,10 @@ function renderTaskYearField(value, options = {}) {
   </div>${renderTaskYearDatalist('taskYearFormList')}`;
 }
 
-function renderTaskYearFilterField(selected) {
+function renderTaskYearFilterField(selected, inputId) {
+  const id = inputId || 'tf_year';
   const val = selected != null && selected !== '' ? selected : '';
-  return `<div class="year-filter-field"><input type="number" id="tf_year" class="year-filter-input" list="taskYearFilterList"
+  return `<div class="year-filter-field"><input type="number" id="${id}" class="year-filter-input" list="taskYearFilterList"
     min="${TASK_YEAR_MIN}" max="${TASK_YEAR_MAX}" step="1" placeholder="全部" value="${val}">${renderTaskYearDatalist('taskYearFilterList')}</div>`;
 }
 
@@ -556,6 +594,162 @@ function normalizeTaskIndustryFields(task) {
   return task;
 }
 
+/** 一级分行名称（组织范围多选） */
+const TIER1_BRANCH_NAMES = [
+  '北京分行', '上海分行', '深圳分行', '杭州分行', '南京分行', '成都分行', '广州分行', '武汉分行',
+  '西安分行', '重庆分行', '天津分行', '苏州分行', '青岛分行', '大连分行', '厦门分行', '宁波分行',
+  '长沙分行', '郑州分行', '济南分行', '合肥分行', '福州分行', '石家庄分行', '哈尔滨分行', '长春分行',
+  '南昌分行', '昆明分行', '贵阳分行', '南宁分行', '海口分行', '兰州分行'
+];
+
+function normalizeTaskOrgScopeFields(task) {
+  if (!task) return task;
+  const all = TIER1_BRANCH_NAMES;
+  if (task.branches?.length) {
+    const uniq = [...new Set(task.branches)].filter(b => all.includes(b));
+    task.branches = uniq.length ? uniq : [...all];
+    if (!task.orgScope) {
+      task.orgScope = task.branches.length >= all.length ? '全行' : task.branches.join('、');
+    }
+    return task;
+  }
+  if (!task.orgScope || task.orgScope === '全行') {
+    task.orgScope = '全行';
+    task.branches = [...all];
+  } else if (String(task.orgScope).includes('、')) {
+    task.branches = String(task.orgScope).split('、').filter(b => all.includes(b));
+    if (!task.branches.length) task.branches = [...all];
+  } else if (all.includes(task.orgScope)) {
+    task.branches = [task.orgScope];
+  } else {
+    task.orgScope = '全行';
+    task.branches = [...all];
+  }
+  return task;
+}
+
+function isTaskOrgScopeWholeBank(task) {
+  normalizeTaskOrgScopeFields(task);
+  return task.orgScope === '全行' || (task.branches?.length || 0) >= TIER1_BRANCH_NAMES.length;
+}
+
+function formatTaskOrgScopeDisplay(task) {
+  normalizeTaskOrgScopeFields(task);
+  if (isTaskOrgScopeWholeBank(task)) return '全行';
+  return (task.branches || []).join('、') || '全行';
+}
+
+function renderTaskOrgScopeField(task, options = {}) {
+  const { readonly = false, dis = '', showRequired = true } = options;
+  const labelFn = showRequired && !readonly ? fieldLabel : (text) => text;
+  const t = normalizeTaskOrgScopeFields({ ...(task || {}) });
+  const whole = isTaskOrgScopeWholeBank(t);
+  const selected = new Set(t.branches || []);
+  if (readonly) {
+    return `<div class="form-item full"><label>组织范围</label>
+      <input readonly value="${formatTaskOrgScopeDisplay(t)}"></div>`;
+  }
+  return `<div class="form-item full"><label>${labelFn('组织范围')}</label>
+    <div class="filter-checkbox-group task-org-scope-group" id="taskOrgScopeGroup">
+      <label class="filter-check task-org-scope-whole">
+        <input type="checkbox" name="orgScopeWhole" value="1" ${whole ? 'checked' : ''} ${dis}>
+        <span>全行</span>
+      </label>
+      ${TIER1_BRANCH_NAMES.map(b => `
+      <label class="filter-check">
+        <input type="checkbox" name="orgScopeBranch" value="${b}"
+          ${selected.has(b) || whole ? 'checked' : ''}
+          ${dis || whole ? 'disabled' : ''}>
+        <span>${b}</span>
+      </label>`).join('')}
+    </div></div>`;
+}
+
+function readTaskOrgScopeFromForm(form) {
+  const whole = form.querySelector('[name="orgScopeWhole"]')?.checked;
+  const all = TIER1_BRANCH_NAMES;
+  if (whole) return { orgScope: '全行', branches: [...all] };
+  const branches = qsa('input[name="orgScopeBranch"]', form)
+    .filter(el => !el.disabled && el.checked)
+    .map(el => el.value);
+  return { orgScope: branches.length ? branches.join('、') : '', branches };
+}
+
+function bindTaskOrgScopeToggle() {
+  const group = qs('#taskOrgScopeGroup');
+  if (!group || group.dataset.bound === '1') return;
+  group.dataset.bound = '1';
+  const wholeCb = qs('[name="orgScopeWhole"]', group);
+  const branchCbs = qsa('[name="orgScopeBranch"]', group);
+  if (!wholeCb || !branchCbs.length) return;
+
+  const setWholeMode = (on) => {
+    wholeCb.checked = !!on;
+    branchCbs.forEach(cb => {
+      cb.checked = !!on;
+      cb.disabled = !!on;
+    });
+  };
+
+  const selectExclusiveBranch = (targetCb) => {
+    wholeCb.checked = false;
+    branchCbs.forEach(b => {
+      b.disabled = false;
+      b.checked = b === targetCb;
+    });
+  };
+
+  wholeCb.addEventListener('change', () => {
+    if (wholeCb.checked) setWholeMode(true);
+    else branchCbs.forEach(cb => { cb.disabled = false; cb.checked = false; });
+  });
+
+  branchCbs.forEach(cb => cb.addEventListener('change', () => {
+    if (wholeCb.checked) {
+      selectExclusiveBranch(cb);
+      return;
+    }
+    if (branchCbs.every(b => b.checked)) setWholeMode(true);
+    else wholeCb.checked = false;
+  }));
+
+  // 全行模式下分行复选框为 disabled，点击标签无反应；改为切换为仅选该分行
+  group.addEventListener('click', (e) => {
+    const label = e.target.closest('.filter-check:not(.task-org-scope-whole)');
+    if (!label) return;
+    const cb = label.querySelector('input[name="orgScopeBranch"]');
+    if (!cb || !cb.disabled) return;
+    e.preventDefault();
+    selectExclusiveBranch(cb);
+  });
+}
+
+function validateTaskForm(form) {
+  if (!form) return false;
+  const name = form.name?.value?.trim();
+  if (!name) {
+    toast('请填写任务名称', 'warning');
+    form.name?.focus();
+    return false;
+  }
+  const year = clampTaskYear(form.year?.value);
+  if (!form.year?.value && form.year?.readOnly !== true) {
+    toast('请填写核算年度', 'warning');
+    form.year?.focus();
+    return false;
+  }
+  if (!form.deadline?.value) {
+    toast('请填写数据收集截止日期', 'warning');
+    form.deadline?.focus();
+    return false;
+  }
+  if (!form.balanceRule?.value) {
+    toast('请选择余额口径', 'warning');
+    return false;
+  }
+  return true;
+}
+
 function normalizeIndustryScopeValue(scope) {
   if (scope === '八大+扩展') return INDUSTRY_SCOPE_KEY_EXTENDED;
   return scope;
@@ -580,7 +774,7 @@ function renderIndustryScopeRadios(name, selected, options = {}) {
   return `<div class="industry-scope-radios" id="${groupId}" data-scope-name="${name}">
     ${opts.map((o, i) => `
       <label class="industry-scope-radio">
-        <input type="radio" name="${name}" value="${o.value}" ${scope === o.value ? 'checked' : ''} ${dis} ${!readonly && i === 0 ? 'required' : ''}>
+        <input type="radio" name="${name}" value="${o.value}" ${scope === o.value ? 'checked' : ''} ${dis}>
         <span>${o.label}</span>
       </label>`).join('')}
   </div>`;
@@ -616,6 +810,231 @@ function filterTasks(tasks, filters) {
   });
 }
 
+const LEDGER_FILTER_KEY = 'ledger_list_filters';
+
+function getLedgerFilters() {
+  try {
+    return JSON.parse(sessionStorage.getItem(LEDGER_FILTER_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveLedgerFilters(filters) {
+  sessionStorage.setItem(LEDGER_FILTER_KEY, JSON.stringify(filters || {}));
+}
+
+function getLedgerBranchOptions() {
+  const set = new Set(['北京分行', '上海分行', '深圳分行', '南京分行', '杭州分行', '成都分行', '广州分行', '武汉分行']);
+  (Store.get().formalList || []).forEach(f => {
+    if (f.tier1Branch) set.add(f.tier1Branch);
+    if (f.branch) set.add(f.branch);
+  });
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+function renderLedgerBranchFilterSelect(selectId, selected) {
+  const val = selected || '';
+  const opts = getLedgerBranchOptions().map(b =>
+    `<option value="${escapeHtml(b)}" ${val === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+  ).join('');
+  return `<select id="${selectId}"><option value="">全部</option>${opts}</select>`;
+}
+
+function getLedgerHandlingBranchOptions() {
+  const set = new Set();
+  const d = Store.get();
+  (d.formalList || []).forEach(f => {
+    if (f.handlingBranch) set.add(f.handlingBranch);
+  });
+  (d.candidates || []).forEach(c => {
+    if (c.handlingBranch) set.add(c.handlingBranch);
+  });
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+function renderLedgerHandlingBranchFilterSelect(selectId, selected) {
+  const val = selected || '';
+  const opts = getLedgerHandlingBranchOptions().map(b =>
+    `<option value="${escapeHtml(b)}" ${val === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+  ).join('');
+  return `<select id="${selectId}"><option value="">全部</option>${opts}</select>`;
+}
+
+function taskHasLedgerData(taskId) {
+  const formals = Store.getFormalList(taskId).filter(f => f.status === 'confirmed');
+  if (formals.length) return true;
+  return Store.getCalculations(taskId).some(c => c.entityEmission != null || c.attributedEmission != null);
+}
+
+function filterLedgerDetailRows(rows, filters, taskId) {
+  const f = filters || {};
+  return rows.filter(({ f: formal }) => {
+    const row = typeof formalLedgerRow === 'function' ? formalLedgerRow(formal, taskId) : formal;
+    if (f.branch) {
+      const b = f.branch.trim();
+      const tier1 = row.tier1Branch || row.branch || '';
+      if (!tier1.includes(b)) return false;
+    }
+    if (f.handlingBranch) {
+      const h = f.handlingBranch.trim();
+      if (!(row.handlingBranch || '').includes(h)) return false;
+    }
+    if (f.customer) {
+      const kw = f.customer.trim().toLowerCase();
+      if (!(row.customerName || '').toLowerCase().includes(kw)) return false;
+    }
+    return true;
+  });
+}
+
+function getLedgerDetailRows(taskId, filters) {
+  const calcs = Store.getCalculations(taskId);
+  const rows = Store.getFormalList(taskId)
+    .filter(f => f.status === 'confirmed')
+    .map(f => ({ f, calc: calcs.find(c => c.formalId === f.id) }));
+  return filterLedgerDetailRows(rows, filters, taskId);
+}
+
+function filterLedgerTasks(tasks, filters, roleKey) {
+  const f = { ...(filters || {}) };
+  if (roleKey === 'branch' && !f.branch) {
+    f.branch = ROLES.branch?.branch || '';
+  }
+  return (tasks || []).filter(t => {
+    normalizeTaskIndustryFields(t);
+    if (!taskHasLedgerData(t.id)) return false;
+    if (f.year && String(t.year) !== String(f.year)) return false;
+    if (f.taskName && !(t.name || '').toLowerCase().includes(f.taskName.trim().toLowerCase())) return false;
+    if (f.branch) {
+      const rows = getLedgerDetailRows(t.id, { branch: f.branch });
+      if (!rows.length) return false;
+    }
+    return true;
+  });
+}
+
+function ledgerCalculationRowValues(f, calc, taskId) {
+  const c = typeof formalLedgerRow === 'function' ? formalLedgerRow(f, taskId) : f;
+  const emissions = resolveCalculationEmissionDisplay(f, calc, taskId);
+  return [
+    candidateTier1Branch(c),
+    c.handlingBranch || '-',
+    c.customerName || '-',
+    candidateCustomerScale(c),
+    candidateProductType(c),
+    candidateAccountingTypeLabel(c, { finalizeAccountingType: true }),
+    c.loanAccount || '-',
+    c.disbursementDate || '-',
+    candidateBorrowerType(c),
+    candidateIndustryLabel(c),
+    candidateInvestIndustryLabel(c),
+    formatLedgerAmountYuan(c.avgMonthlyBalance),
+    formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue),
+    candidateAvgTotalAssets(c),
+    c.manager || '-',
+    formatCalculationEmissionCell(emissions.legalEntityEmission),
+    formatCalculationEmissionCell(emissions.projectEntityEmission),
+    calc?.attributedEmission != null ? formatNum(calc.attributedEmission) : '—',
+    calc?.qualityGrade || '—'
+  ];
+}
+
+const LEDGER_SUMMARY_EXPORT_HEADERS = ['任务名称', '核算年度', '投向行业范围', '所属行业范围', '台账笔数'];
+const LEDGER_DETAIL_EXPORT_HEADERS = [
+  '任务名称', '核算年度',
+  '一级分行', '经办行', '客户名称', '客户规模', '信贷品种', '业务种类', '贷款账号',
+  '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
+  '月均贷款余额（元）', '年报营业收入（元）', '平均资产总额（元）', '主办客户经理',
+  '法人主体排放(tCO₂e)', '项目主体排放(tCO₂e)', '归因排放(tCO₂e)', '质量等级'
+];
+
+function csvEscapeCell(v) {
+  const s = String(v ?? '');
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCsvFile(filename, headers, rowArrays) {
+  const lines = [headers.map(csvEscapeCell).join(',')];
+  rowArrays.forEach(r => lines.push(r.map(csvEscapeCell).join(',')));
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.replace(/[\\/:*?"<>|]/g, '_') + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportLedgerSummaryCsv(tasks) {
+  const rows = (tasks || []).map(t => {
+    normalizeTaskIndustryFields(t);
+    const count = getLedgerDetailRows(t.id, getLedgerFilters()).length;
+    return [
+      t.name,
+      t.year,
+      formatSingleIndustryScopeDisplay(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes),
+      formatSingleIndustryScopeDisplay(getTaskSubjectIndustryScope(t), t.industryCustomCodes),
+      count
+    ];
+  });
+  downloadCsvFile('投融资碳核算台账-任务汇总', LEDGER_SUMMARY_EXPORT_HEADERS, rows);
+}
+
+function exportLedgerDetailCsv(tasks, filters) {
+  const rows = [];
+  (tasks || []).forEach(t => {
+    getLedgerDetailRows(t.id, filters).forEach(({ f, calc }) => {
+      rows.push([t.name, t.year, ...ledgerCalculationRowValues(f, calc, t.id)]);
+    });
+  });
+  downloadCsvFile('投融资碳核算台账-排放计算清单', LEDGER_DETAIL_EXPORT_HEADERS, rows);
+}
+
+function renderIndustryScopeKindRadios(activeKind, readonly) {
+  const dis = readonly ? 'disabled' : '';
+  const kind = activeKind === 'subject' ? 'subject' : 'invest';
+  return `<div class="industry-scope-kind-radios" id="industryScopeKindGroup">
+    <label class="industry-scope-radio">
+      <input type="radio" name="industryScopeKind" value="invest" ${kind === 'invest' ? 'checked' : ''} ${dis}>
+      <span>投向行业范围</span>
+    </label>
+    <label class="industry-scope-radio">
+      <input type="radio" name="industryScopeKind" value="subject" ${kind === 'subject' ? 'checked' : ''} ${dis}>
+      <span>所属行业范围</span>
+    </label>
+  </div>`;
+}
+
+function renderTaskIndustryScopeBlock(kind, task, options) {
+  const { readonly = false, showRequired = true } = options;
+  const label = showRequired && !readonly ? fieldLabel : (text) => text;
+  const dis = readonly ? 'disabled' : '';
+  const isInvest = kind === 'invest';
+  const scope = isInvest ? getTaskInvestIndustryScope(task) : getTaskSubjectIndustryScope(task);
+  const customCodes = isInvest ? (task.investIndustryCustomCodes || []) : (task.industryCustomCodes || []);
+  const selected = customCodes.length ? customCodes : IndustryCascade.presetCodes(scope);
+  const scopeName = isInvest ? 'investIndustryScope' : 'subjectIndustryScope';
+  const groupId = isInvest ? 'investIndustryScopeGroup' : 'subjectIndustryScopeGroup';
+  const wrapId = isInvest ? 'investIndustryCascadeWrap' : 'subjectIndustryCascadeWrap';
+  const panelId = isInvest ? 'investIndustryCascadePanel' : 'subjectIndustryCascadePanel';
+  const countId = isInvest ? 'investIndustrySelectedCount' : 'subjectIndustrySelectedCount';
+  const summaryId = isInvest ? 'investIndustrySelectedSummary' : 'subjectIndustrySelectedSummary';
+  return `
+    <div class="form-item full"><label>${label('行业范围')}</label>
+      ${renderIndustryScopeRadios(scopeName, scope, { readonly, dis, groupId })}
+    </div>
+    <div class="form-item full" id="${wrapId}">
+      ${IndustryCascade.renderPanel(selected, readonly, {
+        wrapId: panelId,
+        countId,
+        summaryId
+      })}
+    </div>`;
+}
+
 function renderTaskFormFields(task, options = {}) {
   const { readonly = false, showRequired = true } = options;
   const t = task || {};
@@ -623,10 +1042,39 @@ function renderTaskFormFields(task, options = {}) {
   const dis = readonly ? 'disabled' : '';
   const label = showRequired && !readonly ? fieldLabel : (text) => text;
   normalizeTaskIndustryFields(t);
-  const subjectScope = getTaskSubjectIndustryScope(t);
-  const investScope = getTaskInvestIndustryScope(t);
-  const subjectCustomCodes = t.industryCustomCodes || [];
-  const investCustomCodes = t.investIndustryCustomCodes || [];
+  normalizeTaskOrgScopeFields(t);
+  const industryScopeFields = readonly
+    ? `
+    <div class="form-item full"><label>投向行业范围</label>
+      ${renderIndustryScopeRadios('investIndustryScope', getTaskInvestIndustryScope(t), { readonly, dis, groupId: 'investIndustryScopeGroup' })}
+    </div>
+    <div class="form-item full" id="investIndustryCascadeWrap">
+      ${IndustryCascade.renderPanel(
+        (t.investIndustryCustomCodes?.length ? t.investIndustryCustomCodes : IndustryCascade.presetCodes(getTaskInvestIndustryScope(t))),
+        true,
+        { wrapId: 'investIndustryCascadePanel', countId: 'investIndustrySelectedCount', summaryId: 'investIndustrySelectedSummary' }
+      )}
+    </div>
+    <div class="form-item full"><label>所属行业范围</label>
+      ${renderIndustryScopeRadios('subjectIndustryScope', getTaskSubjectIndustryScope(t), { readonly, dis, groupId: 'subjectIndustryScopeGroup' })}
+    </div>
+    <div class="form-item full" id="subjectIndustryCascadeWrap">
+      ${IndustryCascade.renderPanel(
+        (t.industryCustomCodes?.length ? t.industryCustomCodes : IndustryCascade.presetCodes(getTaskSubjectIndustryScope(t))),
+        true,
+        { wrapId: 'subjectIndustryCascadePanel', countId: 'subjectIndustrySelectedCount', summaryId: 'subjectIndustrySelectedSummary' }
+      )}
+    </div>`
+    : `
+    <div class="form-item full"><label>${label('数据行业范围')}</label>
+      ${renderIndustryScopeKindRadios('invest', false)}
+    </div>
+    <div id="investIndustryScopeBlock" class="task-industry-scope-block">
+      ${renderTaskIndustryScopeBlock('invest', t, { readonly, showRequired })}
+    </div>
+    <div id="subjectIndustryScopeBlock" class="task-industry-scope-block" style="display:none">
+      ${renderTaskIndustryScopeBlock('subject', t, { readonly, showRequired })}
+    </div>`;
   return `
     <div class="form-item"><label>${label('任务名称')}</label><input name="name" ${readonly ? '' : 'required'} value="${t.name || ''}" ${ro}></div>
     <div class="form-item"><label>${label('核算年度')}</label>
@@ -635,41 +1083,12 @@ function renderTaskFormFields(task, options = {}) {
         legacyReadonly: !readonly && isLegacyTaskYear(t.year)
       })}
     </div>
-    <div class="form-item full"><label>${label('投向行业范围')}</label>
-      ${renderIndustryScopeRadios('investIndustryScope', investScope, { readonly, dis, groupId: 'investIndustryScopeGroup' })}
-    </div>
-    <div class="form-item full" id="investIndustryCascadeWrap">
-      ${IndustryCascade.renderPanel(investCustomCodes, readonly || investScope !== '自定义', {
-        wrapId: 'investIndustryCascadePanel',
-        countId: 'investIndustrySelectedCount'
-      })}
-    </div>
-    <div class="form-item full"><label>${label('所属行业范围')}</label>
-      ${renderIndustryScopeRadios('subjectIndustryScope', subjectScope, { readonly, dis, groupId: 'subjectIndustryScopeGroup' })}
-    </div>
-    <div class="form-item full" id="subjectIndustryCascadeWrap">
-      ${IndustryCascade.renderPanel(subjectCustomCodes, readonly || subjectScope !== '自定义', {
-        wrapId: 'subjectIndustryCascadePanel',
-        countId: 'subjectIndustrySelectedCount'
-      })}
-    </div>
+    ${industryScopeFields}
+    ${renderTaskOrgScopeField(t, { readonly, dis, showRequired })}
     <div class="form-item"><label>${label('余额口径')}</label>
       <select name="balanceRule" ${readonly ? '' : 'required'} ${dis}>
         <option ${t.balanceRule === '月均余额' || !t.balanceRule ? 'selected' : ''}>月均余额</option>
         <option ${t.balanceRule === '日均余额' ? 'selected' : ''}>日均余额</option>
-      </select>
-    </div>
-    <div class="form-item"><label>${label('组织范围')}</label>
-      <select name="orgScope" ${readonly ? '' : 'required'} ${dis}>
-        <option ${t.orgScope === '全行' || !t.orgScope ? 'selected' : ''}>全行</option>
-        <option ${t.orgScope === '北京分行' ? 'selected' : ''}>北京分行</option>
-        <option ${t.orgScope === '上海分行' ? 'selected' : ''}>上海分行</option>
-      </select>
-    </div>
-    <div class="form-item"><label>${label('输出目标')}</label>
-      <select name="goal" ${readonly ? '' : 'required'} ${dis}>
-        <option ${t.goal === '监管报送' || !t.goal ? 'selected' : ''}>监管报送</option>
-        <option ${t.goal === '内部分析' ? 'selected' : ''}>内部分析</option>
       </select>
     </div>
     <div class="form-item"><label>${label('数据收集截止日期')}</label>
@@ -678,32 +1097,28 @@ function renderTaskFormFields(task, options = {}) {
     <div class="form-item"><label>${label('分行审批截止日期')}</label>
       <input type="date" name="branchDeadline" value="${t.branchDeadline || ''}" ${ro}>
     </div>
-    <div class="form-item"><label>${label('任务发起')}</label>
-      <select name="initiatorOrg" id="initiatorOrgSelect" ${dis}>
-        <option value="hq" ${(t.initiatorOrg || 'hq') === 'hq' ? 'selected' : ''}>总行发起</option>
-        <option value="branch" ${t.initiatorOrg === 'branch' ? 'selected' : ''}>分行发起</option>
-      </select>
-    </div>
-    <div class="form-item" id="initiatorBranchWrap" style="display:${t.initiatorOrg === 'branch' ? '' : 'none'}">
-      <label>${label('发起分行')}</label>
-      <select name="initiatorBranch" ${dis}>
-        <option value="北京分行" ${(t.initiatorBranch || t.orgScope) === '北京分行' ? 'selected' : ''}>北京分行</option>
-        <option value="上海分行" ${(t.initiatorBranch || t.orgScope) === '上海分行' ? 'selected' : ''}>上海分行</option>
-        <option value="深圳分行" ${t.initiatorBranch === '深圳分行' ? 'selected' : ''}>深圳分行</option>
-      </select>
-    </div>
+    ${readonly ? '' : `
+    <input type="hidden" name="goal" value="${t.goal || '监管报送'}">
+    <input type="hidden" name="initiatorOrg" value="${t.initiatorOrg || 'hq'}">
+    <input type="hidden" name="initiatorBranch" value="${t.initiatorBranch || t.branches?.[0] || '北京分行'}">
+    `}
     `;
 }
 
 function readTaskFormPayload(form) {
-  const subjectIndustryScope = form.subjectIndustryScope.value;
-  const investIndustryScope = form.investIndustryScope.value;
+  const subjectIndustryScope = form.subjectIndustryScope?.value
+    || document.querySelector('input[name="subjectIndustryScope"]:checked')?.value
+    || INDUSTRY_SCOPE_KEY_EIGHT;
+  const investIndustryScope = form.investIndustryScope?.value
+    || document.querySelector('input[name="investIndustryScope"]:checked')?.value
+    || INDUSTRY_SCOPE_KEY_EIGHT;
   const industryCustomCodes = subjectIndustryScope === '自定义'
     ? IndustryCascade.getSelectedCodes(qs('#subjectIndustryCascadeWrap'))
     : [];
   const investIndustryCustomCodes = investIndustryScope === '自定义'
     ? IndustryCascade.getSelectedCodes(qs('#investIndustryCascadeWrap'))
     : [];
+  const org = readTaskOrgScopeFromForm(form);
   return {
     name: form.name.value,
     year: clampTaskYear(form.year.value),
@@ -714,13 +1129,14 @@ function readTaskFormPayload(form) {
     investIndustryCustomCodes,
     industryCodes: IndustryScope.resolveCodes(subjectIndustryScope, industryCustomCodes),
     investIndustryCodes: IndustryScope.resolveCodes(investIndustryScope, investIndustryCustomCodes),
-    orgScope: form.orgScope.value,
+    orgScope: org.orgScope,
+    branches: org.branches,
     balanceRule: form.balanceRule?.value || '月均余额',
-    goal: form.goal.value,
+    goal: form.goal?.value || '监管报送',
     deadline: form.deadline.value,
     branchDeadline: form.branchDeadline?.value || '',
     initiatorOrg: form.initiatorOrg?.value || 'hq',
-    initiatorBranch: form.initiatorBranch?.value || form.orgScope?.value || '北京分行'
+    initiatorBranch: form.initiatorBranch?.value || org.branches[0] || '北京分行'
   };
 }
 
@@ -742,8 +1158,21 @@ function bindTaskIndustryScopeToggle() {
   const subjectWrap = qs('#subjectIndustryCascadeWrap');
   const investWrap = qs('#investIndustryCascadeWrap');
   if (!subjectGroup || !investGroup) return;
-  IndustryCascade.bindPanel(subjectWrap, subjectGroup);
   IndustryCascade.bindPanel(investWrap, investGroup);
+  IndustryCascade.bindPanel(subjectWrap, subjectGroup);
+
+  const kindGroup = qs('#industryScopeKindGroup');
+  const investBlock = qs('#investIndustryScopeBlock');
+  const subjectBlock = qs('#subjectIndustryScopeBlock');
+  if (kindGroup && investBlock && subjectBlock) {
+    const applyKind = () => {
+      const kind = document.querySelector('input[name="industryScopeKind"]:checked')?.value || 'invest';
+      investBlock.style.display = kind === 'invest' ? '' : 'none';
+      subjectBlock.style.display = kind === 'subject' ? '' : 'none';
+    };
+    qsa('input[name="industryScopeKind"]', kindGroup).forEach(r => r.addEventListener('change', applyKind));
+    applyKind();
+  }
 }
 
 function confirmDeleteTask(taskId, taskName) {
@@ -800,20 +1229,15 @@ function formatSystemEntityEmission(taskId, formalId) {
   const formal = Store.getFormalList(taskId).find(f => f.id === formalId);
   const calc = Store.getCalculations?.(taskId)?.find(c => c.formalId === formalId);
   if (formal?.gelanEntityEmission != null) {
-    const src = formal.gelanPrefill?.reportSource || GELAN_REPORT_DATA_SOURCE;
-    const at = formal.gelanFetchedAt || '';
-    const sourceHtml = `<div style="font-size:11px;color:#909399;margin-top:2px">来源：格澜接口${at ? ' · ' + at : ''} · ${src}</div>`;
-    return `${formatNum(formal.gelanEntityEmission)}${sourceHtml}`;
+    return formatNum(formal.gelanEntityEmission);
   }
   if (formal?.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
     if (calc?.entityEmission != null) {
-      const sourceHtml = '<div style="font-size:11px;color:#909399;margin-top:2px">来源：经济活动法（不可编辑）</div>';
-      return `${formatNum(calc.entityEmission)}${sourceHtml}`;
+      return formatNum(calc.entityEmission);
     }
   }
   if (calc?.source === 'credit_fallback' && calc.entityEmission != null) {
-    const sourceHtml = '<div style="font-size:11px;color:#909399;margin-top:2px">来源：信贷数据兜底法</div>';
-    return `${formatNum(calc.entityEmission)}${sourceHtml}`;
+    return formatNum(calc.entityEmission);
   }
   return '—';
 }
@@ -826,11 +1250,97 @@ function formatManualEntityEmission(taskId, formalId) {
   return formatNum(e);
 }
 
-/** @deprecated 列表展示请用 formatSystemEntityEmission / formatManualEntityEmission */
+/** 系统核算主体排放数值（格澜 / 经济法直算 / 信贷兜底） */
+function getSystemEntityEmissionValue(taskId, formalId) {
+  const formal = Store.getFormalList(taskId).find(f => f.id === formalId);
+  if (!formal) return null;
+  if (formal.gelanEntityEmission != null && !Number.isNaN(Number(formal.gelanEntityEmission))) {
+    return Number(formal.gelanEntityEmission);
+  }
+  const calc = Store.getCalculations?.(taskId)?.find(c => c.formalId === formalId);
+  if (!calc || calc.entityEmission == null || Number.isNaN(Number(calc.entityEmission))) return null;
+  const systemSources = ['gelan', 'economy_direct', 'credit_fallback'];
+  if (systemSources.includes(calc.source)) return Number(calc.entityEmission);
+  if (formal.economyDirectStatus === 'done') return Number(calc.entityEmission);
+  return null;
+}
+
+/** 手动核算主体排放数值（客户经理收集填报） */
+function getManualEntityEmissionValue(taskId, formalId) {
+  const supp = Store.get().supplements.find(s => s.formalId === formalId && s.taskId === taskId);
+  if (!isSupplementManualVisible(supp)) return null;
+  const e = Store.calcEntityEmission(supp);
+  if (e == null || Number.isNaN(Number(e))) return null;
+  return Number(e);
+}
+
+/** 排放结果：手动有值取手动，否则取系统 */
+function getEffectiveEntityEmission(taskId, formalId) {
+  const manual = getManualEntityEmissionValue(taskId, formalId);
+  if (manual != null) return manual;
+  return getSystemEntityEmissionValue(taskId, formalId);
+}
+
+function formatEffectiveEntityEmission(taskId, formalId) {
+  const manual = getManualEntityEmissionValue(taskId, formalId);
+  const system = getSystemEntityEmissionValue(taskId, formalId);
+  const effective = manual != null ? manual : system;
+  if (effective == null) return '—';
+  if (manual != null && system != null && manual !== system) {
+    return `${formatNum(effective)}<div style="font-size:11px;color:#409eff;margin-top:2px">已采用手动核算（系统 ${formatNum(system)}）</div>`;
+  }
+  if (manual != null) {
+    return formatNum(effective);
+  }
+  return formatSystemEntityEmission(taskId, formalId);
+}
+
+/** 数据采集列表行：基于预索引 formal/supp/calc，避免逐行 Store.get */
+function formatDataCollectEmissionCells(formal, supp, calc) {
+  let systemHtml = '—';
+  if (formal.gelanEntityEmission != null) {
+    systemHtml = formatNum(formal.gelanEntityEmission);
+  } else if (formal.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
+    if (calc?.entityEmission != null) systemHtml = formatNum(calc.entityEmission);
+  } else if (calc?.source === 'credit_fallback' && calc?.entityEmission != null) {
+    systemHtml = formatNum(calc.entityEmission);
+  }
+
+  let manualVal = null;
+  let manualHtml = '—';
+  if (isSupplementManualVisible(supp)) {
+    const e = Store.calcEntityEmission(supp);
+    if (e != null && !Number.isNaN(Number(e))) {
+      manualVal = Number(e);
+      manualHtml = formatNum(manualVal);
+    }
+  }
+
+  let systemVal = null;
+  if (formal.gelanEntityEmission != null && !Number.isNaN(Number(formal.gelanEntityEmission))) {
+    systemVal = Number(formal.gelanEntityEmission);
+  } else if (calc?.entityEmission != null && !Number.isNaN(Number(calc.entityEmission))) {
+    const systemSources = ['gelan', 'economy_direct', 'credit_fallback'];
+    if (systemSources.includes(calc.source) || formal.economyDirectStatus === 'done') {
+      systemVal = Number(calc.entityEmission);
+    }
+  }
+
+  const effective = manualVal != null ? manualVal : systemVal;
+  let effectiveHtml = '—';
+  if (effective != null) {
+    if (manualVal != null && systemVal != null && manualVal !== systemVal) {
+      effectiveHtml = `${formatNum(effective)}<div style="font-size:11px;color:#409eff;margin-top:2px">已采用手动核算（系统 ${formatNum(systemVal)}）</div>`;
+    } else {
+      effectiveHtml = formatNum(effective);
+    }
+  }
+  return { systemHtml, manualHtml, effectiveHtml };
+}
+
+/** @deprecated 列表展示请用 formatSystemEntityEmission / formatManualEntityEmission / formatEffectiveEntityEmission */
 function formatFormalEntityEmission(taskId, formalId) {
-  const sys = formatSystemEntityEmission(taskId, formalId);
-  if (sys !== '—') return sys;
-  return formatManualEntityEmission(taskId, formalId);
+  return formatEffectiveEntityEmission(taskId, formalId);
 }
 
 /** 格澜接口预填时，报告法数据来源固定为「报告法-其他数据来源」 */
@@ -850,7 +1360,10 @@ function isFormalEconomyDirectEligible(formal, taskId, d) {
   if (formal.economyDirectStatus === 'done') return false;
   const mode = formal.collectMode || resolveCollectMode(formal.loanType);
   if (mode !== 'economy_direct') return false;
-  if (typeof Store !== 'undefined' && Store.getFormalEntityEmission?.(taskId, formal.id) != null) return false;
+  if (typeof Store !== 'undefined') {
+    if (d && Store._formalHasEntityEmission?.(d, taskId, formal)) return false;
+    if (!d && Store.getFormalEntityEmission?.(taskId, formal.id) != null) return false;
+  }
   d = d || (typeof Store !== 'undefined' ? Store.get() : null);
   const row = typeof formalLedgerRow === 'function' ? formalLedgerRow(formal, taskId, d) : formal;
   const type = resolveAccountingType(row);
@@ -1076,9 +1589,11 @@ function resolveCalculationEmissionDisplay(f, calc, taskId) {
   const accountingType = typeof finalizeAccountingType === 'function'
     ? finalizeAccountingType(row)
     : resolveAccountingType(row);
-  const rawTotal = calc?.entityEmission != null
-    ? calc.entityEmission
-    : Store.getFormalEntityEmission?.(taskId, f?.id);
+  const rawTotal = typeof getEffectiveEntityEmission === 'function'
+    ? getEffectiveEntityEmission(taskId, f?.id)
+    : (calc?.entityEmission != null
+      ? calc.entityEmission
+      : Store.getFormalEntityEmission?.(taskId, f?.id));
 
   if (accountingType === 'project_as_project') {
     return {
@@ -1229,11 +1744,17 @@ function resolveManualAccountingMethodLabel(formal, taskId, d) {
   return label && label !== '-' ? label : '—';
 }
 
-/** 数据采集列表「核算方法」展示名（系统优先，其次手动；筛选/测试兼容） */
+/** 数据采集列表「核算方法」展示名（排放结果：手动优先，其次系统） */
 function resolveFormalAccountingMethodLabel(formal, taskId, d) {
-  const sys = resolveSystemAccountingMethodLabel(formal, taskId, d);
-  if (sys !== '—') return sys;
-  return resolveManualAccountingMethodLabel(formal, taskId, d);
+  d = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (getManualEntityEmissionValue(taskId, formal?.id) != null) {
+    return resolveManualAccountingMethodLabel(formal, taskId, d);
+  }
+  return resolveSystemAccountingMethodLabel(formal, taskId, d);
+}
+
+function resolveEffectiveAccountingMethodLabel(formal, taskId, d) {
+  return resolveFormalAccountingMethodLabel(formal, taskId, d);
 }
 
 function accountingMethodBadge(label) {
@@ -1282,25 +1803,53 @@ function collectModeBadge(mode) {
     : `<span class="badge badge-primary">${typeof CarbonAccount !== 'undefined' ? CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE : '经济活动法'}</span>`;
 }
 
-const DATA_COLLECT_STATUS_OPTIONS = [
+/** 收集状态五档（筛选项与列表展示） */
+const DATA_COLLECT_COLLECTION_STATUS_OPTIONS = [
   { value: '', label: '全部' },
-  { value: 'pending_lock', label: '待锁定' },
-  { value: 'pending_dispatch', label: '未派发' },
-  { value: 'need_supplement', label: '须收集' },
-  { value: 'pending_economy', label: '待直算' },
-  { value: 'entity_collected', label: '已有排放' },
-  { value: 'economy_done', label: '已直算' },
-  { value: 'pending_fill', label: '待填报' },
-  { value: 'in_progress', label: '填报中' },
-  { value: 'pending_submit', label: '待提交' },
+  { value: 'pending', label: '待处理' },
+  { value: 'collecting', label: '收集中' },
+  { value: 'done', label: '已完成' },
+  { value: 'returned', label: '已退回' }
+];
+
+/** 细粒度状态 → 五档映射（内部逻辑仍用细状态） */
+const DATA_COLLECT_COLLECT_TIER_BY_DETAIL = {
+  pending_lock: 'pending',
+  pending_dispatch: 'pending',
+  need_supplement: 'pending',
+  pending_economy: 'pending',
+  pending_fill: 'collecting',
+  in_progress: 'collecting',
+  pending_submit: 'collecting',
+  entity_collected: 'done',
+  economy_done: 'done',
+  submitted: 'done',
+  returned: 'returned'
+};
+
+const DATA_COLLECT_COLLECT_TIER_LABELS = {
+  pending: ['待处理', 'badge-warning'],
+  collecting: ['收集中', 'badge-running'],
+  done: ['已完成', 'badge-success'],
+  returned: ['已退回', 'badge-danger']
+};
+
+const DATA_COLLECT_AUDIT_STATUS_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'none', label: '未进入审核' },
   { value: 'branch_review', label: '分行初审' },
   { value: 'hq_review', label: '总行终审' },
   { value: 'approved', label: '已完成' },
   { value: 'returned', label: '已退回' }
 ];
 
+/** @deprecated 兼容旧引用 */
+const DATA_COLLECT_STATUS_OPTIONS = DATA_COLLECT_COLLECTION_STATUS_OPTIONS.concat(
+  DATA_COLLECT_AUDIT_STATUS_OPTIONS.filter(o => o.value && !['none', 'returned'].includes(o.value))
+);
+
 /** 数据采集行统一采集状态（筛选与列表共用，不再拆分派发/直算与填报） */
-function getDataCollectRowStatus(formal, supplement, taskId) {
+function getDataCollectRowStatus(formal, supplement, taskId, d) {
   if (formal.status !== 'confirmed') return 'pending_lock';
   if (supplement) {
     if (supplement.status === 'returned') return 'returned';
@@ -1323,33 +1872,54 @@ function getDataCollectRowStatus(formal, supplement, taskId) {
     return 'need_supplement';
   }
   if (formal.economyDirectStatus === 'done') return 'economy_done';
-  if (taskId && typeof Store !== 'undefined' && Store.getFormalEntityEmission?.(taskId, formal.id) != null) {
-    return 'entity_collected';
+  if (taskId && typeof Store !== 'undefined') {
+    const hasEntity = d && Store._formalHasEntityEmission
+      ? Store._formalHasEntityEmission(d, taskId, formal)
+      : Store.getFormalEntityEmission?.(taskId, formal.id) != null;
+    if (hasEntity) return 'entity_collected';
   }
-  if (taskId && typeof isFormalEconomyDirectEligible === 'function' && isFormalEconomyDirectEligible(formal, taskId, null)) {
+  if (taskId && typeof isFormalEconomyDirectEligible === 'function' && isFormalEconomyDirectEligible(formal, taskId, d)) {
     return 'pending_economy';
   }
   return 'need_supplement';
 }
 
-function dataCollectStatusBadge(formal, supplement, taskId) {
-  const status = getDataCollectRowStatus(formal, supplement, taskId);
-  const map = {
-    pending_lock: ['待锁定', 'badge-draft'],
-    pending_dispatch: ['未派发', 'badge-warning'],
-    need_supplement: ['须收集', 'badge-warning'],
-    pending_economy: ['待直算', 'badge-warning'],
-    entity_collected: ['已有排放', 'badge-success'],
-    economy_done: ['已直算', 'badge-success'],
-    pending_fill: ['待填报', 'badge-warning'],
-    in_progress: ['填报中', 'badge-running'],
-    pending_submit: ['待提交', 'badge-warning'],
-    branch_review: ['分行初审', 'badge-warning'],
-    hq_review: ['总行终审', 'badge-warning'],
-    approved: ['已完成', 'badge-success'],
-    returned: ['已退回', 'badge-danger']
-  };
-  const [text, cls] = map[status] || [status, 'badge-draft'];
+/** 收集状态（不含审核环节） */
+function getDataCollectCollectionStatus(formal, supplement, taskId, d) {
+  const full = getDataCollectRowStatus(formal, supplement, taskId, d);
+  if (['branch_review', 'hq_review', 'approved'].includes(full)) return 'submitted';
+  return full;
+}
+
+/** 收集状态五档（筛选项 / 列表展示） */
+function getDataCollectCollectionTier(formal, supplement, taskId, d) {
+  const detail = getDataCollectCollectionStatus(formal, supplement, taskId, d);
+  return DATA_COLLECT_COLLECT_TIER_BY_DETAIL[detail] || 'pending';
+}
+
+function normalizeDataCollectCollectFilter(value) {
+  if (!value) return '';
+  const tiers = new Set(DATA_COLLECT_COLLECTION_STATUS_OPTIONS.map(o => o.value).filter(Boolean));
+  if (tiers.has(value)) return value;
+  return DATA_COLLECT_COLLECT_TIER_BY_DETAIL[value] || '';
+}
+
+/** 审核状态（无 supplement 或未提交时为 none） */
+function getDataCollectAuditStatus(formal, supplement) {
+  if (!supplement) return 'none';
+  if (supplement.status === 'returned') return 'returned';
+  if (supplement.status !== 'completed') return 'none';
+  const stage = supplement.auditStage || 'pending_fill';
+  if (stage === 'pending_fill') return 'none';
+  if (stage === 'approved') return 'approved';
+  if (stage === 'branch_review') return 'branch_review';
+  if (stage === 'hq_review') return 'hq_review';
+  return 'none';
+}
+
+function dataCollectStatusBadge(formal, supplement, taskId, d) {
+  const tier = getDataCollectCollectionTier(formal, supplement, taskId, d);
+  const [text, cls] = DATA_COLLECT_COLLECT_TIER_LABELS[tier] || [tier, 'badge-draft'];
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
@@ -1365,14 +1935,15 @@ function saveDataCollectFilters(taskId, filters) {
   sessionStorage.setItem(`data_collect_filters_${taskId}`, JSON.stringify(filters || {}));
 }
 
-function filterDataCollectList(list, filters, taskId) {
+function filterDataCollectList(list, filters, taskId, data) {
   const f = filters || {};
-  const supplements = Store.get().supplements.filter(s => s.taskId === taskId);
+  const d = data || Store.get();
+  const supplementsByFormal = new Map();
+  d.supplements.filter(s => s.taskId === taskId).forEach(s => supplementsByFormal.set(s.formalId, s));
   return list.filter(formal => {
-    const supp = supplements.find(s => s.formalId === formal.id);
+    const supp = supplementsByFormal.get(formal.id);
     if (f.keyword && !(formal.customerName || '').toLowerCase().includes(f.keyword.trim().toLowerCase())) return false;
     if (f.accountingMethod) {
-      const d = Store.get();
       const sys = resolveSystemAccountingMethodLabel(formal, taskId, d);
       const man = resolveManualAccountingMethodLabel(formal, taskId, d);
       if (sys !== f.accountingMethod && man !== f.accountingMethod) return false;
@@ -1380,15 +1951,29 @@ function filterDataCollectList(list, filters, taskId) {
       const mode = formal.collectMode || resolveCollectMode(formal.loanType);
       if (mode !== f.collectMode) return false;
     }
-    if (f.status && getDataCollectRowStatus(formal, supp, taskId) !== f.status) return false;
+    const collectStatus = normalizeDataCollectCollectFilter(f.collectStatus ?? f.status ?? '');
+    const auditStatus = f.auditStatus ?? '';
+    if (collectStatus && getDataCollectCollectionTier(formal, supp, taskId, d) !== collectStatus) return false;
+    if (auditStatus && getDataCollectAuditStatus(formal, supp) !== auditStatus) return false;
     return true;
   });
 }
 
-function renderDataCollectStatusOptions(selected) {
-  return DATA_COLLECT_STATUS_OPTIONS.map(o =>
+function renderDataCollectCollectionStatusOptions(selected) {
+  const normalized = normalizeDataCollectCollectFilter(selected);
+  return DATA_COLLECT_COLLECTION_STATUS_OPTIONS.map(o =>
+    `<option value="${o.value}" ${normalized === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
+function renderDataCollectAuditStatusOptions(selected) {
+  return DATA_COLLECT_AUDIT_STATUS_OPTIONS.map(o =>
     `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
   ).join('');
+}
+
+function renderDataCollectStatusOptions(selected) {
+  return renderDataCollectCollectionStatusOptions(selected);
 }
 
 function auditStageLabel(supp, task) {
@@ -1543,7 +2128,7 @@ function getFormalForSupplement(s) {
   return Store.get().formalList.find(f => f.id === s.formalId);
 }
 
-/** 数据采集为经济法直算路径时，收集页经济活动法 Tab 预填直算/接口数值（仍可编辑） */
+/** 数据采集为经济法直算路径时，收集页经济活动法 Tab 展示系统预填/直算数值（只读） */
 function getEconomyDirectPrefill(s) {
   if (!s?.formalId || !s.dispatchedAt) return null;
   const formal = getFormalForSupplement(s);
@@ -1553,19 +2138,108 @@ function getEconomyDirectPrefill(s) {
   return getEconomyDirectViewData(s);
 }
 
+function getEconomyDirectCalc(s) {
+  if (!s?.formalId || !s?.taskId) return null;
+  return (Store.getCalculations(s.taskId) || []).find(c => c.formalId === s.formalId && c.source === 'economy_direct') || null;
+}
+
 function getEconomyDirectViewData(s) {
   const formal = getFormalForSupplement(s);
   if (!formal) return null;
-  const calc = Store.getCalculations(s.taskId).find(c => c.formalId === s.formalId);
-  const entityEmission = calc?.entityEmission ?? Store.getFormalEntityEmission?.(s.taskId, s.formalId);
+  const ecoCalc = getEconomyDirectCalc(s);
+  const economyValue = s.economyValue ?? s.revenue ?? formal.operatingRevenue ?? '';
+  const economyFactor = ecoCalc?.industryFactor ?? s.economyFactor ?? 2.35;
+  let entityEmission = ecoCalc?.entityEmission ?? s.economyEntityEmission ?? null;
+  if (entityEmission == null) {
+    const v = Number(economyValue);
+    const f = Number(economyFactor);
+    if (v > 0 && f > 0) entityEmission = Math.round(v * f);
+  }
   return {
     entityEmission,
     economyDirectStatus: formal.economyDirectStatus,
-    economyDirectAt: formal.economyDirectAt,
-    economyValue: s.economyValue ?? s.revenue ?? formal.operatingRevenue ?? '',
-    economyFactor: calc?.industryFactor ?? s.economyFactor ?? 2.35,
-    economyBasis: s.economyBasis || 'revenue'
+    economyDirectAt: formal.economyDirectAt || ecoCalc?.calculatedAt,
+    economyValue,
+    economyFactor,
+    economyBasis: s.economyBasis || 'revenue',
+    interfaceEconomyLocked: true,
+    interfaceEconomySource: s.interfaceEconomySource
+      || (ecoCalc || formal.economyDirectStatus === 'done' ? '经济活动法（系统直算）' : '经济活动法（系统预填）')
   };
+}
+
+/** 派发/同步：将正式清单上的接口数据写入收集任务（报告法可编辑预填，经济法只读） */
+function applyInterfacePrefillToSupplement(s, formal, taskId) {
+  if (!s || !formal) return s;
+  s.fieldData = s.fieldData || {};
+
+  if (formal.gelanPrefill || formal.gelanEntityEmission != null) {
+    const gelan = formal.gelanPrefill || {};
+    const ghg = gelan.ghgTotalEmission ?? formal.gelanEntityEmission;
+    const source = gelan.reportSource || GELAN_REPORT_DATA_SOURCE;
+    s.gelanPrefill = { ...gelan };
+    s.interfaceReportSource = source;
+    s.interfaceReportApi = gelan.apiSource || '格澜数据';
+    s.reportedEmission = ghg;
+    s.disclosureChannel = source;
+    s.activeMethodTab = s.activeMethodTab || 'report_other';
+    s.methodId = 'report';
+    s.fieldData.reportOther = {
+      ...(s.fieldData.reportOther || {}),
+      carbonDataYear: gelan.carbonDataYear ?? gelan.reportYear ?? '',
+      ghgTotalEmission: ghg,
+      emission: ghg,
+      scope1Emission: gelan.scope1Emission ?? '',
+      scope2Emission: gelan.scope2Emission ?? '',
+      unitTotalCo2Emission: gelan.unitTotalCo2Emission ?? '',
+      source,
+      verified: gelan.thirdPartyVerified !== false ? 'yes' : 'no',
+      attachments: s.fieldData.reportOther?.attachments || []
+    };
+    s.reportCarbonDataYear = s.fieldData.reportOther.carbonDataYear;
+    s.reportScope1Emission = s.fieldData.reportOther.scope1Emission;
+    s.reportScope2Emission = s.fieldData.reportOther.scope2Emission;
+    s.reportUnitTotalCo2Emission = s.fieldData.reportOther.unitTotalCo2Emission;
+  }
+
+  const mode = formal.collectMode || resolveCollectMode(formal.loanType || s.loanType);
+  if (mode === 'economy_direct') {
+    const ecoCalc = Store.getCalculations(taskId).find(c => c.formalId === formal.id && c.source === 'economy_direct');
+    s.interfaceEconomyLocked = true;
+    s.interfaceEconomySource = ecoCalc || formal.economyDirectStatus === 'done'
+      ? '经济活动法（系统直算）'
+      : '经济活动法（系统预填）';
+    s.economyDirectStatus = formal.economyDirectStatus;
+    s.economyDirectAt = formal.economyDirectAt || ecoCalc?.calculatedAt;
+    s.economyValue = s.economyValue ?? s.revenue ?? formal.operatingRevenue ?? '';
+    s.economyFactor = ecoCalc?.industryFactor ?? s.economyFactor ?? 2.35;
+    s.economyBasis = s.economyBasis || 'revenue';
+    if (ecoCalc?.entityEmission != null) {
+      s.economyEntityEmission = ecoCalc.entityEmission;
+    }
+  }
+  return s;
+}
+
+function getGelanReportPrefillView(s) {
+  if (!s?.formalId) return null;
+  const formal = getFormalForSupplement(s);
+  const gelan = s.gelanPrefill || formal?.gelanPrefill;
+  if (!gelan && formal?.gelanEntityEmission == null) return null;
+  return {
+    gelan: gelan || {},
+    source: s.interfaceReportSource || gelan?.reportSource || GELAN_REPORT_DATA_SOURCE,
+    api: s.interfaceReportApi || gelan?.apiSource || '格澜数据',
+    fetchedAt: formal?.gelanFetchedAt || gelan?.fetchedAt || ''
+  };
+}
+
+function isEconomyInterfaceReadonly(s) {
+  if (!s?.formalId || !s.dispatchedAt) return false;
+  const formal = getFormalForSupplement(s);
+  if (!formal) return false;
+  const mode = formal.collectMode || resolveCollectMode(formal.loanType || s.loanType);
+  return mode === 'economy_direct';
 }
 
 const SUPPLEMENT_METHOD_TABS = [
@@ -1749,6 +2423,15 @@ function renderSupplementFillBody(s, options = {}) {
   const readonly = !!options.readonly;
   const dis = readonly ? 'disabled' : '';
   const economyPrefill = getEconomyDirectPrefill(s);
+  const economyLocked = isEconomyInterfaceReadonly(s);
+  const economyDis = readonly || economyLocked ? 'disabled' : dis;
+  const gelanView = getGelanReportPrefillView(s);
+  const gelanInterfaceTip = gelanView
+    ? `<div class="demo-tip interface-prefill-tip report-interface-tip">
+      <strong>报告法（外部接口）</strong> · 数据来源：${escapeHtml(gelanView.source)}（${escapeHtml(gelanView.api)}）${gelanView.fetchedAt ? ` · 调取：${escapeHtml(gelanView.fetchedAt)}` : ''}
+      ${readonly ? '' : '<br>数值与来源已预填，客户经理可核实并修改。'}
+    </div>`
+    : '';
   const activeTab = supplementActiveTab(s);
   const tabCls = (t) => {
     let cls = 'tab';
@@ -1765,8 +2448,16 @@ function renderSupplementFillBody(s, options = {}) {
   const economyFactor = economyPrefill?.economyFactor ?? s.economyFactor ?? 2.35;
   const fallbackFactor = s.fallbackFactor ?? s.economyFactor ?? 2.46;
   const methodTabs = getSupplementMethodTabs(s);
+  const economyEntityDisplay = economyPrefill?.entityEmission != null
+    ? economyPrefill.entityEmission
+    : (Number(economyValue) > 0 && Number(economyFactor) > 0 ? Math.round(Number(economyValue) * Number(economyFactor)) : null);
   const economyPrefillTip = economyPrefill
-    ? `<div class="demo-tip">系统已从生产接口或数据采集直算预填以下数值，请核实并按需修改。${economyPrefill.economyDirectStatus === 'done' ? `直算时间：${economyPrefill.economyDirectAt || '—'}。` : ''}${economyPrefill.entityEmission != null ? ` 当前主体排放参考：${formatNum(economyPrefill.entityEmission)} tCO₂e。` : ''}</div>`
+    ? `<div class="demo-tip interface-prefill-tip economy-interface-tip">
+      <strong>经济活动法（系统数据）</strong> · ${escapeHtml(economyPrefill.interfaceEconomySource || '经济活动法（不可编辑）')}
+      ${economyPrefill.economyDirectAt ? ` · 直算：${escapeHtml(economyPrefill.economyDirectAt)}` : ''}
+      ${economyEntityDisplay != null ? ` · 主体排放：${formatNum(economyEntityDisplay)} tCO₂e` : ''}
+      <br>由系统接口/直算生成，客户经理仅可查看，不可编辑。
+    </div>`
     : '';
 
   return `
@@ -1775,7 +2466,7 @@ function renderSupplementFillBody(s, options = {}) {
       ${SUPPLEMENT_FIELDS.renderBasicInfo(s, dis, !!options.editableBasicInfo && !readonly)}
     </div></div>
     <div class="card"><div class="card-header"><h3>排放数据（可同时填写多种方法）</h3></div>
-    <div class="demo-tip method-priority-tip">客户经理可同时填写多种方法的数值；审核通过时由分行管理员选定最终采用的核算方法（见指引第七章方法优先级）</div>
+    ${gelanInterfaceTip}
     <div class="tabs method-tabs-bar" id="methodTabs">
       ${methodTabs.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
     </div>
@@ -1787,12 +2478,13 @@ function renderSupplementFillBody(s, options = {}) {
       <div class="${panelCls('economy')}" data-panel="economy">
         ${economyPrefillTip}
         <div class="form-grid">
-        <div class="form-item"><label>测算基数</label><select id="f_economy_basis" ${dis}>
+        <div class="form-item"><label>测算基数</label><select id="f_economy_basis" ${economyDis}>
           <option value="revenue" ${basis === 'revenue' ? 'selected' : ''}>营业收入</option>
           <option value="assets" ${basis === 'assets' ? 'selected' : ''}>资产规模</option>
         </select></div>
-        <div class="form-item"><label>基数值(万元)</label><input id="f_economy_value" type="number" value="${economyValue}" ${dis}></div>
-        <div class="form-item"><label>行业因子</label><input id="f_economy_factor" type="number" step="0.01" value="${economyFactor}" ${dis}></div>
+        <div class="form-item"><label>基数值(万元)</label><input id="f_economy_value" type="number" value="${economyValue}" ${economyDis}></div>
+        <div class="form-item"><label>行业因子</label><input id="f_economy_factor" type="number" step="0.01" value="${economyFactor}" ${economyDis}></div>
+        ${economyLocked && economyEntityDisplay != null ? `<div class="form-item"><label>主体排放(tCO₂e)</label><input type="text" value="${formatNum(economyEntityDisplay)}" disabled></div>` : ''}
       </div></div>
       <div class="${panelCls('other')}" data-panel="other"><div class="form-grid">
         <div class="form-item"><label>行业排放因子</label><input id="f_fallback_factor" type="number" step="0.01" value="${fallbackFactor}" ${dis}></div>
@@ -1800,6 +2492,21 @@ function renderSupplementFillBody(s, options = {}) {
         ${SUPPLEMENT_FIELDS.renderAttachmentSection('other', s.fieldData?.other?.attachments || [], dis)}
       </div></div>
     </div></div>`;
+}
+
+function approvalCustomerName(approval) {
+  const s = getSupplementForApproval(approval);
+  if (s?.customerName) return s.customerName;
+  const name = approval?.docName || '';
+  return name.replace(/^数据采集-/, '') || name || '—';
+}
+
+function approvalTaskName(approval) {
+  return Store.getTask(approval?.taskId)?.name || '—';
+}
+
+function approvalTaskYear(approval) {
+  return Store.getTask(approval?.taskId)?.year || '—';
 }
 
 function getSupplementForApproval(approval) {
@@ -1852,12 +2559,386 @@ function filterApprovalsForRole(approvals, roleKey, role, taskId) {
   return list.filter(a => a.docType === 'supplement');
 }
 
+const APPROVAL_FILTER_KEY_PREFIX = 'approval_filters_';
+
+const APPROVAL_REVIEW_LEVEL_OPTIONS = [
+  { value: '', label: '全部环节' },
+  { value: 'branch', label: '分行初审' },
+  { value: 'hq', label: '总行终审' }
+];
+
+const APPROVAL_STATUS_OPTIONS = [
+  { value: '', label: '全部状态' },
+  { value: 'pending', label: '待审核' },
+  { value: 'approved', label: '已通过' },
+  { value: 'rejected', label: '已退回' }
+];
+
+function getApprovalFilters(taskId) {
+  try {
+    return JSON.parse(sessionStorage.getItem(`${APPROVAL_FILTER_KEY_PREFIX}${taskId}`) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveApprovalFilters(taskId, filters) {
+  sessionStorage.setItem(`${APPROVAL_FILTER_KEY_PREFIX}${taskId}`, JSON.stringify(filters || {}));
+}
+
+function readApprovalFilterInputs() {
+  return {
+    taskName: qs('#apf_taskName')?.value || '',
+    year: qs('#apf_year')?.value || '',
+    customerName: qs('#apf_customerName')?.value || '',
+    submitter: qs('#apf_submitter')?.value || '',
+    reviewLevel: qs('#apf_reviewLevel')?.value || '',
+    status: qs('#apf_status')?.value || ''
+  };
+}
+
+function filterApprovalList(list, filters) {
+  const f = filters || {};
+  let out = list || [];
+  const customerKw = (f.customerName || f.docName || '').trim().toLowerCase();
+  if (customerKw) {
+    out = out.filter(a => approvalCustomerName(a).toLowerCase().includes(customerKw));
+  }
+  if (f.taskName) {
+    const kw = f.taskName.trim().toLowerCase();
+    if (kw) out = out.filter(a => String(approvalTaskName(a)).toLowerCase().includes(kw));
+  }
+  if (f.year) {
+    const kw = f.year.trim();
+    if (kw) out = out.filter(a => String(approvalTaskYear(a)).includes(kw));
+  }
+  if (f.submitter) {
+    const kw = f.submitter.trim().toLowerCase();
+    if (kw) out = out.filter(a => (a.submitter || '').toLowerCase().includes(kw));
+  }
+  if (f.reviewLevel) out = out.filter(a => a.reviewLevel === f.reviewLevel);
+  if (f.status) out = out.filter(a => a.status === f.status);
+  return out;
+}
+
+function renderApprovalFilterOptions(options, selected) {
+  return options.map(o =>
+    `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
+function renderApprovalFilterPanel(filters) {
+  const f = filters || {};
+  const customerName = f.customerName || f.docName || '';
+  return `
+    <div class="filter-panel approval-filter-panel">
+      <div class="filter-extra approval-filter-grid">
+        <div class="form-item"><label>任务名称</label>
+          <input id="apf_taskName" type="search" value="${escapeHtml(f.taskName || '')}" placeholder="模糊搜索"></div>
+        <div class="form-item"><label>核算年度</label>
+          <input id="apf_year" type="search" value="${escapeHtml(f.year || '')}" placeholder="如 2025"></div>
+        <div class="form-item"><label>客户名称</label>
+          <input id="apf_customerName" type="search" value="${escapeHtml(customerName)}" placeholder="模糊搜索"></div>
+        <div class="form-item"><label>提交人</label>
+          <input id="apf_submitter" type="search" value="${escapeHtml(f.submitter || '')}" placeholder="提交人姓名"></div>
+        <div class="form-item"><label>审核环节</label>
+          <select id="apf_reviewLevel">${renderApprovalFilterOptions(APPROVAL_REVIEW_LEVEL_OPTIONS, f.reviewLevel || '')}</select></div>
+        <div class="form-item"><label>审核状态</label>
+          <select id="apf_status">${renderApprovalFilterOptions(APPROVAL_STATUS_OPTIONS, f.status || '')}</select></div>
+        <div class="form-item filter-actions">
+          <label>&nbsp;</label>
+          <div class="filter-action-btns">
+            <button type="button" class="btn btn-primary" id="approvalFilterBtn">查询</button>
+            <button type="button" class="btn" id="approvalFilterResetBtn">重置</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+const MANAGER_TASK_FILTER_KEY_PREFIX = 'manager_task_filters_';
+
+const MANAGER_TASK_STATUS_OPTIONS = [
+  { value: '', label: '全部状态' },
+  { value: 'pending', label: '待填报' },
+  { value: 'in_progress', label: '填报中' },
+  { value: 'pending_submit', label: '待提交' },
+  { value: 'reviewing', label: '待审核' },
+  { value: 'approved', label: '已通过' },
+  { value: 'returned', label: '已退回' }
+];
+
+function getManagerTaskDisplayStatus(s) {
+  if (!s) return '';
+  if (s.status === 'returned' || s.auditStage === 'rejected') return 'returned';
+  if (s.status === 'pending') return 'pending';
+  if (s.status === 'in_progress') return 'in_progress';
+  if (s.status === 'completed') {
+    const stage = s.auditStage || 'pending_fill';
+    if (stage === 'approved') return 'approved';
+    if (stage === 'branch_review' || stage === 'hq_review') return 'reviewing';
+    return 'pending_submit';
+  }
+  return s.status || '';
+}
+
+function getManagerTaskFilters(taskId) {
+  try {
+    return JSON.parse(sessionStorage.getItem(`${MANAGER_TASK_FILTER_KEY_PREFIX}${taskId}`) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveManagerTaskFilters(taskId, filters) {
+  sessionStorage.setItem(`${MANAGER_TASK_FILTER_KEY_PREFIX}${taskId}`, JSON.stringify(filters || {}));
+}
+
+function readManagerTaskFilterInputs() {
+  return {
+    customerName: qs('#mtf_customer')?.value || '',
+    status: qs('#mtf_status')?.value || ''
+  };
+}
+
+function filterManagerTaskList(list, filters) {
+  const f = filters || {};
+  let out = list || [];
+  if (f.customerName) {
+    const kw = f.customerName.trim().toLowerCase();
+    if (kw) out = out.filter(s => (s.customerName || '').toLowerCase().includes(kw));
+  }
+  if (f.status) out = out.filter(s => getManagerTaskDisplayStatus(s) === f.status);
+  return out;
+}
+
+function renderManagerTaskFilterOptions(options, selected) {
+  return options.map(o =>
+    `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
+function renderManagerTaskFilterPanel(filters) {
+  const f = filters || {};
+  return `
+    <div class="filter-panel">
+      <div class="filter-extra task-filter-grid">
+        <div class="form-item"><label>客户名称</label>
+          <input id="mtf_customer" type="search" value="${escapeHtml(f.customerName || '')}" placeholder="模糊搜索"></div>
+        <div class="form-item"><label>状态</label>
+          <select id="mtf_status">${renderManagerTaskFilterOptions(MANAGER_TASK_STATUS_OPTIONS, f.status || '')}</select></div>
+        <div class="form-item"><label>&nbsp;</label>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-primary" id="managerTaskFilterBtn">查询</button>
+            <button type="button" class="btn" id="managerTaskFilterResetBtn">重置</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 function canUserReviewApproval(approval, roleKey) {
   if (!approval || approval.status !== 'pending') return false;
   if (approval.docType !== 'supplement') return false;
   if (approval.reviewLevel === 'branch') return roleKey === 'branch';
   if (approval.reviewLevel === 'hq') return roleKey === 'hq';
   return false;
+}
+
+function getSupplementIndustryContext(s) {
+  const formal = getFormalForSupplement(s);
+  const candidate = Store.get().candidates.find(c => c.id === (s.customerId || formal?.customerId));
+  return {
+    industryMajor: s.industryMajor || formal?.industryMajor || candidate?.industryMajor || '-',
+    gbIndustryCode: s.gbIndustryCode || formal?.gbIndustryCode || candidate?.gbIndustryCode || '',
+    gbIndustryName: s.gbIndustryName || formal?.gbIndustryName || candidate?.gbIndustryName || '',
+    formal,
+    candidate
+  };
+}
+
+function renderGbIndustrySelectOptions(industryMajor, selectedCode) {
+  const list = (typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : [])
+    .filter(row => !industryMajor || industryMajor === '-' || row.major === industryMajor);
+  const opts = ['<option value="">请选择 GB/T 4754 四级行业</option>']
+    .concat(list.map(row =>
+      `<option value="${row.code}" data-name="${escapeHtml(row.name)}" data-major="${row.major}" ${selectedCode === row.code ? 'selected' : ''}>${row.code} ${row.name}</option>`
+    ));
+  return opts.join('');
+}
+
+function listAuditFactorOptions(s, task) {
+  const ctx = getSupplementIndustryContext(s);
+  const factors = Store.get().factors || [];
+  const taskYear = task?.year;
+  const methodIds = [];
+  if (s.economyValue || s.fieldData?.economy || s.methodId === 'economy' || s.economyFactor) methodIds.push('economy');
+  if (s.fallbackFactor || s.fieldData?.other || s.methodId === 'economy_fallback') methodIds.push('economy');
+  if (s.energyTotalEmission || s.fieldData?.energy || s.methodId === 'energy') methodIds.push('energy');
+  if (s.productTotalEmission || s.fieldData?.product || s.methodId === 'product') methodIds.push('product');
+  if (!methodIds.length) methodIds.push('economy');
+  const unique = [...new Set(methodIds)];
+  const out = {};
+  unique.forEach(methodId => {
+    let pool = typeof filterFactors === 'function'
+      ? filterFactors(factors, {
+        methodIds: [methodId],
+        industries: ctx.industryMajor && ctx.industryMajor !== '-' ? [ctx.industryMajor] : []
+      })
+      : factors.filter(x => x.methodId === methodId);
+    if (ctx.gbIndustryCode) {
+      const byCode = pool.filter(x => x.gbCode === ctx.gbIndustryCode);
+      if (byCode.length) pool = byCode;
+    }
+    pool = pool.filter(x => x.value != null && x.valueType !== 'custom');
+    const groups = typeof groupFactorRecords === 'function' ? groupFactorRecords(pool) : [];
+    out[methodId] = groups.map(g =>
+      typeof pickFactorVersion === 'function' ? pickFactorVersion(g.versions, taskYear) : g.latest
+    ).filter(Boolean);
+  });
+  return out;
+}
+
+function resolveSupplementAuditFactorValue(s, task) {
+  if (s.auditFactorValue != null && s.auditFactorValue !== '') return Number(s.auditFactorValue);
+  if (s.auditFactorId) {
+    const f = Store.getFactor(s.auditFactorId);
+    if (f?.value != null) return Number(f.value);
+  }
+  const ctx = getSupplementIndustryContext(s);
+  return Store._getIndustryFactor(Store.get(), ctx.industryMajor, ctx.gbIndustryCode, task?.year);
+}
+
+function renderAuditFactorMethodSection(methodId, factors, s, task, editable) {
+  const dis = editable ? '' : 'disabled';
+  const label = typeof factorMethodLabel === 'function' ? factorMethodLabel(methodId) : methodId;
+  const currentId = s.auditFactorMethodId === methodId ? (s.auditFactorId || '') : '';
+  const currentVal = methodId === 'economy'
+    ? (s.economyFactor ?? resolveSupplementAuditFactorValue(s, task))
+    : (s.fallbackFactor ?? s.economyFactor ?? resolveSupplementAuditFactorValue(s, task));
+  const opts = ['<option value="">系统默认匹配</option>'].concat(
+    (factors || []).map(f =>
+      `<option value="${f.id}" ${currentId === f.id ? 'selected' : ''}>${escapeHtml(typeof factorDisplayName === 'function' ? factorDisplayName(f) : f.id)} · ${formatFactorValue(f)} ${f.unit || ''}</option>`
+    )
+  ).join('');
+  return `
+    <div class="audit-factor-method-block" data-method="${methodId}">
+      <div class="form-item"><label>${label} · 选用因子</label>
+        <select class="audit-factor-select" data-method="${methodId}" ${dis}>${opts}</select></div>
+      <div class="form-item"><label>因子数值</label>
+        <input class="audit-factor-value" data-method="${methodId}" type="number" step="0.000001" value="${currentVal ?? ''}" ${dis}></div>
+    </div>`;
+}
+
+/** 审核页：归属行业与排放因子调整（总行/分行审核可用） */
+function renderApprovalAuditAdjustPanel(s, task, options = {}) {
+  const editable = !!options.editable;
+  const ctx = getSupplementIndustryContext(s);
+  const dis = editable ? '' : 'disabled';
+  const majorOpts = GUIDE.INDUSTRIES.map(i =>
+    `<option value="${i.major}" ${ctx.industryMajor === i.major ? 'selected' : ''}>${i.major}</option>`
+  ).join('');
+  const factorOptions = listAuditFactorOptions(s, task);
+  const factorSections = Object.keys(factorOptions).map(methodId =>
+    renderAuditFactorMethodSection(methodId, factorOptions[methodId], s, task, editable)
+  ).join('');
+  const industryDisplay = ctx.gbIndustryCode
+    ? `${ctx.industryMajor} · ${ctx.gbIndustryCode} ${ctx.gbIndustryName}`
+    : (ctx.industryMajor && ctx.industryMajor !== '-' ? ctx.industryMajor : '未设置');
+  const adjustMeta = s.auditAdjustedAt
+    ? `<div class="demo-tip" style="margin-top:8px;font-size:12px">最近调整：${escapeHtml(s.auditAdjustedBy || '—')} · ${escapeHtml(s.auditAdjustedAt)}</div>`
+    : '';
+  const actionBar = editable
+    ? `<div class="audit-adjust-actions">
+      <button type="button" class="btn btn-sm btn-danger" id="auditClearIndustryBtn">删除归属行业</button>
+      <button type="button" class="btn btn-sm" id="auditResetFactorBtn">恢复默认因子</button>
+      <button type="button" class="btn btn-sm btn-primary" id="auditSaveAdjustBtn">保存调整</button>
+    </div>`
+    : '';
+  return `
+    <div class="card audit-adjust-panel" id="approvalAuditAdjustPanel" data-supplement-id="${s.id}">
+      <div class="card-header"><h3>审核调整</h3>
+        <span style="font-size:12px;color:#909399">${editable ? '可删除/调整归属行业及适用排放因子' : '审核调整记录（只读）'}</span></div>
+      <div class="card-body">
+        <div class="demo-tip audit-adjust-tip">总行、分行审核时可修正企业<strong>归属行业</strong>及<strong>适用碳排放因子</strong>，保存后同步至正式清单与收集任务。</div>
+        ${!editable ? `<p style="margin:0 0 12px;color:#606266">当前归属行业：<strong>${escapeHtml(industryDisplay)}</strong></p>` : ''}
+        <div class="form-grid audit-adjust-grid">
+          <div class="form-item"><label>八大高碳行业</label>
+            <select id="auditIndustryMajor" ${dis}>
+              <option value="" ${!ctx.industryMajor || ctx.industryMajor === '-' ? 'selected' : ''}>未设置</option>
+              ${majorOpts}
+            </select></div>
+          <div class="form-item"><label>GB/T 4754 四级行业</label>
+            <select id="auditGbIndustryCode" ${dis}>${renderGbIndustrySelectOptions(ctx.industryMajor, ctx.gbIndustryCode)}</select></div>
+        </div>
+        <div class="form-section-title" style="margin-top:16px">适用碳排放因子</div>
+        <div class="form-grid audit-factor-grid">${factorSections || '<p style="color:#909399">暂无匹配因子，请先设置归属行业</p>'}</div>
+        ${actionBar}
+        ${adjustMeta}
+      </div>
+    </div>`;
+}
+
+function readApprovalAuditAdjustForm(rootEl) {
+  const root = rootEl || document;
+  const major = qs('#auditIndustryMajor', root)?.value || '';
+  const gbSel = qs('#auditGbIndustryCode', root);
+  const gbCode = gbSel?.value || '';
+  const gbName = gbSel?.selectedOptions?.[0]?.dataset?.name || '';
+  const factorBlocks = qsa('.audit-factor-method-block', root);
+  let factorId = '';
+  let factorMethodId = '';
+  let factorValue = null;
+  factorBlocks.forEach(block => {
+    const methodId = block.dataset.method;
+    const sel = qs('.audit-factor-select', block);
+    const valInput = qs('.audit-factor-value', block);
+    if (sel?.value) {
+      factorId = sel.value;
+      factorMethodId = methodId;
+    }
+    if (valInput?.value !== '' && valInput?.value != null) {
+      factorValue = Number(valInput.value);
+      if (!factorMethodId) factorMethodId = methodId;
+    }
+  });
+  return {
+    industryMajor: major || '-',
+    gbIndustryCode: gbCode,
+    gbIndustryName: gbName,
+    factorId,
+    factorMethodId,
+    factorValue
+  };
+}
+
+function bindApprovalAuditAdjustPanel(rootEl, supplementId) {
+  const root = rootEl || qs('#viewRoot');
+  const majorSel = qs('#auditIndustryMajor', root);
+  const gbSel = qs('#auditGbIndustryCode', root);
+  if (majorSel && gbSel) {
+    majorSel.addEventListener('change', () => {
+      const major = majorSel.value || '-';
+      gbSel.innerHTML = renderGbIndustrySelectOptions(major, '');
+    });
+  }
+  qs('#auditClearIndustryBtn', root)?.addEventListener('click', () => {
+    if (!confirm('确认删除当前归属行业设置？删除后需重新选择行业与因子。')) return;
+    Store.applyApprovalAuditAdjustments(supplementId, { clearIndustry: true, clearFactor: true });
+    toast('已删除归属行业并恢复默认因子', 'success');
+    route();
+  });
+  qs('#auditResetFactorBtn', root)?.addEventListener('click', () => {
+    Store.applyApprovalAuditAdjustments(supplementId, { clearFactor: true });
+    toast('已恢复系统默认因子匹配', 'success');
+    route();
+  });
+  qs('#auditSaveAdjustBtn', root)?.addEventListener('click', () => {
+    const data = readApprovalAuditAdjustForm(root);
+    Store.applyApprovalAuditAdjustments(supplementId, data);
+    toast('审核调整已保存', 'success');
+    route();
+  });
 }
 
 /** 审核页底部操作栏（审核模式） */
@@ -2359,11 +3440,11 @@ function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo, options = {
     </div>`;
   const supplementHint = editable
     ? '可编辑；保存后仅更新本碳账户及列表展示，不影响核算任务中的收集与计算数据'
-    : '按核算方法展示对应填报内容（只读）';
+    : '';
   return `${subHint}
     <div class="card"><div class="card-header"><h3>账户档案</h3></div><div class="card-body">${profileFields}</div></div>
     <div class="card" style="margin-top:16px"><div class="card-header"><h3>客户经理收集数据</h3>
-      <span style="font-size:12px;color:#909399">${supplementHint}</span></div>
+      ${supplementHint ? `<span style="font-size:12px;color:#909399">${supplementHint}</span>` : ''}</div>
       <div class="card-body ca-profile-supplement${editable ? '' : ' is-readonly'}">${renderSupplementFillBody(supplementView, { readonly: !editable, editableBasicInfo: editable })}</div>
     </div>`;
 }
@@ -2406,14 +3487,14 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
 function getDefaultCandidateFilterRules(task) {
   const t = normalizeTaskIndustryFields({ ...(task || {}) });
   const investScope = getTaskInvestIndustryScope(t);
-  const scopeCodes = IndustryScope.resolveCodes(investScope, t.investIndustryCustomCodes);
-  const eightCodes = IndustryScope.getEightCodes();
   let industries;
   if (investScope === '自定义') {
-    industries = eightCodes.filter(c => scopeCodes.includes(c));
-    if (!industries.length) industries = scopeCodes.slice();
+    industries = (t.investIndustryCustomCodes || []).map(normalizeIndustryFilterCode).filter(Boolean);
+    if (!industries.length) industries = getCandidateInvestIndustryFilterOptions(t).map(r => r.code);
+  } else if (investScope === INDUSTRY_SCOPE_KEY_EXTENDED) {
+    industries = getCandidateInvestIndustryFilterOptions(t).map(r => r.code);
   } else {
-    industries = eightCodes.slice();
+    industries = INDUSTRY_TABLE.map(r => r.code);
   }
   return {
     productTypes: (GUIDE.SCOPE_DEFAULT_PRODUCT_TYPES || []).slice(),
@@ -2460,16 +3541,65 @@ function isCandidateInGuideAccountingScope(c) {
   const bt = candidateBorrowerType(c);
   if (['个体工商户', '农户', '境外主体', '小微企业'].includes(bt)) return false;
   const code = c.gbIndustryCode;
-  if (!code || !IndustryScope.getEightCodes().includes(code)) return false;
+  if (!code || !IndustryScope.getEightCodes().some(ec => industryFilterCodesMatch(ec, code))) return false;
   const pt = candidateProductType(c);
   if (pt === '个人经营性贷款') return false;
   return true;
 }
 
+function normalizeIndustryFilterCode(code) {
+  if (code == null || code === '') return '';
+  const s = String(code).trim();
+  if (/^[A-Z]\d/.test(s)) return s;
+  if (typeof toScopedIndustryCode === 'function') {
+    const scoped = toScopedIndustryCode(s);
+    if (scoped) return scoped;
+  }
+  return s;
+}
+
+function industryFilterCodesMatch(a, b) {
+  if (!a || !b) return false;
+  const na = normalizeIndustryFilterCode(a);
+  const nb = normalizeIndustryFilterCode(b);
+  if (na === nb) return true;
+  return toCascadeIndustryCode(na) === toCascadeIndustryCode(nb);
+}
+
+function lookupCandidateIndustryFilterRow(code) {
+  const scoped = normalizeIndustryFilterCode(code);
+  if (!scoped) return null;
+  const cascade = toCascadeIndustryCode(scoped);
+  const tableRow = INDUSTRY_TABLE.find(r => r.code === scoped || toCascadeIndustryCode(r.code) === cascade);
+  if (tableRow) return tableRow;
+  const nameMap = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
+  const name = nameMap[cascade] || nameMap[scoped] || '';
+  return { code: scoped, name: name || scoped, major: inferIndustryMajor(scoped) || '' };
+}
+
 function getCandidateInvestIndustryFilterOptions(task) {
   const t = normalizeTaskIndustryFields({ ...(task || {}) });
-  const codes = IndustryScope.resolveCodes(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes);
-  return INDUSTRY_TABLE.filter(i => codes.includes(i.code));
+  const scope = getTaskInvestIndustryScope(t);
+  if (scope === '自定义') {
+    const seen = new Set();
+    const rows = [];
+    (t.investIndustryCustomCodes || []).forEach(raw => {
+      const row = lookupCandidateIndustryFilterRow(raw);
+      if (row?.code && !seen.has(row.code)) {
+        seen.add(row.code);
+        rows.push(row);
+      }
+    });
+    return rows.sort((a, b) => a.code.localeCompare(b.code, 'zh-CN'));
+  }
+  if (scope === INDUSTRY_SCOPE_KEY_EXTENDED) {
+    const codes = [...new Set(
+      IndustryScope.resolveCodes(scope, []).map(normalizeIndustryFilterCode).filter(Boolean)
+    )];
+    return codes.map(c => lookupCandidateIndustryFilterRow(c)).filter(r => r?.code)
+      .sort((a, b) => a.code.localeCompare(b.code, 'zh-CN'));
+  }
+  return INDUSTRY_TABLE.slice();
 }
 
 function renderCandidateFilterCheckboxes(name, options, selected, labelFn) {

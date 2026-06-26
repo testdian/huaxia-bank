@@ -2,6 +2,9 @@
 const Store = {
   KEY: 'hxb_carbon_demo_v18',
   INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
+  _cache: null,
+  _initDone: false,
+  _economyFactorLookup: null,
 
   _ensureInterfaces() {
     if (!localStorage.getItem(this.INTERFACES_KEY)) {
@@ -146,6 +149,7 @@ const Store = {
   },
 
   init() {
+    if (this._initDone) return;
     if (this._initRunning) return;
     this._initRunning = true;
     try {
@@ -172,43 +176,83 @@ const Store = {
     this._migrateCarbonAccountProjectDetails();
     this._migrateCarbonAccountCustomerNames();
     this._migrateFactorMeta();
-    this._migrateFactorVersionHistory();
+    this._migrateFactorDedupe();
+    this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
+    this._ensureIndustryConfig();
+    this._ensureMenuPermissions();
+    this._initDone = true;
     } finally {
       this._initRunning = false;
     }
   },
 
-  /** 演示：为部分经济法内置因子补 2025 历史版本 */
-  _migrateFactorVersionHistory() {
+  /** 排放因子库：同一因子组只保留一条记录（优先自定义） */
+  _migrateFactorDedupe() {
     const raw = localStorage.getItem(this.KEY);
-    if (!raw || typeof factorGroupKey !== 'function' || typeof pickFactorVersion !== 'function') return;
+    if (!raw || typeof factorGroupKey !== 'function' || typeof pickFactorRecord !== 'function') return;
     try {
       const d = JSON.parse(raw);
-      if (d._factorVersionHistoryMigrated) return;
-      let changed = false;
-      const economy2026 = (d.factors || []).filter(f =>
-        f.isBuiltin && f.methodId === 'economy' && Number(f.versionYear || 2026) === 2026 && f.value != null
-      ).slice(0, 8);
-      economy2026.forEach(src => {
-        const gk = factorGroupKey(src);
-        const exists = (d.factors || []).some(f => factorGroupKey(f) === gk && Number(f.versionYear) === 2025);
-        if (exists) return;
-        d.factors.push({
-          ...src,
-          id: `${src.id}-2025`,
-          versionYear: 2025,
-          value: Math.round(Number(src.value) * 0.98 * 10000) / 10000,
-          sourceNote: '指引附2 · 2025历史版本'
-        });
-        changed = true;
+      if (d._factorDedupeMigrated) return;
+      const map = new Map();
+      (d.factors || []).forEach(f => {
+        const gk = factorGroupKey(f);
+        if (!map.has(gk)) map.set(gk, []);
+        map.get(gk).push(f);
       });
-      d._factorVersionHistoryMigrated = true;
-      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+      const kept = [];
+      map.forEach(candidates => {
+        const picked = pickFactorRecord(candidates);
+        if (picked) kept.push(picked);
+      });
+      d.factors = kept;
+      d._factorDedupeMigrated = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
 
-  /** 排放因子库：补全版本年度与口径标签 */
+  /** 排放因子导入历史：演示种子 */
+  _migrateFactorImportHistory() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._factorImportHistoryMigrated) return;
+      if (!Array.isArray(d.factorImportHistory)) d.factorImportHistory = [];
+      if (!d.factorImportHistory.length) {
+        d.factorImportHistory = [
+          {
+            id: 'FI-DEMO-1',
+            fileName: '自定义因子批量导入.csv',
+            total: 12,
+            imported: 12,
+            errorCount: 0,
+            status: 'success',
+            operator: d.currentUser || '张明',
+            importTime: '2026-04-18 10:15:22'
+          },
+          {
+            id: 'FI-DEMO-2',
+            fileName: '产品法因子补充.csv',
+            total: 5,
+            imported: 3,
+            errorCount: 2,
+            status: 'partial',
+            operator: d.currentUser || '张明',
+            importTime: '2026-04-20 16:29:37',
+            errorReport: '第 4 行：产品法须填写主要产品与产品细分\n第 5 行：来源说明不能为空'
+          }
+        ];
+      }
+      d._factorImportHistoryMigrated = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** @deprecated 保留空实现，兼容旧 localStorage 标记 */
+  _migrateFactorVersionHistory() {},
+
+  /** 排放因子库：补全口径标签 */
   _migrateFactorMeta() {
     const raw = localStorage.getItem(this.KEY);
     if (!raw) return;
@@ -217,10 +261,6 @@ const Store = {
       if (d._factorMetaMigrated) return;
       let changed = false;
       (d.factors || []).forEach(f => {
-        if (!f.versionYear) {
-          f.versionYear = 2026;
-          changed = true;
-        }
         if (!f.caliberTag) {
           f.caliberTag = f.isBuiltin ? 'pbo' : 'bank';
           changed = true;
@@ -456,8 +496,18 @@ const Store = {
 
   get() {
     this.init();
-    const data = JSON.parse(localStorage.getItem(this.KEY));
+    if (this._cache) {
+      this._cache.interfaces = this._getInterfacesRaw();
+      return this._cache;
+    }
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) {
+      this.init();
+      return this.get();
+    }
+    const data = JSON.parse(raw);
     data.interfaces = this._getInterfacesRaw();
+    this._cache = data;
     return data;
   },
   set(data) {
@@ -467,11 +517,17 @@ const Store = {
     if (interfaces) {
       localStorage.setItem(this.INTERFACES_KEY, JSON.stringify(interfaces));
     }
+    this._cache = rest;
+    this._economyFactorLookup = null;
     localStorage.setItem(this.KEY, JSON.stringify(rest));
   },
   update(fn) { const data = this.get(); fn(data); this.set(data); return data; },
   reset() {
     localStorage.removeItem(this.KEY);
+    this._cache = null;
+    this._initDone = false;
+    this._economyFactorLookup = null;
+    if (typeof invalidateSpaLayout === 'function') invalidateSpaLayout();
     this.init();
     return this.get();
   },
@@ -510,19 +566,24 @@ const Store = {
     return formal.every(f => this.isFormalCollectComplete(f, d, taskId));
   },
 
-  allConfirmedHaveEntityEmission(taskId) {
-    const formal = this.getFormalList(taskId).filter(f => f.status === 'confirmed');
+  allConfirmedHaveEntityEmission(taskId, data) {
+    const d = data || this.get();
+    const formal = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
     if (!formal.length) return false;
-    return formal.every(f => this.getFormalEntityEmission(taskId, f.id) != null);
+    return formal.every(f => this._formalHasEntityEmission(d, taskId, f));
   },
 
-  hasMissingEntityEmission(taskId) {
-    return this.getFormalList(taskId)
-      .filter(f => f.status === 'confirmed')
-      .some(f => this.getFormalEntityEmission(taskId, f.id) == null);
+  hasMissingEntityEmission(taskId, data) {
+    const d = data || this.get();
+    return d.formalList
+      .filter(f => f.taskId === taskId && f.status === 'confirmed')
+      .some(f => !this._formalHasEntityEmission(d, taskId, f));
   },
 
   getFormalEntityEmission(taskId, formalId) {
+    if (typeof getEffectiveEntityEmission === 'function') {
+      return getEffectiveEntityEmission(taskId, formalId);
+    }
     const calc = this.getCalculations(taskId).find(c => c.formalId === formalId);
     if (calc && calc.entityEmission != null) return calc.entityEmission;
     const f = this.getFormalList(taskId).find(x => x.id === formalId);
@@ -536,6 +597,9 @@ const Store = {
   },
 
   _formalHasEntityEmission(d, taskId, f) {
+    if (typeof getEffectiveEntityEmission === 'function') {
+      return getEffectiveEntityEmission(taskId, f.id) != null;
+    }
     const calc = d.calculations.find(c => c.formalId === f.id && c.taskId === taskId);
     if (calc?.entityEmission != null) return true;
     if (f.gelanEntityEmission != null) return true;
@@ -567,8 +631,24 @@ const Store = {
     const s = d.supplements.find(x => x.formalId === f.id && x.taskId === taskId);
     const cand = d.candidates.find(x => x.id === f.customerId);
     let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
-    const method = s ? this.matchMethod(s) : GUIDE.METHODS.find(m => m.id === 'economy');
+    const manualEmission = typeof getManualEntityEmissionValue === 'function'
+      ? getManualEntityEmissionValue(taskId, f.id)
+      : null;
+    let method;
+    if (manualEmission != null && s) {
+      method = this.matchMethod(s);
+    } else if (calc?.methodId) {
+      method = GUIDE.METHODS.find(m => m.id === calc.methodId);
+    } else {
+      method = s ? this.matchMethod(s) : GUIDE.METHODS.find(m => m.id === 'economy');
+    }
     let entityEmission = overrides.entityEmission;
+    if (entityEmission == null && typeof getManualEntityEmissionValue === 'function') {
+      entityEmission = getManualEntityEmissionValue(taskId, f.id);
+    }
+    if (entityEmission == null && typeof getSystemEntityEmissionValue === 'function') {
+      entityEmission = getSystemEntityEmissionValue(taskId, f.id);
+    }
     if (entityEmission == null && calc?.entityEmission != null) entityEmission = calc.entityEmission;
     if (entityEmission == null && s) {
       const e = this.calcEntityEmission(s);
@@ -591,7 +671,7 @@ const Store = {
       qualityGrade: overrides.qualityGrade ?? method?.qualityGrade ?? 5,
       status: 'done',
       approvalStatus: 'none',
-      source: overrides.source || 'collect_submit',
+      source: overrides.source || (manualEmission != null ? 'collect_submit' : (calc?.source || 'collect_submit')),
       calculatedAt: new Date().toLocaleString('zh-CN')
     };
     payload.attributedEmission = overrides.attributedEmission != null
@@ -635,7 +715,9 @@ const Store = {
     this.update(d => {
       d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed').forEach(f => {
         const calc = d.calculations.find(c => c.formalId === f.id && c.taskId === taskId);
-        let hasEmission = calc && calc.entityEmission != null;
+        let hasEmission = typeof getEffectiveEntityEmission === 'function'
+          ? getEffectiveEntityEmission(taskId, f.id) != null
+          : (calc && calc.entityEmission != null);
         if (!hasEmission) {
           const s = d.supplements.find(x => x.formalId === f.id && x.taskId === taskId);
           if (s && (s.auditStage === 'approved' || s.status === 'completed')) {
@@ -700,11 +782,12 @@ const Store = {
     });
   },
 
-  filterCandidateList(taskId, rules) {
-    let list = this.getCandidates(taskId);
+  filterCandidateList(taskId, rules, data) {
+    const d = data || this.get();
+    let list = (d.candidates || []).filter(c => c.taskId === taskId);
     if (!list.length) return [];
 
-    const task = this.getTask(taskId);
+    const task = d.tasks.find(t => t.id === taskId);
     const r = normalizeCandidateFilterRules(rules, task);
 
     if (task?.subjectIndustryScope === '八大高碳行业' || (!task?.subjectIndustryScope && task?.industryScope === '八大高碳行业')) {
@@ -720,7 +803,10 @@ const Store = {
       list = list.filter(c => r.customerScales.includes(candidateCustomerScale(c)));
     }
     if (r.industries?.length) {
-      list = list.filter(c => r.industries.includes(candidateInvestIndustryCode(c)));
+      list = list.filter(c => {
+        const ic = candidateInvestIndustryCode(c);
+        return r.industries.some(sel => industryFilterCodesMatch(sel, ic));
+      });
     }
     if (r.balanceMin !== '' && r.balanceMin != null) {
       const min = Number(r.balanceMin);
@@ -733,27 +819,38 @@ const Store = {
     return list;
   },
 
-  applyCandidateFilterInclusion(taskId, rules) {
-    const filteredIds = new Set(this.filterCandidateList(taskId, rules).map(c => c.id));
-    this.update(d => {
-      d.candidates.filter(c => c.taskId === taskId).forEach(c => {
+  applyCandidateFilterInclusion(taskId, rules, data) {
+    const d = data || this.get();
+    const filteredIds = new Set(this.filterCandidateList(taskId, rules, d).map(c => c.id));
+    const apply = (target) => {
+      target.candidates.filter(c => c.taskId === taskId).forEach(c => {
         c.included = filteredIds.has(c.id);
       });
-    });
+    };
+    if (data) {
+      apply(data);
+      return filteredIds.size;
+    }
+    this.update(target => apply(target));
     return filteredIds.size;
   },
 
   getCandidatesForView(taskId, rules) {
-    const all = this.getCandidates(taskId);
+    const d = this.get();
+    const all = (d.candidates || []).filter(c => c.taskId === taskId);
     if (!all.length) return { rows: [], total: 0, stats: {} };
 
-    const list = this.filterCandidateList(taskId, rules);
+    const list = this.filterCandidateList(taskId, rules, d);
+    const autoInclude = !rules?.customized;
+    const rows = autoInclude
+      ? list.map(c => (c.included ? c : { ...c, included: true }))
+      : list;
     const stats = {
       syncedTotal: all.length,
-      includedCount: list.filter(c => c.included).length,
+      includedCount: autoInclude ? list.length : list.filter(c => c.included).length,
       viewCount: list.length
     };
-    return { rows: list, total: list.length, stats };
+    return { rows, total: list.length, stats };
   },
 
   /** 从接口管理按月批次汇总，按任务核算年度拉取全量台账（演示展示子集） */
@@ -811,19 +908,15 @@ const Store = {
         task.workflowStep = Math.max(task.workflowStep ?? 0, WORKFLOW_STEP.CANDIDATES);
         task.progress = Math.max(task.progress || 0, 15);
         task.candidateFilterRules = getDefaultCandidateFilterRules(task);
+        batch.forEach(c => {
+          c.accountingYear = year;
+          c.excludeReason = null;
+          c.excluded = false;
+          c.included = false;
+        });
+        this.applyCandidateFilterInclusion(taskId, task.candidateFilterRules, data);
       }
-      batch.forEach(c => {
-        c.accountingYear = year;
-        c.excludeReason = null;
-        c.excluded = false;
-        c.included = false;
-      });
     });
-
-    const task = this.getTask(taskId);
-    if (task) {
-      this.applyCandidateFilterInclusion(taskId, getDefaultCandidateFilterRules(task));
-    }
 
     return {
       ok: true,
@@ -865,7 +958,10 @@ const Store = {
 
   generateFormalFromCandidates(taskId) {
     return this.update(d => {
-      const included = d.candidates.filter(c => c.taskId === taskId && c.included);
+      const rules = this.getCandidateFilterRules(taskId);
+      const included = !rules?.customized
+        ? this.filterCandidateList(taskId, rules, d)
+        : d.candidates.filter(c => c.taskId === taskId && c.included);
       included.forEach((c, i) => {
         if (d.formalList.some(f => f.customerId === c.id && f.taskId === taskId)) return;
         const isProject = ['一般性固定资产贷款', '出口退税账户托管贷款'].includes(c.loanType || c.productType);
@@ -1138,41 +1234,31 @@ const Store = {
     return count;
   },
 
-  _getIndustryFactor(d, industryMajor, gbCode, taskYear) {
+  _buildEconomyFactorLookup(d) {
     const factors = (d.factors || []).filter(x =>
       x.methodId === 'economy' && x.valueType === 'default' && x.value != null
     );
+    const byGb = new Map();
+    const byMajor = new Map();
+    factors.forEach(f => {
+      if (f.gbCode && !byGb.has(f.gbCode)) byGb.set(f.gbCode, f);
+      if (f.industryMajor && !byMajor.has(f.industryMajor)) byMajor.set(f.industryMajor, f);
+    });
+    this._economyFactorLookup = { factors, byGb, byMajor, factorLen: (d.factors || []).length };
+  },
+
+  _getIndustryFactor(d, industryMajor, gbCode, taskYear) {
+    if (!this._economyFactorLookup || this._economyFactorLookup.factorLen !== (d.factors || []).length) {
+      this._buildEconomyFactorLookup(d);
+    }
+    const { factors, byGb, byMajor } = this._economyFactorLookup;
     if (!factors.length) return 2.35;
-
-    let pool = factors;
-    if (gbCode) {
-      const byCode = factors.filter(x => x.gbCode === gbCode);
-      if (byCode.length) pool = byCode;
-      else if (industryMajor) pool = factors.filter(x => x.industryMajor === industryMajor);
-    } else if (industryMajor) {
-      pool = factors.filter(x => x.industryMajor === industryMajor);
+    if (gbCode && byGb.has(gbCode)) return Number(byGb.get(gbCode).value);
+    if (industryMajor === '钢铁') {
+      const steel = byGb.get('C3120') || factors.find(x => x.gbCode === 'C3120');
+      if (steel) return Number(steel.value);
     }
-
-    if (typeof groupFactorRecords === 'function' && typeof pickFactorVersion === 'function') {
-      const groups = groupFactorRecords(pool);
-      const preferred = groups.map(g => pickFactorVersion(g.versions, taskYear)).filter(Boolean);
-      if (preferred.length) {
-        const steel = preferred.find(v => v.gbCode === 'C3120' && industryMajor === '钢铁');
-        return Number((steel || preferred[0]).value);
-      }
-    }
-
-    if (gbCode) {
-      const exact = factors.find(x => x.gbCode === gbCode);
-      if (exact) return Number(exact.value);
-    }
-    const industryFactors = factors.filter(x => x.industryMajor === industryMajor);
-    if (industryFactors.length) {
-      const preferred = industryFactors.find(x => x.gbCode === 'C3120') && industryMajor === '钢铁'
-        ? industryFactors.find(x => x.gbCode === 'C3120')
-        : industryFactors[0];
-      return Number(preferred.value);
-    }
+    if (industryMajor && byMajor.has(industryMajor)) return Number(byMajor.get(industryMajor).value);
     return 2.35;
   },
 
@@ -1180,9 +1266,153 @@ const Store = {
     return (this.get().factors || []).find(x => x.id === id);
   },
 
-  _factorVersionKey(f) {
-    if (typeof factorVersionKey === 'function') return factorVersionKey(f);
-    return `${f.methodId}|${f.versionYear || ''}`;
+  _ensureMenuPermissions() {
+    if (typeof MenuPermissions === 'undefined') return;
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      const defaults = MenuPermissions.DEFAULT_VISIBILITY;
+      if (!d.menuVisibility || typeof d.menuVisibility !== 'object') {
+        d.menuVisibility = { ...defaults };
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+        return;
+      }
+      let changed = false;
+      Object.keys(defaults).forEach(k => {
+        if (d.menuVisibility[k] === undefined) {
+          d.menuVisibility[k] = defaults[k];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  getIndustryConfig() {
+    const d = this.get();
+    return d.industryConfig || { imported: false, importedAt: null, rows: [] };
+  },
+
+  _ensureIndustryConfig() {
+    if (typeof IndustryConfig === 'undefined' || !window.GB4754_FLAT?.length) return;
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      const needsSeed = !d.industryConfig?.imported || !(d.industryConfig?.rows?.length);
+      if (needsSeed) {
+        const rows = IndustryConfig.buildImportRows();
+        if (rows.length) {
+          d.industryConfig = {
+            imported: true,
+            importedAt: new Date().toLocaleString('zh-CN'),
+            seeded: true,
+            rows
+          };
+          localStorage.setItem(this.KEY, JSON.stringify(d));
+        }
+      } else if (!d.industryConfig) {
+        d.industryConfig = { imported: false, importedAt: null, rows: [] };
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+      }
+      this._migrateIndustryConfigTags(d);
+    } catch { /* ignore */ }
+  },
+
+  /** 行业配置：单选 tag 迁移为多选 tags */
+  _migrateIndustryConfigTags(d) {
+    if (!d?.industryConfig?.rows?.length || typeof IndustryConfig === 'undefined') return;
+    if (d._industryConfigTagsMigrated) return;
+    let changed = false;
+    d.industryConfig.rows.forEach(r => {
+      if (Array.isArray(r.tags)) {
+        const normalized = IndustryConfig.normalizeRowTags(r);
+        if (JSON.stringify(r.tags) !== JSON.stringify(normalized)) {
+          r.tags = normalized;
+          changed = true;
+        }
+      } else if (r.tag) {
+        r.tags = IndustryConfig.normalizeRowTags(r);
+        delete r.tag;
+        changed = true;
+      } else if (!r.tags) {
+        r.tags = [];
+        changed = true;
+      }
+    });
+    d._industryConfigTagsMigrated = true;
+    localStorage.setItem(this.KEY, JSON.stringify(d));
+  },
+
+  importIndustryConfigFromGb4754() {
+    if (typeof IndustryConfig === 'undefined') return { ok: false, message: '行业数据未加载', count: 0 };
+    const rows = IndustryConfig.buildImportRows();
+    if (!rows.length) return { ok: false, message: 'GB/T 4754 数据不可用', count: 0 };
+    this.update(d => {
+      d.industryConfig = {
+        imported: true,
+        importedAt: new Date().toLocaleString('zh-CN'),
+        rows
+      };
+    });
+    return { ok: true, count: rows.length };
+  },
+
+  addIndustryConfigRow(payload) {
+    if (!payload?.code && !payload?.cascadeCode) return null;
+    let added = null;
+    this.update(d => {
+      d.industryConfig = d.industryConfig || { imported: false, rows: [] };
+      const scoped = payload.code || (typeof toScopedIndustryCode === 'function'
+        ? toScopedIndustryCode(payload.cascadeCode)
+        : payload.cascadeCode);
+      if (d.industryConfig.rows.some(r => r.code === scoped || r.cascadeCode === payload.cascadeCode)) return;
+      const row = {
+        id: 'IC-' + String(scoped).replace(/\W/g, '') + '-' + Date.now(),
+        ...payload,
+        code: scoped,
+        tags: Array.isArray(payload.tags) ? payload.tags : [],
+        custom: true
+      };
+      delete row.tag;
+      d.industryConfig.rows.unshift(row);
+      d.industryConfig.imported = true;
+      added = row;
+    });
+    return added;
+  },
+
+  updateIndustryConfigRow(id, payload) {
+    let ok = false;
+    this.update(d => {
+      const row = d.industryConfig?.rows?.find(r => r.id === id);
+      if (!row) return;
+      Object.assign(row, payload, {
+        id,
+        custom: row.custom !== false,
+        tags: Array.isArray(payload.tags) ? payload.tags : IndustryConfig.normalizeRowTags(row)
+      });
+      delete row.tag;
+      ok = true;
+    });
+    return ok;
+  },
+
+  deleteIndustryConfigRow(id) {
+    let ok = false;
+    this.update(d => {
+      if (!d.industryConfig?.rows) return;
+      const before = d.industryConfig.rows.length;
+      d.industryConfig.rows = d.industryConfig.rows.filter(r => r.id !== id);
+      ok = d.industryConfig.rows.length < before;
+    });
+    return ok;
+  },
+
+  _factorGroupKey(f) {
+    if (typeof factorGroupKey === 'function') return factorGroupKey(f);
+    return `${f.methodId}|${f.industryMajor || ''}`;
   },
 
   addFactor(payload, options) {
@@ -1197,12 +1427,8 @@ const Store = {
         sourceSheet: payload.sourceSheet || '自定义'
       };
       if (!(options && options.allowDuplicate)) {
-        const versionDup = d.factors.some(x => this._factorVersionKey(x) === this._factorVersionKey(item));
-        if (versionDup) return;
-        if (options?.mode !== 'newVersion' && typeof factorGroupKey === 'function') {
-          const gk = factorGroupKey(item);
-          if (d.factors.some(x => factorGroupKey(x) === gk)) return;
-        }
+        const gk = this._factorGroupKey(item);
+        if (d.factors.some(x => this._factorGroupKey(x) === gk)) return;
       }
       d.factors.unshift(item);
       added = item;
@@ -1263,34 +1489,62 @@ const Store = {
     return ok;
   },
 
-  copyFactorsByYear(sourceYear, targetYear) {
-    const srcYear = String(sourceYear || '');
-    const tgtYear = String(targetYear || '');
-    if (!srcYear || !tgtYear || srcYear === tgtYear) return 0;
-    let count = 0;
+  getFactorImportHistory() {
+    return [...(this.get().factorImportHistory || [])].sort((a, b) =>
+      String(b.importTime || '').localeCompare(String(a.importTime || ''))
+    );
+  },
+
+  recordFactorImportHistory(entry) {
+    let record = null;
+    this.update(d => {
+      d.factorImportHistory = d.factorImportHistory || [];
+      record = {
+        id: 'FI' + Date.now(),
+        operator: d.currentUser || '—',
+        importTime: new Date().toLocaleString('zh-CN'),
+        ...entry
+      };
+      d.factorImportHistory.unshift(record);
+    });
+    return record;
+  },
+
+  getFactorImportRecord(id) {
+    return (this.get().factorImportHistory || []).find(x => x.id === id) || null;
+  },
+
+  importFactors(rows) {
+    const result = { added: 0, skipped: 0, errors: [] };
+    if (!rows?.length) return result;
     this.update(d => {
       d.factors = d.factors || [];
-      const sources = d.factors.filter(f => String(f.versionYear || 2026) === srcYear);
-      sources.forEach(src => {
-        const gk = typeof factorGroupKey === 'function' ? factorGroupKey(src) : src.id;
-        const exists = d.factors.some(f =>
-          (typeof factorGroupKey === 'function' ? factorGroupKey(f) === gk : f.id === src.id)
-          && String(f.versionYear) === tgtYear
-        );
-        if (exists) return;
-        const copy = {
-          ...src,
-          id: undefined,
-          versionYear: Number(tgtYear) || tgtYear,
+      rows.forEach((row, idx) => {
+        const rowNum = idx + 2;
+        const parsed = typeof parseFactorImportRow === 'function'
+          ? parseFactorImportRow(row, rowNum)
+          : { error: '导入解析器不可用' };
+        if (parsed.error) {
+          result.errors.push(parsed.error);
+          return;
+        }
+        const item = {
+          ...parsed.payload,
+          id: typeof nextCustomFactorId === 'function' ? nextCustomFactorId(d.factors) : ('EF-C' + Date.now()),
           isBuiltin: false,
-          sourceSheet: '自定义',
-          sourceNote: `由 ${srcYear} 年度版本复制（${factorDisplayName ? factorDisplayName(src) : src.id}）`
+          status: 'active',
+          sourceSheet: parsed.payload.sourceSheet || '导入'
         };
-        const added = this.addFactor(copy, { allowDuplicate: true, mode: 'newVersion' });
-        if (added) count++;
+        const gk = typeof factorGroupKey === 'function' ? factorGroupKey(item) : `${item.methodId}|${item.industryMajor}`;
+        if (d.factors.some(x => (typeof factorGroupKey === 'function' ? factorGroupKey(x) : `${x.methodId}|${x.industryMajor}`) === gk)) {
+          result.skipped++;
+          return;
+        }
+        d.factors.unshift(item);
+        result.added++;
       });
     });
-    return count;
+    return result;
   },
 
   /** 调取格澜数据：为已锁定且尚无主体排放的记录写入报告法主体排放（不含项目法-以项目方式计算） */
@@ -1311,6 +1565,7 @@ const Store = {
         const idSet = new Set(formalIds);
         targets = targets.filter(f => idSet.has(f.id));
       }
+      const candById = new Map(d.candidates.map(c => [c.id, c]));
       targets.forEach(f => {
         if (typeof isFormalGelanEligible === 'function' && !isFormalGelanEligible(f, taskId, d)) {
           skippedProject++;
@@ -1328,7 +1583,7 @@ const Store = {
           noData++;
           return;
         }
-        const c = d.candidates.find(x => x.id === f.customerId);
+        const c = candById.get(f.customerId);
         const entityEmission = gelan.data.ghgTotalEmission ?? gelan.data.entityEmission;
         const totalAssets = Number(c?.totalAssets) || 800000;
         const avgBalance = Number(c?.avgMonthlyBalance) || Number(f.avgMonthlyBalance) || 3000;
@@ -1376,6 +1631,10 @@ const Store = {
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
         if (typeof CarbonAccount !== 'undefined') {
           CarbonAccount.syncEntityFromFormalEmission(d, taskId, f, payload);
+        }
+        const sup = d.supplements.find(x => x.taskId === taskId && x.formalId === f.id);
+        if (sup && typeof applyInterfacePrefillToSupplement === 'function') {
+          applyInterfacePrefillToSupplement(sup, f, taskId);
         }
         withData++;
       });
@@ -1429,6 +1688,10 @@ const Store = {
         else d.calculations.push({ id: 'CAL' + f.id.replace(/\W/g, ''), ...payload });
         if (typeof CarbonAccount !== 'undefined') {
           CarbonAccount.syncEntityFromFormalEmission(d, taskId, f, payload);
+        }
+        const sup = d.supplements.find(x => x.taskId === taskId && x.formalId === f.id);
+        if (sup && typeof applyInterfacePrefillToSupplement === 'function') {
+          applyInterfacePrefillToSupplement(sup, f, taskId);
         }
         count++;
       });
@@ -1718,6 +1981,13 @@ const Store = {
 
       const formal = d.formalList.find(f => f.id === s.formalId);
       const candidate = d.candidates.find(c => c.id === (s.customerId || formal?.customerId));
+      if (payload.industryMajor != null || payload.gbIndustryCode != null) {
+        this._syncSupplementIndustry(d, s, formal, candidate, {
+          industryMajor: payload.industryMajor ?? s.industryMajor,
+          gbIndustryCode: payload.gbIndustryCode ?? s.gbIndustryCode,
+          gbIndustryName: payload.gbIndustryName ?? s.gbIndustryName
+        });
+      }
       if (s.bizType === 'project') {
         const hasSyncedProject = (Array.isArray(candidate?.projectDetails) && candidate.projectDetails.length > 0)
           || (Array.isArray(formal?.projectDetails) && formal.projectDetails.length > 0);
@@ -1744,6 +2014,78 @@ const Store = {
         if (formal && s.projectInfoAvailable != null) formal.projectInfoAvailable = s.projectInfoAvailable;
         if (candidate && s.projectInfoAvailable != null) candidate.projectInfoAvailable = s.projectInfoAvailable;
       }
+    });
+  },
+
+  _syncSupplementIndustry(d, s, formal, candidate, industry) {
+    if (!s) return;
+    s.industryMajor = industry.industryMajor ?? s.industryMajor;
+    s.gbIndustryCode = industry.gbIndustryCode ?? s.gbIndustryCode ?? '';
+    s.gbIndustryName = industry.gbIndustryName ?? s.gbIndustryName ?? '';
+    if (formal) {
+      formal.industryMajor = s.industryMajor;
+      formal.gbIndustryCode = s.gbIndustryCode;
+      formal.gbIndustryName = s.gbIndustryName;
+    }
+    if (candidate) {
+      candidate.industryMajor = s.industryMajor;
+      candidate.gbIndustryCode = s.gbIndustryCode;
+      candidate.gbIndustryName = s.gbIndustryName;
+    }
+  },
+
+  applyApprovalAuditAdjustments(supplementId, data) {
+    const payload = data || {};
+    return this.update(d => {
+      const s = d.supplements.find(x => x.id === supplementId);
+      if (!s) return;
+      const formal = d.formalList.find(f => f.id === s.formalId);
+      const candidate = d.candidates.find(c => c.id === (s.customerId || formal?.customerId));
+      const task = d.tasks.find(t => t.id === s.taskId);
+
+      if (payload.clearIndustry) {
+        this._syncSupplementIndustry(d, s, formal, candidate, {
+          industryMajor: '-',
+          gbIndustryCode: '',
+          gbIndustryName: ''
+        });
+      } else if (payload.industryMajor != null) {
+        this._syncSupplementIndustry(d, s, formal, candidate, {
+          industryMajor: payload.industryMajor || '-',
+          gbIndustryCode: payload.gbIndustryCode || '',
+          gbIndustryName: payload.gbIndustryName || ''
+        });
+      }
+
+      if (payload.clearFactor) {
+        delete s.auditFactorId;
+        delete s.auditFactorMethodId;
+        delete s.auditFactorLabel;
+        delete s.auditFactorValue;
+        const auto = this._getIndustryFactor(d, s.industryMajor, s.gbIndustryCode, task?.year);
+        s.economyFactor = auto;
+        s.fallbackFactor = auto;
+      } else {
+        if (payload.factorId) {
+          const f = d.factors.find(x => x.id === payload.factorId);
+          s.auditFactorId = payload.factorId;
+          s.auditFactorMethodId = payload.factorMethodId || f?.methodId || 'economy';
+          s.auditFactorLabel = typeof factorDisplayName === 'function' && f ? factorDisplayName(f) : '';
+          if (f?.value != null) s.auditFactorValue = Number(f.value);
+        }
+        if (payload.factorValue != null && payload.factorValue !== '' && !Number.isNaN(Number(payload.factorValue))) {
+          s.auditFactorValue = Number(payload.factorValue);
+        }
+        const val = s.auditFactorValue ?? this._getIndustryFactor(d, s.industryMajor, s.gbIndustryCode, task?.year);
+        const methodId = payload.factorMethodId || s.auditFactorMethodId || 'economy';
+        if (methodId === 'economy' || methodId === 'economy_fallback') {
+          s.economyFactor = val;
+          if (methodId === 'economy_fallback' || s.fallbackFactor) s.fallbackFactor = val;
+        }
+      }
+
+      s.auditAdjustedAt = new Date().toLocaleString('zh-CN');
+      s.auditAdjustedBy = d.currentUser;
     });
   },
 
@@ -1824,7 +2166,7 @@ const Store = {
         const f = d.formalList.find(x => x.id === fid && x.taskId === taskId);
         if (!f || f.status !== 'confirmed') return;
         if (d.supplements.some(s => s.formalId === fid)) return;
-        d.supplements.push({
+        const sup = {
           id: 'S' + Date.now() + Math.floor(Math.random() * 10000),
           taskId, formalId: f.id, customerId: f.customerId, customerName: f.customerName,
           loanType: f.loanType, bizType: f.bizType, industryMajor: f.industryMajor,
@@ -1842,12 +2184,25 @@ const Store = {
           reviewRound: 0,
           dispatchedAt: new Date().toLocaleString('zh-CN'),
           dispatchedBy: d.currentUser
-        });
+        };
+        if (typeof applyInterfacePrefillToSupplement === 'function') {
+          applyInterfacePrefillToSupplement(sup, f, taskId);
+        }
+        d.supplements.push(sup);
         count++;
       });
       this.syncTaskWorkflow(d, taskId);
     });
     return count;
+  },
+
+  syncSupplementInterfacePrefill(taskId, formalId) {
+    if (!taskId || !formalId || typeof applyInterfacePrefillToSupplement !== 'function') return;
+    this.update(d => {
+      const s = d.supplements.find(x => x.taskId === taskId && x.formalId === formalId);
+      const f = d.formalList.find(x => x.taskId === taskId && x.id === formalId);
+      if (s && f) applyInterfacePrefillToSupplement(s, f, taskId);
+    });
   },
 
   generateReport(taskId, scope, template, format) {
