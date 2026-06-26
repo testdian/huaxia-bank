@@ -3,6 +3,10 @@
  */
 const CarbonAccount = {
   ACCOUNT_STATUS_LABEL: { active: '正常', disabled: '停用', cancelled: '注销' },
+  /** localStorage 演示数据上限（避免超出浏览器 5MB 配额） */
+  STORAGE_TARGETS: { accounts: 220, records: 650 },
+  STORAGE_COMPACT: { accounts: 180, records: 500 },
+  STORAGE_EMERGENCY: { accounts: 80, records: 250 },
 
   isAccountActive(acc) {
     return (acc?.status || 'active') === 'active';
@@ -1239,8 +1243,8 @@ const CarbonAccount = {
    */
   buildBulkDemoData(base, opts) {
     const options = opts || {};
-    const accountTarget = options.accountTarget ?? 500;
-    const recordTarget = options.recordTarget ?? 1800;
+    const accountTarget = options.accountTarget ?? CarbonAccount.STORAGE_TARGETS.accounts;
+    const recordTarget = options.recordTarget ?? CarbonAccount.STORAGE_TARGETS.records;
     const accounts = (base?.carbonAccounts || []).slice();
     const records = (base?.carbonAccountRecords || []).slice();
     const recordIds = new Set(records.map(r => r.id));
@@ -1543,6 +1547,26 @@ const CarbonAccount = {
     return { carbonAccounts: dedupedAccounts, carbonAccountRecords: records };
   },
 
+  /** 压缩碳账户演示数据，避免 localStorage 超出配额 */
+  compactStoragePayload(d, opts = {}) {
+    if (!d) return d;
+    const maxAcc = opts.maxAccounts ?? this.STORAGE_TARGETS.accounts;
+    const maxRec = opts.maxRecords ?? this.STORAGE_TARGETS.records;
+    let accounts = Array.isArray(d.carbonAccounts) ? d.carbonAccounts.slice() : [];
+    let records = Array.isArray(d.carbonAccountRecords) ? d.carbonAccountRecords.slice() : [];
+    if (records.length > maxRec) records = records.slice(0, maxRec);
+    const accountIds = new Set(records.map(r => r.accountId).filter(Boolean));
+    if (accountIds.size) {
+      accounts = accounts.filter(a => accountIds.has(a.id));
+    }
+    if (accounts.length > maxAcc) accounts = accounts.slice(0, maxAcc);
+    const keptIds = new Set(accounts.map(a => a.id));
+    records = records.filter(r => keptIds.has(r.accountId));
+    d.carbonAccounts = this.dedupeCarbonAccounts(accounts, records);
+    d.carbonAccountRecords = records;
+    return d;
+  },
+
   applyBulkDemoToStore(d, opts) {
     const base = {
       carbonAccounts: d.carbonAccounts || [],
@@ -1626,10 +1650,11 @@ if (typeof Store !== 'undefined') {
       CarbonAccount.backfillProvisionFromLockedFormals(d);
       const needsBackfill = d.carbonAccounts.length < 50;
       if (needsBackfill) CarbonAccount.backfillAll(d);
-      if (d.carbonAccountRecords.length < 1500) {
+      const targets = CarbonAccount.STORAGE_TARGETS;
+      if (d.carbonAccountRecords.length < targets.records) {
         CarbonAccount.applyBulkDemoToStore(d, {
-          accountTarget: 500,
-          recordTarget: 1800
+          accountTarget: targets.accounts,
+          recordTarget: targets.records
         });
       }
       d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
@@ -1649,29 +1674,40 @@ if (typeof Store !== 'undefined') {
         s.tasks, s.candidates, s.formalList, s.calculations
       );
     }
-    const bulk = CarbonAccount.buildBulkDemoData(carbon, {
-      accountTarget: 500,
-      recordTarget: 1800
-    });
+    const targets = CarbonAccount.STORAGE_TARGETS;
+    const bulk = CarbonAccount.buildBulkDemoData(carbon, targets);
     s.carbonAccounts = bulk.carbonAccounts;
     s.carbonAccountRecords = bulk.carbonAccountRecords;
     CarbonAccount.syncCustomerNamesFromLedger(s);
   })();
 
   (function migrateCarbonAccountsOnce() {
-    const d = Store.get();
-    if (!d.calculations?.length && !(d.carbonAccounts || []).length) return;
-    (d.carbonAccountRecords || []).forEach(r => CarbonAccount.alignRecordYearCompletion(r));
-    d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
-      d.carbonAccounts || [],
-      d.carbonAccountRecords || []
-    );
-    CarbonAccount.syncCustomerNamesFromLedger(d);
-    if ((d.carbonAccountRecords || []).length < 1500) {
-      Store._migrateCarbonAccounts(d);
+    try {
+      const d = Store.get();
+      if (!d.calculations?.length && !(d.carbonAccounts || []).length) return;
+      if (d._carbonPersistedV3) return;
+
+      (d.carbonAccountRecords || []).forEach(r => CarbonAccount.alignRecordYearCompletion(r));
+      d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
+        d.carbonAccounts || [],
+        d.carbonAccountRecords || []
+      );
+      CarbonAccount.syncCustomerNamesFromLedger(d);
+
+      const targets = CarbonAccount.STORAGE_TARGETS;
+      if ((d.carbonAccountRecords || []).length > targets.records
+        || (d.carbonAccounts || []).length > targets.accounts) {
+        CarbonAccount.compactStoragePayload(d, targets);
+      } else if ((d.carbonAccountRecords || []).length < targets.records) {
+        Store._migrateCarbonAccounts(d);
+      }
+
+      d._carbonPersistedV3 = true;
+      CarbonAccount.syncCustomerNamesFromLedger(d);
+      Store.set(d);
+    } catch (err) {
+      console.error('碳账户演示数据迁移失败', err);
     }
-    CarbonAccount.syncCustomerNamesFromLedger(d);
-    Store.set(d);
   })();
 }
 
