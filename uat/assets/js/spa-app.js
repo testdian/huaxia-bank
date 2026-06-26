@@ -93,6 +93,7 @@ function route() {
     if (s0?.formalId) Store.syncSupplementInterfacePrefill(s0.taskId, s0.formalId);
   }
   root.innerHTML = fn(ctx);
+  dismissSpaOverlays();
   bindPageEvents(base, ctx);
   document.title = title + ' - 华夏银行投融资碳核算';
 }
@@ -120,40 +121,16 @@ function bindParamFormFormatPanels() {
   sync();
 }
 
-function bindPageEvents(base, ctx) {
-  const taskId = ctx.task.id;
-  let paginationHook = null;
-  const viewOnly = isTaskViewMode();
+function dismissSpaOverlays() {
+  qsa('.modal-overlay.show, .drawer-overlay.show').forEach(el => el.classList.remove('show'));
+  document.body.classList.remove('drawer-open');
+}
 
-  if (base === '#/tasks') {
-    qs('#taskFilterBtn')?.addEventListener('click', () => {
-      saveTaskFilters({
-        name: qs('#tf_name')?.value || '',
-        year: qs('#tf_year')?.value || '',
-        investIndustryScope: qs('#tf_invest_industry')?.value || '',
-        industryScope: qs('#tf_industry')?.value || '',
-        progress: qs('#tf_progress')?.value ?? ''
-      });
-      setListPage('tasks', 1);
-      route();
-    });
-    qs('#taskFilterResetBtn')?.addEventListener('click', () => {
-      saveTaskFilters({});
-      setListPage('tasks', 1);
-      route();
-    });
-    qsa('.task-delete-btn').forEach(btn => {
-      btn.onclick = () => confirmDeleteTask(btn.dataset.id, btn.dataset.name);
-    });
-  }
-
-  if (base === '#/task-create') {
-    bindTaskIndustryScopeToggle();
-    bindTaskOrgScopeToggle();
-    bindTaskYearStepper(qs('#viewRoot'));
-
-    const btn = document.getElementById('saveTaskBtn');
-    if (btn) btn.onclick = () => {
+function bindTaskCreatePage() {
+  const btn = document.getElementById('saveTaskBtn');
+  if (btn) {
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
       const f = document.getElementById('taskForm');
       if (!validateTaskForm(f)) return;
       const payload = readTaskFormPayload(f);
@@ -181,9 +158,45 @@ function bindPageEvents(base, ctx) {
         createdAt: new Date().toISOString().slice(0, 10),
         createdBy: Store.get().currentUser
       });
+      Store.update(d => { d.currentTaskId = id; });
       toast('任务已创建，请进入「清单识别」从接口同步台账后再筛选', 'success');
       location.hash = '#/candidates';
-    };
+    });
+  }
+
+  bindTaskIndustryScopeToggle();
+  bindTaskOrgScopeToggle();
+  bindTaskYearStepper(qs('#viewRoot'));
+}
+function bindPageEvents(base, ctx) {
+  const taskId = ctx?.task?.id ?? '';
+  let paginationHook = null;
+  const viewOnly = isTaskViewMode();
+
+  if (base === '#/tasks') {
+    qs('#taskFilterBtn')?.addEventListener('click', () => {
+      saveTaskFilters({
+        name: qs('#tf_name')?.value || '',
+        year: qs('#tf_year')?.value || '',
+        investIndustryScope: qs('#tf_invest_industry')?.value || '',
+        industryScope: qs('#tf_industry')?.value || '',
+        progress: qs('#tf_progress')?.value ?? ''
+      });
+      setListPage('tasks', 1);
+      route();
+    });
+    qs('#taskFilterResetBtn')?.addEventListener('click', () => {
+      saveTaskFilters({});
+      setListPage('tasks', 1);
+      route();
+    });
+    qsa('.task-delete-btn').forEach(btn => {
+      btn.onclick = () => confirmDeleteTask(btn.dataset.id, btn.dataset.name);
+    });
+  }
+
+  if (base === '#/task-create') {
+    bindTaskCreatePage();
   }
 
   if (base === '#/task-edit') {
@@ -1018,7 +1031,7 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/ledger/detail') {
-    const taskId = new URLSearchParams((location.hash.split('?')[1] || '')).get('taskId') || ctx.task.id;
+    const taskId = new URLSearchParams((location.hash.split('?')[1] || '')).get('taskId') || ctx?.task?.id || '';
     qs('#ledgerDetailFilterBtn')?.addEventListener('click', () => {
       saveLedgerFilters({
         branch: qs('#ldf_branch')?.value || '',
