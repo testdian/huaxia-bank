@@ -1,6 +1,11 @@
 /** localStorage 数据层 + 指引口径计算 */
 const Store = {
-  KEY: 'hxb_carbon_demo_v18',
+  KEY: 'hxb_carbon_demo_v19',
+  LEGACY_STORAGE_KEYS: [
+    'hxb_carbon_demo_v18', 'hxb_carbon_demo_v17', 'hxb_carbon_demo_v16',
+    'hxb_carbon_demo_v15', 'hxb_carbon_demo_v14', 'hxb_carbon_demo_v13',
+    'hxb_carbon_demo_v12', 'hxb_carbon_demo_v11', 'hxb_carbon_demo_v10'
+  ],
   INTERFACES_KEY: 'hxb_carbon_interfaces_v1',
   _cache: null,
   _initDone: false,
@@ -154,16 +159,23 @@ const Store = {
     this._initRunning = true;
     try {
     this._ensureInterfaces();
+    this._migrateLegacyStorageKey();
     this._migrateReportPdfToWord();
     if (!localStorage.getItem(this.KEY)) {
       const seed = { ...(window.MOCK_SEED || {}) };
       delete seed.interfaces;
-      localStorage.setItem(this.KEY, JSON.stringify({
+      if (typeof CarbonAccount !== 'undefined') {
+        CarbonAccount.compactStoragePayload(seed, CarbonAccount.STORAGE_TARGETS);
+      }
+      const initial = {
         ...seed,
         currentRole: 'hq',
         currentUser: '张明',
-        currentTaskId: 'T2025001'
-      }));
+        currentTaskId: 'T2025001',
+        _carbonPersistedV3: true
+      };
+      this._cache = initial;
+      this._persistMainStore(initial);
     }
     this._refreshAccountingTypes();
     this._ensureProjectPendingSamples();
@@ -187,6 +199,32 @@ const Store = {
     this._initDone = true;
     } finally {
       this._initRunning = false;
+    }
+  },
+
+  /** 从旧版 hxb_carbon_demo_v* 迁移；先删旧 key 释放配额，再写入 v19 */
+  _migrateLegacyStorageKey() {
+    if (localStorage.getItem(this.KEY)) return;
+    for (const oldKey of (this.LEGACY_STORAGE_KEYS || [])) {
+      const raw = localStorage.getItem(oldKey);
+      if (!raw) continue;
+      try { localStorage.removeItem(oldKey); } catch { /* ignore */ }
+      if (raw.length > 2.5 * 1024 * 1024) continue;
+      try {
+        const d = JSON.parse(raw);
+        if (typeof CarbonAccount !== 'undefined') {
+          CarbonAccount.compactStoragePayload(d, CarbonAccount.STORAGE_EMERGENCY);
+        } else {
+          d.carbonAccounts = (d.carbonAccounts || []).slice(0, 30);
+          d.carbonAccountRecords = (d.carbonAccountRecords || []).slice(0, 80);
+        }
+        d._carbonPersistedV3 = false;
+        delete d._carbonPersistedV2;
+        d._storageMigratedV19 = true;
+        this._cache = d;
+        this._persistMainStore(d);
+        return;
+      } catch { /* 写入失败则走全新种子 */ }
     }
   },
 
@@ -578,16 +616,29 @@ const Store = {
   },
 
   _persistMainStore(rest, compactLevel = 0) {
+    if (compactLevel === 0 && typeof CarbonAccount !== 'undefined') {
+      CarbonAccount.compactStoragePayload(rest, CarbonAccount.STORAGE_TARGETS);
+    }
+    let payload = JSON.stringify(rest);
+    if (compactLevel === 0 && payload.length > 3 * 1024 * 1024 && typeof CarbonAccount !== 'undefined') {
+      this.compactStoragePayload(rest, 1);
+      payload = JSON.stringify(rest);
+    }
     try {
-      this._safeSetItem(this.KEY, JSON.stringify(rest));
+      this._safeSetItem(this.KEY, payload);
     } catch (err) {
-      if (!(err && err.name === 'QuotaExceededError') || compactLevel >= 3) {
+      if (!(err && err.name === 'QuotaExceededError') || compactLevel >= 4) {
         if (typeof toast === 'function') {
           toast('浏览器存储空间已满，请点击右上角「重置数据」后刷新页面', 'warning');
         }
         throw err;
       }
-      this.compactStoragePayload(rest, compactLevel + 1);
+      if (compactLevel >= 3) {
+        rest.carbonAccounts = [];
+        rest.carbonAccountRecords = [];
+      } else {
+        this.compactStoragePayload(rest, compactLevel + 1);
+      }
       if (compactLevel === 0 && typeof toast === 'function') {
         toast('演示数据已自动压缩以释放浏览器存储空间', 'warning');
       }
@@ -597,6 +648,9 @@ const Store = {
   update(fn) { const data = this.get(); fn(data); this.set(data); return data; },
   reset() {
     localStorage.removeItem(this.KEY);
+    (this.LEGACY_STORAGE_KEYS || []).forEach(k => {
+      try { localStorage.removeItem(k); } catch { /* ignore */ }
+    });
     this._cache = null;
     this._initDone = false;
     this._economyFactorLookup = null;
