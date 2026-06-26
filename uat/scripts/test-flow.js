@@ -164,6 +164,11 @@ if (gelanFormal) {
     resolveFormalAccountingMethodLabel(gelanFormal, newId) === CarbonAccount.METHOD_LABEL.REPORT_OTHER,
     '格澜调取后数据采集列表展示报告法其他数据'
   );
+  assert(
+    typeof resolveGelanInterfacePlatformLabel === 'function'
+      && resolveGelanInterfacePlatformLabel(gelanFormal) === '格澜数据-各地区企业环境信息披露平台',
+    '格澜接口数据展示平台来源'
+  );
 }
 const gelanCa = Store.getCarbonAccounts().find(a => a.taskId === newId && a.annualProfiles?.['2026']);
 assert(gelanCa?.annualProfiles?.['2026']?.entityEmission != null, '格澜调取同步至企业碳账户主体排放');

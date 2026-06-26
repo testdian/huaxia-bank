@@ -175,6 +175,7 @@ const Store = {
     this._migrateCarbonAccountProvision();
     this._migrateCarbonAccountProjectDetails();
     this._migrateCarbonAccountCustomerNames();
+    this._migrateCarbonAccountEntityDedupe();
     this._migrateFactorMeta();
     this._migrateFactorDedupe();
     this._migrateFactorImportHistory();
@@ -476,6 +477,32 @@ const Store = {
       if (d._carbonProvisionMigrated) return;
       CarbonAccount.backfillProvisionFromLockedFormals(d);
       d._carbonProvisionMigrated = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 企业碳账户：同一主体（统一社会信用代码）合并为一个账户，并清理演示名称后缀 */
+  _migrateCarbonAccountEntityDedupe() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof CarbonAccount === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._carbonEntityAccountMigratedV1) return;
+      d.carbonAccounts = CarbonAccount.dedupeCarbonAccounts(
+        d.carbonAccounts || [],
+        d.carbonAccountRecords || []
+      );
+      CarbonAccount.syncCustomerNamesFromLedger(d);
+      (d.candidates || []).forEach(c => {
+        if (c.customerName) c.customerName = CarbonAccount._sanitizeDemoCompanyName(c.customerName);
+      });
+      (d.formalList || []).forEach(f => {
+        if (f.customerName) f.customerName = CarbonAccount._sanitizeDemoCompanyName(f.customerName);
+      });
+      (d.carbonAccountRecords || []).forEach(r => {
+        if (r.customerName) r.customerName = CarbonAccount._sanitizeDemoCompanyName(r.customerName);
+      });
+      d._carbonEntityAccountMigratedV1 = true;
       localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -788,6 +815,13 @@ const Store = {
     if (!list.length) return [];
 
     const task = d.tasks.find(t => t.id === taskId);
+    if (typeof normalizeCandidateLedgerFields === 'function') {
+      list = list.map(c => {
+        const row = { ...c };
+        normalizeCandidateLedgerFields(row, task?.year);
+        return row;
+      });
+    }
     const r = normalizeCandidateFilterRules(rules, task);
 
     if (task?.subjectIndustryScope === '八大高碳行业' || (!task?.subjectIndustryScope && task?.industryScope === '八大高碳行业')) {
@@ -913,6 +947,9 @@ const Store = {
           c.excludeReason = null;
           c.excluded = false;
           c.included = false;
+          if (typeof normalizeCandidateLedgerFields === 'function') {
+            normalizeCandidateLedgerFields(c, year);
+          }
         });
         this.applyCandidateFilterInclusion(taskId, task.candidateFilterRules, data);
       }
@@ -989,6 +1026,11 @@ const Store = {
           borrowerType: c.borrowerType,
           customerScale: c.customerScale || candidateCustomerScale(c),
           avgMonthlyBalance: c.avgMonthlyBalance,
+          monthEndBalanceSum: c.monthEndBalanceSum,
+          huaxiaTenureMonths: c.huaxiaTenureMonths,
+          totalAssets: c.totalAssets,
+          prevYearTotalAssets: c.prevYearTotalAssets,
+          avgTotalAssets: c.avgTotalAssets,
           operatingRevenue: c.operatingRevenue,
           manager: c.manager,
           projectDetails: c.projectDetails,
@@ -1659,11 +1701,15 @@ const Store = {
         if (f.economyDirectStatus === 'done') return;
         if (this._formalHasEntityEmission(d, taskId, f)) return;
         const c = d.candidates.find(x => x.id === f.customerId);
-        const revenue = Number(c?.revenue) || Number(c?.avgMonthlyBalance) * 12 || 500000;
-        const totalAssets = Number(c?.totalAssets) || 800000;
-        const avgBalance = Number(c?.avgMonthlyBalance) * 12 || 36000;
-        const gbCode = f.gbIndustryCode || c?.gbIndustryCode;
         const task = d.tasks.find(x => x.id === taskId);
+        const revenue = Number(c?.operatingRevenue ?? c?.revenue) || Number(c?.avgMonthlyBalance) * 12 || 500000;
+        const totalAssets = (typeof computeCandidateAvgTotalAssets === 'function'
+          ? computeCandidateAvgTotalAssets(c)
+          : null) || Number(c?.totalAssets) || 800000;
+        const avgBalance = (typeof computeCandidateAvgMonthlyBalance === 'function'
+          ? computeCandidateAvgMonthlyBalance(c, task?.year)
+          : null) || Number(c?.avgMonthlyBalance) || 36000;
+        const gbCode = f.gbIndustryCode || c?.gbIndustryCode;
         const factor = this._getIndustryFactor(d, f.industryMajor, gbCode, task?.year);
         const entityEmission = Math.round(revenue * factor);
         const attributedEmission = f.bizType === 'project'
@@ -1806,6 +1852,16 @@ const Store = {
     if (approval.docType === 'supplement') {
       const task = d.tasks.find(t => t.id === approval.taskId);
       if (!approved) {
+        const rejectTarget = opts.rejectTarget || 'manager';
+        if (approval.reviewLevel === 'hq' && rejectTarget === 'branch') {
+          item.approvalStatus = 'pending';
+          item.auditStage = 'branch_review';
+          item.branchReviewStatus = 'pending';
+          item.hqReviewStatus = 'rejected';
+          item.rejectReason = (rejectReason || '').trim();
+          this._createSupplementApproval(d, item, task, 'branch', approval.round || item.reviewRound);
+          return;
+        }
         item.approvalStatus = 'none';
         item.auditStage = 'pending_fill';
         item.status = 'returned';

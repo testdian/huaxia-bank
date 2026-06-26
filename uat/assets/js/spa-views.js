@@ -281,7 +281,7 @@ SPA_VIEWS['#/formal'] = function(ctx) {
     const expanded = expandedProjectRows.has(f.customerId || f.id);
     const mainRow = `<tr>
       <td class="col-select"><input type="checkbox" class="formal-row-check" value="${f.id}" ${viewOnly || !canLock ? 'disabled' : ''}></td>
-      ${renderCandidateListCells(row, { showProjectToggle: true, projectExpanded: expanded })}
+      ${renderCandidateListCells(row, { showProjectToggle: true, projectExpanded: expanded, listKind: 'formal' })}
       <td>${statusBadge(f.status)}</td>
     </tr>`;
     if (!expanded) return mainRow;
@@ -296,7 +296,7 @@ SPA_VIEWS['#/formal'] = function(ctx) {
     <div class="card"><div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><input type="checkbox" id="formalCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
-          ${CANDIDATE_LIST_TABLE_HEAD}
+          ${FORMAL_LIST_TABLE_HEAD}
           <th>状态</th>
         </tr></thead>
         <tbody id="formalTbody">${rowsHtml || '<tr><td colspan="16" style="text-align:center;padding:32px;color:#909399">暂无正式清单，请先在候选清单中生成</td></tr>'}</tbody>
@@ -491,7 +491,7 @@ SPA_VIEWS['#/supplement-fill'] = function(ctx) {
       <button class="btn" onclick="location.hash='#/manager-tasks'">返回</button>
     </div>`;
   return `
-    <h1 class="page-title">碳排放信息采集</h1>
+    <h1 class="page-title">数据收集</h1>
     <p class="page-desc">按指引优先级填报</p>
     ${workflowStepsBar(ctx.task)}
     ${renderSupplementPageWithTabs(s, ctx.task, { readonly: !editable })}
@@ -521,7 +521,7 @@ SPA_VIEWS['#/approval-review'] = function(ctx) {
       <div class="card"><div class="card-body table-wrap"><table class="data-table"><tbody>
         ${detail.rows.map(r => `<tr><td style="width:140px;color:#909399">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}
       </tbody></table></div></div>
-      ${renderApprovalReviewActions(canReview)}
+      ${renderApprovalReviewActions(canReview, approval, task)}
       <input type="hidden" id="approvalReviewId" value="${approval.id}">`;
   }
 
@@ -546,12 +546,12 @@ SPA_VIEWS['#/approval-review'] = function(ctx) {
   const defaultTab = (approval.status === 'rejected' || s.status === 'returned') ? 'approval' : 'fill';
 
   return `
-    <h1 class="page-title">碳排放信息采集</h1>
+    <h1 class="page-title">数据收集</h1>
     <p class="page-desc">${isView ? '查看' : '审核'}收集填报内容</p>
     ${canReview ? auditMeta : ''}
     ${renderApprovalAuditAdjustPanel(s, task, { editable: canReview })}
     ${renderSupplementPageWithTabs(s, task, { readonly: true, defaultTab })}
-    ${renderApprovalReviewActions(canReview)}
+    ${renderApprovalReviewActions(canReview, approval, task)}
     <input type="hidden" id="approvalReviewId" value="${approval.id}">`;
 };
 
@@ -937,7 +937,11 @@ function getCaLineValue(item, key) {
 /** 折线图点位：有效值 / 无法计算(—) / 无数据间隔 */
 function resolveCaLinePoint(item, key) {
   const v = getCaLineValue(item, key);
-  if (v != null) return { type: 'value', v };
+  const noYearData = Number(item?.count) === 0 && (item?.entity == null || item?.entity === '');
+  if (v != null) {
+    if (noYearData && v === 0) return { type: 'gap' };
+    return { type: 'value', v };
+  }
   const hasActivity = Number(item?.count) > 0 || item?.entity != null;
   if (key === 'intensity' && hasActivity && item?.revenue != null && Number(item.revenue) <= 0) {
     return { type: 'missing', label: '—' };
@@ -949,7 +953,21 @@ function formatCaLineAxisValue(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return '';
   if (Math.abs(n) >= 10000) return (n / 10000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + '万';
-  return formatNum(Math.round(n));
+  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString('zh-CN');
+  if (Math.abs(n) >= 10) return n.toLocaleString('zh-CN', { maximumFractionDigits: 1 });
+  return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+function formatCaChartPointValue(v, key) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  if (key === 'intensity') {
+    if (Math.abs(n) >= 100) return n.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+    if (Math.abs(n) >= 10) return n.toLocaleString('zh-CN', { maximumFractionDigits: 1 });
+    return n.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  }
+  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString('zh-CN');
+  return formatNum(n);
 }
 
 function formatCaLineValue(v, key) {
@@ -959,24 +977,53 @@ function formatCaLineValue(v, key) {
   return formatNum(v);
 }
 
+function estimateCaLabelWidth(text) {
+  return Math.max(40, String(text).length * 6.2 + 14);
+}
+
 function renderCaLinePointLabel(x, y, text, color, options = {}) {
   const { above = true, missing = false } = options;
-  const labelY = above ? y - 8 : y + 14;
+  const labelY = above ? y - 16 : y + 20;
+  const w = estimateCaLabelWidth(text);
+  const h = 18;
+  const rx = 4;
   const circle = missing
-    ? `<circle cx="${x}" cy="${y}" r="3.5" fill="#fff" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 2"/>`
-    : `<circle cx="${x}" cy="${y}" r="3.5" fill="#fff" stroke="${color}" stroke-width="1.5"/>`;
+    ? `<circle cx="${x}" cy="${y}" r="4" fill="#fff" stroke="${color}" stroke-width="2" stroke-dasharray="3 2"/>`
+    : `<circle cx="${x}" cy="${y}" r="4" fill="#fff" stroke="${color}" stroke-width="2"/>
+       <circle cx="${x}" cy="${y}" r="2" fill="${color}"/>`;
   return `<g class="ca-line-point${missing ? ' ca-line-point--missing' : ''}">
     ${circle}
-    <text x="${x}" y="${labelY}" class="ca-line-value-label" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${missing ? '#909399' : '#303133'}">${text}</text>
+    <rect x="${x - w / 2}" y="${labelY - h / 2}" width="${w}" height="${h}" rx="${rx}" class="ca-line-value-bg"/>
+    <text x="${x}" y="${labelY}" class="ca-line-value-label" text-anchor="middle" dominant-baseline="middle">${text}</text>
   </g>`;
 }
 
-function renderCaLineChart(items, series) {
+function buildCaLineYScale(maxVal) {
+  if (!Number.isFinite(maxVal) || maxVal <= 0) return { max: 1, ticks: [0, 0.25, 0.5, 0.75, 1] };
+  const headroom = maxVal * 1.18;
+  const roughStep = headroom / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const step = Math.ceil(roughStep / mag) * mag || 1;
+  const max = step * 4;
+  const ticks = [0, 1, 2, 3, 4].map(i => (max * i) / 4);
+  return { max, ticks };
+}
+
+function renderCaChartLegend(defs) {
+  if (!defs?.length) return '';
+  return `<div class="ca-chart-line-legend ca-chart-line-legend--header">${defs.map(s =>
+    `<span><i style="background:${s.color}"></i>${s.label}</span>`
+  ).join('')}</div>`;
+}
+
+function renderCaLineChart(items, series, options = {}) {
   if (!items.length) return caChartEmpty();
   const defs = series || [{ key: 'emission', label: '归因排放', color: '#3d7cc9' }];
-  const w = 360;
-  const h = 160;
-  const pad = { l: 44, r: 12, t: 22, b: 28 };
+  const hideLegend = options.hideLegend;
+  const w = 560;
+  const h = 260;
+  const pad = { l: 56, r: 20, t: 40, b: 40 };
+  const edgeInset = Math.min(28, Math.max(12, (w - pad.l - pad.r) * 0.08));
   const innerW = w - pad.l - pad.r;
   const innerH = h - pad.t - pad.b;
   const allVals = defs.flatMap(s =>
@@ -985,25 +1032,31 @@ function renderCaLineChart(items, series) {
       return st.type === 'value' ? [st.v] : [];
     })
   );
-  const max = allVals.length ? Math.max(...allVals) : 1;
-  const safeMax = max > 0 ? max : 1;
+  const rawMax = allVals.length ? Math.max(...allVals) : 0;
+  const { max: safeMax, ticks: yTicks } = buildCaLineYScale(rawMax);
   const n = items.length;
-  const xAt = i => pad.l + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const xAt = i => {
+    if (n <= 1) return pad.l + innerW / 2;
+    return pad.l + edgeInset + (i / (n - 1)) * (innerW - 2 * edgeInset);
+  };
   const yAt = v => pad.t + innerH - (v / safeMax) * innerH;
   const bottomY = pad.t + innerH;
+  const gradId = 'caLineGrad' + Math.random().toString(36).slice(2, 8);
 
-  const gridY = [0, 0.5, 1].map(t => {
+  const gridY = yTicks.map(val => {
+    const t = safeMax > 0 ? val / safeMax : 0;
     const y = pad.t + innerH * (1 - t);
-    const val = formatCaLineAxisValue(safeMax * t);
-    return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="ca-line-grid"/>
-      <text x="${pad.l - 4}" y="${y + 3}" class="ca-line-grid-label" text-anchor="end" dominant-baseline="middle" font-size="9">${val}</text>`;
+    const isBase = val === 0;
+    return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="ca-line-grid${isBase ? ' ca-line-grid--base' : ''}"/>
+      <text x="${pad.l - 8}" y="${y + 4}" class="ca-line-grid-label" text-anchor="end" dominant-baseline="middle">${formatCaLineAxisValue(val)}</text>`;
   }).join('');
 
+  const xAxisLine = `<line x1="${pad.l}" y1="${bottomY}" x2="${w - pad.r}" y2="${bottomY}" class="ca-line-axis"/>`;
   const xAxis = items.map((item, i) =>
-    `<text x="${xAt(i)}" y="${h - 8}" class="ca-line-x-label" text-anchor="middle" font-size="10">${getCaChartLabel(item)}</text>`
+    `<text x="${xAt(i)}" y="${h - 14}" class="ca-line-x-label" text-anchor="middle">${getCaChartLabel(item)}</text>`
   ).join('');
 
-  const lines = defs.map(s => {
+  const lines = defs.map((s, sIdx) => {
     const valuePoints = [];
     const missingPoints = [];
     items.forEach((item, i) => {
@@ -1012,7 +1065,7 @@ function renderCaLineChart(items, series) {
       if (st.type === 'value') {
         valuePoints.push({ x, y: yAt(st.v), v: st.v, i });
       } else if (st.type === 'missing') {
-        missingPoints.push({ x, y: bottomY, label: st.label, i });
+        missingPoints.push({ x, y: bottomY - 8, label: st.label, i });
       }
     });
 
@@ -1028,27 +1081,45 @@ function renderCaLineChart(items, series) {
     });
     if (current.length) segments.push(current);
 
+    const areas = segments.filter(seg => seg.length >= 2).map(seg => {
+      const pts = seg.map(p => `${p.x},${p.y}`).join(' L ');
+      const d = `M ${seg[0].x},${bottomY} L ${pts} L ${seg[seg.length - 1].x},${bottomY} Z`;
+      return `<path class="ca-line-area" d="${d}" fill="url(#${gradId}-${sIdx})"/>`;
+    }).join('');
+
     const polylines = segments.filter(seg => seg.length >= 2).map(seg =>
-      `<polyline class="ca-line-path" fill="none" stroke="${s.color}" stroke-width="1.5" points="${seg.map(p => `${p.x},${p.y}`).join(' ')}"/>`
+      `<polyline class="ca-line-path" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${seg.map(p => `${p.x},${p.y}`).join(' ')}"/>`
     ).join('');
 
     const valueMarks = valuePoints.map(p => {
-      const nearTop = p.y - pad.t < innerH * 0.18;
-      return renderCaLinePointLabel(p.x, p.y, formatCaLineValue(p.v, s.key), s.color, { above: !nearTop });
+      const nearTop = p.y - pad.t < innerH * 0.22;
+      return renderCaLinePointLabel(p.x, p.y, formatCaChartPointValue(p.v, s.key), s.color, { above: !nearTop });
     }).join('');
 
     const missingMarks = missingPoints.map(p =>
       renderCaLinePointLabel(p.x, p.y, p.label, s.color, { above: true, missing: true })
     ).join('');
 
-    return `${polylines}${valueMarks}${missingMarks}`;
+    return `${areas}${polylines}${valueMarks}${missingMarks}`;
   }).join('');
 
+  const gradients = defs.map((s, i) =>
+    `<linearGradient id="${gradId}-${i}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${s.color}" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="${s.color}" stop-opacity="0.02"/>
+    </linearGradient>`
+  ).join('');
+
+  const legend = hideLegend ? '' : `<div class="ca-chart-line-legend">${defs.map(s =>
+    `<span><i style="background:${s.color}"></i>${s.label}</span>`
+  ).join('')}</div>`;
+
   return `<div class="ca-chart-line">
-    <svg class="ca-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${gridY}${lines}${xAxis}</svg>
-    <div class="ca-chart-line-legend">${defs.map(s =>
-      `<span><i style="background:${s.color}"></i>${s.label}</span>`
-    ).join('')}</div>
+    ${legend}
+    <svg class="ca-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>${gradients}</defs>
+      ${gridY}${xAxisLine}${lines}${xAxis}
+    </svg>
   </div>`;
 }
 
@@ -1362,7 +1433,7 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
   const trendRecords = CarbonAccount.collectTrendRecordsForAccount(d, acc);
   const profileRow = resolveCarbonAccountProfileRow(d, acc, scopeYear, subProjectNo);
   const { years: detailYears } = CarbonAccount.resolveListYear(d, [acc], trendRecords, scopeYear);
-  const trend = CarbonAccount.fillTrendYearGaps(CarbonAccount.trendByYear(trendRecords), detailYears);
+  const trend = CarbonAccount.buildTrendForAccount(d, acc, detailYears);
 
   let panel = '';
   if (activeTab === 'profile') {
@@ -1372,14 +1443,26 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
         : '') +
       (!isEditMode ? renderCaStatusHistoryPanel(acc) : '');
   } else if (activeTab === 'trend') {
+    const entitySeries = [{ key: 'entity', label: '主体排放 (tCO₂e)', color: '#2d8f4e' }];
+    const intensitySeries = [{ key: 'intensity', label: '碳强度 (tCO₂e/万元营收)', color: '#d48806' }];
     panel = `<div class="ca-trend-grid">
-      <div class="card"><div class="card-header"><h3>年度排放趋势</h3><span class="ca-chart-type-tag">折线图</span></div><div class="card-body">${renderCaLineChart(trend, [
-      { key: 'entity', label: '主体排放 (tCO₂e)', color: '#67c23a' }
-    ])}</div></div>
-      <div class="card"><div class="card-header"><h3>排放强度趋势</h3><span class="ca-chart-type-tag">折线图</span></div><div class="card-body">
-        <p class="ca-chart-hint">碳强度 = 主体碳排放 ÷ 营业收入，单位：tCO₂e / 万元营收；营收为 0 时无法计算，图中以 — 标示</p>
-        ${renderCaLineChart(trend, [{ key: 'intensity', label: '碳强度 (tCO₂e/万元营收)', color: '#e6a23c' }])}
-      </div></div>
+      <div class="card ca-trend-chart-card">
+        <div class="card-header ca-trend-chart-header">
+          <h3>年度排放趋势</h3>
+          ${renderCaChartLegend(entitySeries)}
+        </div>
+        <div class="card-body">${renderCaLineChart(trend, entitySeries, { hideLegend: true })}</div>
+      </div>
+      <div class="card ca-trend-chart-card">
+        <div class="card-header ca-trend-chart-header">
+          <h3>排放强度趋势</h3>
+          ${renderCaChartLegend(intensitySeries)}
+        </div>
+        <div class="card-body">
+          <p class="ca-chart-hint">碳强度 = 主体碳排放 ÷ 营业收入，单位：tCO₂e / 万元营收；营收为 0 时无法计算，图中以 — 标示</p>
+          ${renderCaLineChart(trend, intensitySeries, { hideLegend: true })}
+        </div>
+      </div>
       <div class="card ca-summary-full"><div class="card-header"><h3>年度明细</h3></div><div class="card-body">${renderCaTrendTable(trend)}</div></div>
     </div>`;
   }
