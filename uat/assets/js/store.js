@@ -183,6 +183,7 @@ const Store = {
     this._ensureIndustryConfig();
     this._ensureMenuPermissions();
     this._ensureTasksArray();
+    this._compactOversizedCarbonStorage();
     this._initDone = true;
     } finally {
       this._initRunning = false;
@@ -543,11 +544,55 @@ const Store = {
     const interfaces = rest.interfaces;
     delete rest.interfaces;
     if (interfaces) {
-      localStorage.setItem(this.INTERFACES_KEY, JSON.stringify(interfaces));
+      this._safeSetItem(this.INTERFACES_KEY, JSON.stringify(interfaces));
     }
     this._cache = rest;
     this._economyFactorLookup = null;
-    localStorage.setItem(this.KEY, JSON.stringify(rest));
+    this._persistMainStore(rest);
+  },
+
+  _safeSetItem(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (err) {
+      if (err && err.name === 'QuotaExceededError') {
+        console.warn('localStorage 配额已满:', key);
+      }
+      throw err;
+    }
+  },
+
+  compactStoragePayload(d, level = 1) {
+    if (typeof CarbonAccount === 'undefined' || !d) return d;
+    const map = [
+      CarbonAccount.STORAGE_TARGETS,
+      CarbonAccount.STORAGE_COMPACT,
+      CarbonAccount.STORAGE_EMERGENCY
+    ];
+    const opts = map[Math.min(level, map.length) - 1] || map[map.length - 1];
+    CarbonAccount.compactStoragePayload(d, {
+      maxAccounts: opts.accounts,
+      maxRecords: opts.records
+    });
+    return d;
+  },
+
+  _persistMainStore(rest, compactLevel = 0) {
+    try {
+      this._safeSetItem(this.KEY, JSON.stringify(rest));
+    } catch (err) {
+      if (!(err && err.name === 'QuotaExceededError') || compactLevel >= 3) {
+        if (typeof toast === 'function') {
+          toast('浏览器存储空间已满，请点击右上角「重置数据」后刷新页面', 'warning');
+        }
+        throw err;
+      }
+      this.compactStoragePayload(rest, compactLevel + 1);
+      if (compactLevel === 0 && typeof toast === 'function') {
+        toast('演示数据已自动压缩以释放浏览器存储空间', 'warning');
+      }
+      this._persistMainStore(rest, compactLevel + 1);
+    }
   },
   update(fn) { const data = this.get(); fn(data); this.set(data); return data; },
   reset() {
@@ -1346,6 +1391,25 @@ const Store = {
       if (!d.currentTaskId) d.currentTaskId = seed.tasks[0]?.id || d.currentTaskId;
       localStorage.setItem(this.KEY, JSON.stringify(d));
       this._cache = null;
+    } catch { /* ignore */ }
+  },
+
+  /** 启动时压缩过大的碳账户演示数据，修复 localStorage 配额溢出 */
+  _compactOversizedCarbonStorage() {
+    if (typeof CarbonAccount === 'undefined') return;
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      const targets = CarbonAccount.STORAGE_TARGETS;
+      const oversized = (d.carbonAccountRecords || []).length > targets.records
+        || (d.carbonAccounts || []).length > targets.accounts
+        || raw.length > 4 * 1024 * 1024;
+      if (!oversized) return;
+      CarbonAccount.compactStoragePayload(d, targets);
+      d._carbonPersistedV3 = true;
+      this._cache = null;
+      this._persistMainStore(d);
     } catch { /* ignore */ }
   },
 
