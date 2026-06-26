@@ -4,9 +4,9 @@
 const CarbonAccount = {
   ACCOUNT_STATUS_LABEL: { active: '正常', disabled: '停用', cancelled: '注销' },
   /** localStorage 演示数据上限（避免超出浏览器 5MB 配额） */
-  STORAGE_TARGETS: { accounts: 220, records: 650 },
-  STORAGE_COMPACT: { accounts: 180, records: 500 },
-  STORAGE_EMERGENCY: { accounts: 80, records: 250 },
+  STORAGE_TARGETS: { accounts: 120, records: 350 },
+  STORAGE_COMPACT: { accounts: 80, records: 200 },
+  STORAGE_EMERGENCY: { accounts: 30, records: 80 },
 
   isAccountActive(acc) {
     return (acc?.status || 'active') === 'active';
@@ -1693,20 +1693,21 @@ if (typeof Store !== 'undefined') {
         d.carbonAccountRecords || []
       );
       CarbonAccount.syncCustomerNamesFromLedger(d);
-
-      const targets = CarbonAccount.STORAGE_TARGETS;
-      if ((d.carbonAccountRecords || []).length > targets.records
-        || (d.carbonAccounts || []).length > targets.accounts) {
-        CarbonAccount.compactStoragePayload(d, targets);
-      } else if ((d.carbonAccountRecords || []).length < targets.records) {
-        Store._migrateCarbonAccounts(d);
-      }
+      CarbonAccount.compactStoragePayload(d, CarbonAccount.STORAGE_TARGETS);
 
       d._carbonPersistedV3 = true;
-      CarbonAccount.syncCustomerNamesFromLedger(d);
       Store.set(d);
     } catch (err) {
-      console.error('碳账户演示数据迁移失败', err);
+      console.warn('碳账户演示数据迁移失败，尝试清理后重试', err);
+      try {
+        const d = Store.get();
+        d.carbonAccounts = [];
+        d.carbonAccountRecords = [];
+        d._carbonPersistedV3 = true;
+        Store.set(d);
+      } catch (e2) {
+        console.error('碳账户数据清理失败', e2);
+      }
     }
   })();
 }
