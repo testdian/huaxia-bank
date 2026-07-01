@@ -89,7 +89,19 @@ def industry_from_sheet(name):
     return None
 
 
+def normalize_source_sheet(code):
+    """Excel tab 如 2-1BB/2-1CC 为「表号+方法字母」连写，规范为人行附2表号 2-1B/2-1C 等。"""
+    if not code:
+        return code
+    s = str(code).strip()
+    m = re.match(r'^(2-\d+)([BC])\2$', s)
+    if m:
+        return m.group(1) + m.group(2)
+    return s
+
+
 def parse_energy_sheet(ws, sheet_code, industry):
+    sheet_code = normalize_source_sheet(sheet_code)
     records = []
     rows = list(ws.iter_rows(values_only=True))
     if len(rows) < 2:
@@ -161,6 +173,7 @@ def parse_energy_sheet(ws, sheet_code, industry):
 
 
 def parse_product_sheet(ws, sheet_code, industry):
+    sheet_code = normalize_source_sheet(sheet_code)
     records = []
     rows = list(ws.iter_rows(values_only=True))
     if len(rows) < 2:

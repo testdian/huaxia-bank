@@ -1,35 +1,92 @@
-/** 计算方法配置 — 页面视图（须在 spa-views.js 之后加载） */
+/** 碳核算模板配置中心 — 页面视图（须在 spa-views.js 之后加载） */
 if (typeof SPA_VIEWS === 'undefined') {
   console.error('method-config-views.js 必须在 spa-views.js 之后加载');
 }
 
+function methodConfigIndustryOptions(selected) {
+  return METHOD_CONFIG.EIGHT_INDUSTRIES.map(ind =>
+    `<option value="${escapeHtml(ind)}" ${ind === selected ? 'selected' : ''}>${escapeHtml(ind)}</option>`
+  ).join('');
+}
+
+function methodConfigMethodOptions(selected, methods) {
+  const list = methods || METHOD_CONFIG.DEFAULT_INDUSTRY_METHODS || ['report', 'energy', 'product', 'economy', 'other'];
+  return list.map(mid =>
+    `<option value="${mid}" ${mid === selected ? 'selected' : ''}>${METHOD_CONFIG.methodLabel(mid)}</option>`
+  ).join('');
+}
+
 SPA_VIEWS['#/method-config/params'] = function() {
-  const rows = METHOD_CONFIG.listParams().map(p => `
-    <tr>
-      <td><code>${p.id}</code></td>
-      <td>${p.name}</td>
-      <td>${METHOD_CONFIG.formatLabel(p.format)}${p.format === 'number' ? ` · ${p.decimalPlaces ?? 4} 位小数` : ''}${p.format === 'text' && p.textMode === 'multiline' ? ' · 多行' : ''}${p.enumCount ? ` · ${p.enumCount} 项枚举` : ''}</td>
-      <td>${p.unit || '—'}</td>
-      <td>${p.showInTemplate ? '展示' : '隐藏'}</td>
+  const q = new URLSearchParams((location.hash.split('?')[1] || ''));
+  const filters = {
+    keyword: q.get('kw') || '',
+    category: q.get('category') || '',
+    industry: q.get('industry') || '',
+    status: q.get('status') || ''
+  };
+  const rows = METHOD_CONFIG.filterParams(filters).map(p => `
+    <tr class="${p.status === 'inactive' ? 'row-muted' : ''}">
+      <td><code>${escapeHtml(p.paramCode || p.id)}</code></td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${METHOD_CONFIG.paramTypeLabel(p.paramType || METHOD_CONFIG.paramTypeFromFormat(p.format))}</td>
+      <td>${escapeHtml(p.category || '—')}</td>
+      <td>${escapeHtml(p.unit || '—')}</td>
+      <td>${(p.applyIndustry || []).length ? escapeHtml(p.applyIndustry.join('、')) : '全行业通用'}</td>
+      <td>${METHOD_CONFIG.paramStatusBadge(p.status)}</td>
       <td class="table-actions">
         <a href="#/method-config/params/edit?id=${encodeURIComponent(p.id)}" class="btn-link">编辑</a>
-        <button type="button" class="btn-link btn-link-danger" data-param-delete="${escapeHtml(p.id)}" title="删除参数">删除</button>
+        ${p.builtin ? '' : `<button type="button" class="btn-link" data-param-toggle="${escapeHtml(p.id)}">${p.status === 'inactive' ? '启用' : '停用'}</button>`}
+        ${p.builtin ? '' : `<button type="button" class="btn-link btn-link-danger" data-param-delete="${escapeHtml(p.id)}">删除</button>`}
       </td>
     </tr>`).join('');
+
+  const categoryOpts = ['', ...METHOD_CONFIG.PARAM_CATEGORIES].map(c =>
+    `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c || '全部分类'}</option>`
+  ).join('');
+  const industryOpts = ['', ...METHOD_CONFIG.EIGHT_INDUSTRIES].map(c =>
+    `<option value="${c}" ${filters.industry === c ? 'selected' : ''}>${c || '全部行业'}</option>`
+  ).join('');
+  const statusOpts = [
+    ['', '全部状态'],
+    ['active', '启用'],
+    ['inactive', '停用']
+  ].map(([v, l]) => `<option value="${v}" ${filters.status === v ? 'selected' : ''}>${l}</option>`).join('');
+
   return `
-    <h1 class="page-title">参数字段库</h1>
-    <div class="toolbar">
+    <h1 class="page-title">参数管理</h1>
+    <div class="toolbar method-config-filter-bar">
       <a href="#/method-config/params/new" class="btn btn-primary">+ 新增参数</a>
+      <button type="button" class="btn" disabled title="演示原型：Excel 批量导入待对接后端">批量导入</button>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>查询筛选</h3></div>
+      <div class="filter-panel method-config-filter-panel">
+        <form class="filter-extra method-config-filter-grid method-config-filter-grid--5" id="paramFilterForm">
+          <div class="form-item"><label>关键词</label><input name="kw" value="${escapeHtml(filters.keyword)}" placeholder="参数名称 / 编码"></div>
+          <div class="form-item"><label>参数分类</label><select name="category">${categoryOpts}</select></div>
+          <div class="form-item"><label>适用行业</label><select name="industry">${industryOpts}</select></div>
+          <div class="form-item"><label>状态</label><select name="status">${statusOpts}</select></div>
+          <div class="form-item filter-actions"><label>&nbsp;</label>
+            <div class="filter-action-btns">
+              <button type="submit" class="btn btn-primary">查询</button>
+              <button type="button" class="btn" id="paramFilterResetBtn">重置</button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
     <div class="card">
       <div class="card-header"><h3>参数列表</h3></div>
       <div class="card-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>参数 ID</th><th>参数名称</th><th>格式</th><th>单位</th><th>模板展示</th><th>操作</th></tr></thead>
-          <tbody>${rows}</tbody>
+          <thead><tr>
+            <th>参数编码</th><th>参数名称</th><th>参数类型</th><th>参数分类</th><th>默认单位</th><th>适用行业</th><th>状态</th><th>操作</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="8" class="text-muted">暂无参数</td></tr>'}</tbody>
         </table>
       </div>
-    </div>`;
+    </div>
+    <p class="text-muted" style="font-size:12px;margin-top:8px">结果计算类参数为系统内置；停用后不可被新模板引用，已引用历史模板不受影响。</p>`;
 };
 
 SPA_VIEWS['#/method-config/params/new'] = function() {
@@ -44,57 +101,81 @@ SPA_VIEWS['#/method-config/params/edit'] = function() {
 
 function renderMethodConfigParamForm(param) {
   const isEdit = !!param;
-  const fmt = param?.format || 'number';
+  const isBuiltin = param?.builtin || METHOD_CONFIG.BUILTIN_RESULT_PARAM_IDS.includes(param?.id);
+  const paramType = param?.paramType || METHOD_CONFIG.paramTypeFromFormat(param?.format || 'number');
   const enumText = param?.enumValues ? param.enumValues.join('\n') : '';
   const unitType = param?.unitType || 'common';
   const textMode = param?.textMode || 'single';
+  const applySet = new Set(param?.applyIndustry || []);
+  const validateMin = param?.validateRule?.min ?? 0;
+  const decimalPlaces = param?.validateRule?.decimalPlaces ?? param?.decimalPlaces ?? 4;
+
   const unitTypeRadios = (name, selected) => `
     <div class="radio-row param-unit-type-row">
-      ${[
-        ['common', '普通单位'],
-        ['composite', '复合单位'],
-        ['none', '无单位']
-      ].map(([v, l]) => `
+      ${[['common', '普通单位'], ['composite', '复合单位'], ['none', '无单位']].map(([v, l]) => `
         <label class="radio-chip"><input type="radio" name="${name}" value="${v}" ${selected === v ? 'checked' : ''}> ${l}</label>
       `).join('')}
     </div>`;
+
+  const industryChecks = METHOD_CONFIG.EIGHT_INDUSTRIES.map(ind => `
+    <label class="checkbox-chip"><input type="checkbox" name="applyIndustry" value="${escapeHtml(ind)}" ${applySet.has(ind) ? 'checked' : ''}> ${escapeHtml(ind)}</label>
+  `).join('');
+
   return `
     <h1 class="page-title">${isEdit ? '编辑参数' : '新增参数'}</h1>
     <div class="card"><div class="card-body">
       <form class="form-grid method-config-param-form" id="paramForm">
-        <div class="form-item"><label>参数名称 <span class="req">*</span></label><input name="name" required value="${escapeHtml(param?.name || '')}" placeholder="如：煤炭消耗量"></div>
-        <div class="form-item"><label>参数 ID <span class="req">*</span></label><input name="id" required value="${escapeHtml(param?.id || '')}" placeholder="如：P_coal" ${isEdit ? 'readonly' : ''}></div>
-        <div class="form-item full"><label>参数格式 <span class="req">*</span></label>
-          <div class="radio-row">
-            ${['text', 'number', 'option', 'date'].map(f => `
-              <label class="radio-chip"><input type="radio" name="format" value="${f}" ${(!param && f === 'number') || fmt === f ? 'checked' : ''}> ${METHOD_CONFIG.formatLabel(f)}</label>
-            `).join('')}
-          </div>
+        <input type="hidden" name="id" value="${escapeHtml(param?.id || '')}">
+        <div class="form-item"><label>参数编码</label>
+          <input name="paramCode" readonly value="${escapeHtml(param?.paramCode || (isEdit ? '' : '保存后自动生成'))}" placeholder="PARAM_XXXX">
+        </div>
+        <div class="form-item"><label>参数名称 <span class="req">*</span></label>
+          <input name="name" required maxlength="50" value="${escapeHtml(param?.name || '')}" placeholder="如：煤炭消耗量">
+        </div>
+        <div class="form-item"><label>参数类型 <span class="req">*</span></label>
+          <select name="paramType" id="paramTypeSelect" ${isBuiltin ? 'disabled' : ''}>
+            ${['数值型', '文本型', '选项型', '日期型', '附件型'].map(t =>
+              `<option value="${t}" ${paramType === t ? 'selected' : ''}>${t}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="form-item"><label>参数分类 <span class="req">*</span></label>
+          <select name="category" ${isBuiltin ? 'disabled' : ''}>
+            ${METHOD_CONFIG.PARAM_CATEGORIES.filter(c => c !== '结果计算类' || isBuiltin).map(c =>
+              `<option value="${c}" ${(param?.category || '活动水平类') === c ? 'selected' : ''}>${c}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="form-item"><label>状态</label>
+          <select name="status" ${isBuiltin ? 'disabled' : ''}>
+            <option value="active" ${param?.status !== 'inactive' ? 'selected' : ''}>启用</option>
+            <option value="inactive" ${param?.status === 'inactive' ? 'selected' : ''}>停用</option>
+          </select>
         </div>
 
         <div class="form-item full param-format-panel" data-format-panel="text">
           <label>文本样式</label>
           <div class="radio-row">
-            <label class="radio-chip"><input type="radio" name="textMode" value="single" ${textMode !== 'multiline' ? 'checked' : ''}> 单行文本</label>
-            <label class="radio-chip"><input type="radio" name="textMode" value="multiline" ${textMode === 'multiline' ? 'checked' : ''}> 多行文本</label>
+            <label class="radio-chip"><input type="radio" name="textMode" value="single" ${textMode !== 'multiline' ? 'checked' : ''}> 单行</label>
+            <label class="radio-chip"><input type="radio" name="textMode" value="multiline" ${textMode === 'multiline' ? 'checked' : ''}> 多行</label>
           </div>
         </div>
         <div class="form-item param-format-panel" data-format-panel="text">
-          <label>最大字符长度</label>
-          <input type="number" name="maxLength" min="1" max="9999" value="${param?.maxLength ?? 200}">
+          <label>最大字符长度</label><input type="number" name="maxLength" min="1" max="9999" value="${param?.maxLength ?? 200}">
         </div>
 
         <div class="form-item param-format-panel" data-format-panel="number">
-          <label>最大小数位数</label>
-          <input type="number" name="decimalPlaces" min="0" max="10" value="${param?.decimalPlaces ?? 4}">
+          <label>默认单位 <span class="req">*</span></label>
+          <input name="numberUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : 't')}" placeholder="t / 万m³ / MWh">
+        </div>
+        <div class="form-item param-format-panel" data-format-panel="number">
+          <label>小数位数</label><input type="number" name="decimalPlaces" min="0" max="10" value="${decimalPlaces}">
+        </div>
+        <div class="form-item param-format-panel" data-format-panel="number">
+          <label>最小值</label><input type="number" name="validateMin" step="any" value="${validateMin}">
         </div>
         <div class="form-item full param-format-panel" data-format-panel="number">
-          <label>单位类型</label>
-          ${unitTypeRadios('numberUnitType', unitType)}
-        </div>
-        <div class="form-item param-format-panel" data-format-panel="number" data-unit-field="number">
-          <label>单位</label>
-          <input name="numberUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : 't')}" placeholder="t / 万m³ / tCO₂e">
+          <label>单位类型</label>${unitTypeRadios('numberUnitType', unitType)}
         </div>
 
         <div class="form-item full param-format-panel" data-format-panel="option">
@@ -102,33 +183,49 @@ function renderMethodConfigParamForm(param) {
           <textarea name="enumValues" rows="4" placeholder="每行一个选项">${escapeHtml(enumText)}</textarea>
         </div>
         <div class="form-item param-format-panel" data-format-panel="option">
-          <label>有无默认值</label>
-          <div class="radio-row">
-            <label class="radio-chip"><input type="radio" name="hasDefault" value="1" ${param?.hasDefault !== false && param?.defaultValue ? 'checked' : ''}> 有</label>
-            <label class="radio-chip"><input type="radio" name="hasDefault" value="0" ${!param?.defaultValue && param?.hasDefault === false ? 'checked' : ''}> 无</label>
-          </div>
-        </div>
-        <div class="form-item param-format-panel" data-format-panel="option">
-          <label>默认值</label>
-          <input name="defaultValue" value="${escapeHtml(param?.defaultValue || '')}" placeholder="与枚举值之一一致">
+          <label>默认值</label><input name="defaultValue" value="${escapeHtml(param?.defaultValue || '')}">
         </div>
         <div class="form-item full param-format-panel" data-format-panel="option">
-          <label>单位类型</label>
-          ${unitTypeRadios('optionUnitType', unitType)}
+          <label>单位类型</label>${unitTypeRadios('optionUnitType', unitType)}
         </div>
         <div class="form-item param-format-panel" data-format-panel="option" data-unit-field="option">
-          <label>单位</label>
-          <input name="optionUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : '—')}" placeholder="无单位可留空">
+          <label>单位</label><input name="optionUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : '—')}">
         </div>
 
         <div class="form-item full param-format-panel" data-format-panel="date">
-          <p class="method-config-step-hint" style="margin:0">日期格式在数据采集页以日期选择器展示，无需额外配置。</p>
+          <p class="method-config-step-hint" style="margin:0">日期型在采集端以日期选择器展示。</p>
         </div>
 
-        <div class="form-item"><label>模板中展示</label>
-          <select name="showInTemplate"><option value="1" ${param?.showInTemplate !== false ? 'selected' : ''}>是</option><option value="0" ${param?.showInTemplate === false ? 'selected' : ''}>否（仅公式/因子引用）</option></select>
+        <div class="form-item full param-format-panel" data-format-panel="attachment">
+          <label>允许格式</label>
+          <input name="attachAccept" value="${escapeHtml(param?.attachAccept || '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg')}" placeholder=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg">
+          <small class="text-muted">逗号分隔扩展名，采集端据此限制上传类型</small>
         </div>
-        <div class="form-item full"><label>参数描述</label><textarea name="description" rows="2" placeholder="字段说明、填报口径">${escapeHtml(param?.description || '')}</textarea></div>
+        <div class="form-item param-format-panel" data-format-panel="attachment">
+          <label>最多文件数</label>
+          <input type="number" name="attachMaxCount" min="1" max="20" value="${param?.attachMaxCount ?? 3}">
+        </div>
+        <div class="form-item param-format-panel" data-format-panel="attachment">
+          <label>单文件上限（MB）</label>
+          <input type="number" name="attachMaxMb" min="1" max="2048" value="${param?.attachMaxMb ?? 20}">
+        </div>
+        <div class="form-item full param-format-panel" data-format-panel="attachment">
+          <p class="method-config-step-hint" style="margin:0">附件型在采集端展示为文件上传控件，不参与排放公式计算；可在模板中勾选「必填」要求用户上传佐证材料。</p>
+        </div>
+
+        <div class="form-item full"><label>适用行业</label>
+          <div class="checkbox-row">${industryChecks}</div>
+          <small class="text-muted">不选表示全行业通用</small>
+        </div>
+        <div class="form-item full"><label>备注说明</label>
+          <textarea name="remark" rows="2" maxlength="200" placeholder="采集端字段提示，≤200字">${escapeHtml(param?.remark || param?.description || '')}</textarea>
+        </div>
+        <div class="form-item"><label>模板中展示</label>
+          <select name="showInTemplate">
+            <option value="1" ${param?.showInTemplate !== false ? 'selected' : ''}>是</option>
+            <option value="0" ${param?.showInTemplate === false ? 'selected' : ''}>否（仅公式/因子引用）</option>
+          </select>
+        </div>
       </form>
     </div></div>
     <div class="form-actions">
@@ -138,103 +235,112 @@ function renderMethodConfigParamForm(param) {
 }
 
 SPA_VIEWS['#/method-config/templates'] = function() {
-  const industries = METHOD_CONFIG.industries;
-  const templates = METHOD_CONFIG.templates;
-  const tree = industries.map(ind => {
-    const rows = ind.bizTypes.map(bt => {
-      const items = ind.methods.map(mid => {
-        const tpl = templates.find(t => t.industry === ind.key && t.bizType === bt && t.methodId === mid);
-        const status = tpl ? METHOD_CONFIG.statusBadge(tpl.status) : '<span class="tag tag-info">未配置</span>';
-        const href = tpl
-          ? `#/method-config/templates/edit?id=${encodeURIComponent(tpl.id)}`
-          : `#/method-config/templates/edit?industry=${encodeURIComponent(ind.key)}&bizType=${bt}&methodId=${mid}`;
-        return `<a class="method-config-tree-leaf" href="${href}">${METHOD_CONFIG.methodLabel(mid)} ${status}</a>`;
-      }).join('');
-      return `<div class="method-config-tree-branch"><div class="branch-label">${METHOD_CONFIG.bizLabel(bt)}</div>${items}</div>`;
-    }).join('');
-    return `<div class="method-config-tree-node"><div class="node-label">${ind.key}</div>${rows}</div>`;
-  }).join('');
-
+  const q = new URLSearchParams((location.hash.split('?')[1] || ''));
+  const filters = {
+    keyword: q.get('kw') || '',
+    industry: q.get('industry') || '',
+    methodId: q.get('method') || '',
+    status: q.get('status') || ''
+  };
+  const templates = METHOD_CONFIG.listTemplates(filters);
   const tableRows = templates.map(t => `
     <tr class="${t.highlight ? 'method-config-highlight-row' : ''}">
-      <td>${t.industry}</td>
-      <td>${METHOD_CONFIG.bizLabel(t.bizType)}</td>
+      <td>${escapeHtml(t.templateName || METHOD_CONFIG.formatTemplateLabel(t, t.id))}</td>
+      <td>${escapeHtml(t.industry)}</td>
+      <td>${escapeHtml(t.subCategory || '—')}</td>
       <td>${METHOD_CONFIG.methodLabel(t.methodId)}</td>
-      <td>${METHOD_CONFIG.statusBadge(t.status)}</td>
-      <td>${t.version}</td>
-      <td>${t.fieldCount}</td>
-      <td>${t.formulaCount}</td>
-      <td>${t.updatedAt}</td>
-      <td><a href="#/method-config/templates/edit?id=${encodeURIComponent(t.id)}" class="btn-link">编辑</a></td>
+      <td>${t.priority ?? '—'}</td>
+      <td>${METHOD_CONFIG.templateStatusBadge(t)}</td>
+      <td>${escapeHtml(t.updatedBy || '—')}</td>
+      <td>${escapeHtml(t.updatedAt || '—')}</td>
+      <td class="table-actions">
+        <a href="#/method-config/templates/edit?id=${encodeURIComponent(t.id)}&step=1" class="btn-link">编辑</a>
+        <button type="button" class="btn-link" data-tpl-copy="${escapeHtml(t.id)}">复制</button>
+        ${t.status === 'published' ? `<button type="button" class="btn-link" data-tpl-toggle="${escapeHtml(t.id)}">${t.enabled === false ? '启用' : '停用'}</button>` : ''}
+        ${t.status === 'draft' ? `<button type="button" class="btn-link btn-link-danger" data-tpl-delete="${escapeHtml(t.id)}">删除</button>` : ''}
+      </td>
     </tr>`).join('');
 
+  const industryOpts = ['', ...METHOD_CONFIG.EIGHT_INDUSTRIES].map(c =>
+    `<option value="${c}" ${filters.industry === c ? 'selected' : ''}>${c || '全部行业'}</option>`
+  ).join('');
+  const methodOpts = ['', 'report', 'energy', 'product', 'economy', 'other'].map(mid =>
+    `<option value="${mid}" ${filters.methodId === mid ? 'selected' : ''}>${mid ? METHOD_CONFIG.methodLabel(mid) : '全部方法'}</option>`
+  ).join('');
+  const statusOpts = [
+    ['', '全部状态'],
+    ['draft', '草稿'],
+    ['published', '已发布'],
+    ['disabled', '已停用']
+  ].map(([v, l]) => `<option value="${v}" ${filters.status === v ? 'selected' : ''}>${l}</option>`).join('');
+
   return `
-    <h1 class="page-title">方法模板配置</h1>
-    <div class="toolbar" style="margin-bottom:16px">
-      <a href="#/method-config/templates/new" class="btn btn-primary">+ 新增模板</a>
+    <h1 class="page-title">模版配置</h1>
+    <div class="toolbar">
+      <a href="#/method-config/templates/new" class="btn btn-primary">+ 新建模板</a>
     </div>
-    <div class="method-config-layout">
-      <aside class="method-config-sidebar card">
-        <div class="card-header"><h3>行业导航</h3></div>
-        <div class="card-body method-config-tree">${tree}</div>
-      </aside>
-      <div class="method-config-main">
-        <div class="card">
-          <div class="card-header"><h3>模板列表</h3></div>
-          <div class="card-body table-wrap">
-            <table class="data-table">
-              <thead><tr><th>行业</th><th>业务类型</th><th>核算方法</th><th>状态</th><th>版本</th><th>字段数</th><th>公式数</th><th>更新</th><th>操作</th></tr></thead>
-              <tbody>${tableRows}</tbody>
-            </table>
+    <div class="card">
+      <div class="card-header"><h3>查询筛选</h3></div>
+      <div class="filter-panel method-config-filter-panel">
+        <form class="filter-extra method-config-filter-grid method-config-filter-grid--5" id="tplFilterForm">
+          <div class="form-item"><label>模板名称</label><input name="kw" value="${escapeHtml(filters.keyword)}" placeholder="模糊搜索"></div>
+          <div class="form-item"><label>所属行业</label><select name="industry">${industryOpts}</select></div>
+          <div class="form-item"><label>核算方法</label><select name="method">${methodOpts}</select></div>
+          <div class="form-item"><label>状态</label><select name="status">${statusOpts}</select></div>
+          <div class="form-item filter-actions"><label>&nbsp;</label>
+            <div class="filter-action-btns">
+              <button type="submit" class="btn btn-primary">查询</button>
+              <button type="button" class="btn" id="tplFilterResetBtn">重置</button>
+            </div>
           </div>
-        </div>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>模板列表</h3></div>
+      <div class="card-body table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>模板名称</th><th>所属行业</th><th>细分品类</th><th>核算方法</th><th>方法优先级</th><th>状态</th><th>更新人</th><th>更新时间</th><th>操作</th>
+          </tr></thead>
+          <tbody>${tableRows || '<tr><td colspan="9" class="text-muted">暂无模板</td></tr>'}</tbody>
+        </table>
       </div>
     </div>`;
 };
 
 SPA_VIEWS['#/method-config/templates/new'] = function() {
-  const industries = METHOD_CONFIG.industries;
-  const defaultInd = industries[0];
-  const defaultMethods = METHOD_CONFIG.DEFAULT_INDUSTRY_METHODS || ['report', 'energy', 'product'];
-  const methodOpts = (defaultInd?.methods || defaultMethods).map(mid =>
-    `<option value="${mid}">${METHOD_CONFIG.methodLabel(mid)}</option>`
-  ).join('');
-  const industryOpts = industries.map(ind =>
-    `<option value="${escapeHtml(ind.key)}" data-methods="${ind.methods.join(',')}">${escapeHtml(ind.key)}</option>`
-  ).join('');
-  const copyOpts = METHOD_CONFIG.templates.map(t =>
-    `<option value="${encodeURIComponent(t.id)}">${t.industry} · ${METHOD_CONFIG.bizLabel(t.bizType)} · ${METHOD_CONFIG.methodLabel(t.methodId)}</option>`
-  ).join('');
+  const defaultInd = METHOD_CONFIG.EIGHT_INDUSTRIES[0];
+  const industryOpts = methodConfigIndustryOptions(defaultInd);
+  const methodOpts = methodConfigMethodOptions('energy');
+  const sceneChecks = METHOD_CONFIG.APPLY_SCENES.map(s => `
+    <label class="checkbox-chip"><input type="checkbox" name="applyScene" value="${s.value}" checked> ${s.label}</label>
+  `).join('');
+
   return `
-    <h1 class="page-title">新增方法模板</h1>
+    <h1 class="page-title">新建核算模板</h1>
     <div class="card"><div class="card-body">
       <form class="form-grid" id="tplCreateForm">
-        <div class="form-item"><label>行业 <span class="req">*</span></label>
-          <select name="industry" id="tplCreateIndustry" required>
-            ${industryOpts}
-            <option value="__new__">+ 新增行业…</option>
-          </select>
+        <div class="form-item full"><label>模板名称 <span class="req">*</span></label>
+          <input name="templateName" required maxlength="100" placeholder="行业-细分品类-核算方法，如：建材-平板玻璃-能源法">
         </div>
-        <div class="form-item" id="tplCreateIndustryNewWrap" hidden>
-          <label>新行业名称 <span class="req">*</span></label>
-          <input type="text" id="tplCreateIndustryNew" name="industryNew" placeholder="如：造纸、船舶" maxlength="32">
+        <div class="form-item"><label>所属行业 <span class="req">*</span></label>
+          <select name="industry" id="tplCreateIndustry" required>${industryOpts}</select>
         </div>
-        <div class="form-item"><label>业务类型 <span class="req">*</span></label>
-          <select name="bizType" required>
-            <option value="non_project">非项目</option>
-            <option value="project">项目</option>
-          </select>
+        <div class="form-item"><label>细分品类</label>
+          <input name="subCategory" maxlength="50" placeholder="如：水泥、平板玻璃">
         </div>
         <div class="form-item"><label>核算方法 <span class="req">*</span></label>
           <select name="methodId" id="tplCreateMethod" required>${methodOpts}</select>
         </div>
-        <div class="form-item full"><label>初始内容</label>
-          <select name="copyFromId">
-            <option value="">空白模板（仅含默认合计公式）</option>
-            <option value="tpl_np_平板玻璃_energy">从平板玻璃·能源法样例复制</option>
-            ${copyOpts}
-          </select>
-          <small style="color:#909399;display:block;margin-top:6px">同一行业 + 业务类型 + 核算方法仅允许一份模板；若已存在将提示前往编辑。新增行业将自动加入左侧行业导航。</small>
+        <div class="form-item"><label>方法优先级 <span class="req">*</span></label>
+          <input type="number" name="priority" min="1" max="5" value="3" title="1-5，数字越小优先级越高">
+        </div>
+        <div class="form-item full"><label>适用场景 <span class="req">*</span></label>
+          <div class="checkbox-row">${sceneChecks}</div>
+        </div>
+        <div class="form-item full"><label>模板描述</label>
+          <textarea name="description" rows="3" maxlength="500" placeholder="业务说明"></textarea>
         </div>
       </form>
     </div></div>
@@ -244,135 +350,341 @@ SPA_VIEWS['#/method-config/templates/new'] = function() {
     </div>`;
 };
 
-function renderTemplateMetaFields(detail) {
+function renderTemplateBasicInfoTab(detail) {
   const m = detail.meta || {};
+  const scenes = new Set(m.applyScene || ['entity']);
+  const sceneChecks = METHOD_CONFIG.APPLY_SCENES.map(s => `
+    <label class="checkbox-chip"><input type="checkbox" name="applyScene" value="${s.value}" ${scenes.has(s.value) ? 'checked' : ''}> ${s.label}</label>
+  `).join('');
   return `<div class="form-grid method-config-meta-form">
-    <div class="form-item"><label>采集表来源</label><input name="meta_dataSourceCollect" value="${escapeHtml(m.dataSourceCollect || '')}" placeholder="如：联合赤道采集表"></div>
-    <div class="form-item"><label>因子表来源</label><input name="meta_dataSourceFactor" value="${escapeHtml(m.dataSourceFactor || '')}" placeholder="如：赤道因子表"></div>
-    <div class="form-item"><label>国标代码</label><input name="meta_gbCodes" value="${escapeHtml((m.gbCodes || []).join('、'))}" placeholder="C3041"></div>
-    <div class="form-item full"><label>主体排放说明</label><input name="meta_entityFormulaSummary" value="${escapeHtml(m.entityFormulaSummary || '')}" placeholder="主体A排放 = 燃料 + 购电 + ..."></div>
-  </div>`;
+    <div class="form-item full"><label>模板名称 <span class="req">*</span></label>
+      <input name="meta_templateName" required maxlength="100" value="${escapeHtml(m.templateName || '')}">
+    </div>
+    <div class="form-item"><label>所属行业 <span class="req">*</span></label>
+      <select name="meta_industry" required>${methodConfigIndustryOptions(m.industry)}</select>
+    </div>
+    <div class="form-item"><label>细分品类</label>
+      <input name="meta_subCategory" maxlength="50" value="${escapeHtml(m.subCategory || '')}">
+    </div>
+    <div class="form-item"><label>核算方法 <span class="req">*</span></label>
+      <select name="meta_methodId" required>${methodConfigMethodOptions(m.methodId)}</select>
+    </div>
+    <div class="form-item"><label>方法优先级 <span class="req">*</span></label>
+      <input type="number" name="meta_priority" min="1" max="5" value="${m.priority ?? 3}">
+    </div>
+    <div class="form-item full"><label>适用场景 <span class="req">*</span></label>
+      <div class="checkbox-row">${sceneChecks}</div>
+    </div>
+    <div class="form-item full"><label>模板描述</label>
+      <textarea name="meta_description" rows="3" maxlength="500" placeholder="业务说明">${escapeHtml(m.description || '')}</textarea>
+    </div>
+  </div>
+  ${m.methodId === 'report' ? '<p class="method-config-step-hint">报告法模板无需配置因子与公式，仅需基础信息与表单结构。</p>' : ''}`;
 }
 
-function renderTemplateStep1Edit(detail) {
-  const selectedIds = new Set((detail.params || []).map(p => p.id));
-  const overrides = Object.fromEntries((detail.params || []).map(p => [p.id, p]));
-  const rows = METHOD_CONFIG.listParams().map(p => {
-    const sel = overrides[p.id] || p;
-    const checked = selectedIds.has(p.id);
-    return `<tr>
-      <td><input type="checkbox" class="tpl-param-check" value="${escapeHtml(p.id)}" ${checked ? 'checked' : ''}></td>
-      <td><code>${escapeHtml(p.id)}</code></td>
-      <td>${escapeHtml(p.name)}</td>
-      <td>${METHOD_CONFIG.formatLabel(p.format)} · ${escapeHtml(p.unit || '')}</td>
-      <td><input name="param_section_${escapeHtml(p.id)}" value="${escapeHtml(sel.section || '默认分区')}" placeholder="如：固定燃料" title="同一分区名的字段在采集页合并为一块"></td>
-      <td style="text-align:center"><input type="checkbox" name="param_required_${escapeHtml(p.id)}" ${sel.required ? 'checked' : ''}></td>
-      <td style="text-align:center" title="勾选后客户经理可在采集页对该分区增删行（如多种燃料）"><input type="checkbox" name="param_multirow_${escapeHtml(p.id)}" ${sel.allowMultiRow ? 'checked' : ''}></td>
-    </tr>`;
-  }).join('');
-
-  const layoutPreview = (detail.layout || []).map(sec =>
-    `<li><strong>${escapeHtml(sec.title)}</strong>：${(sec.fields || []).map(f => `<code>${f}</code>`).join('、') || '—'}</li>`
-  ).join('');
-
-  return `
-    ${renderTemplateMetaFields(detail)}
-    <div class="toolbar" style="margin:16px 0">
-      <input type="search" id="tplParamFilter" placeholder="搜索参数名称或 ID…" style="max-width:240px">
-      <button type="button" class="btn btn-sm" id="tplSelectAllParams">全选</button>
-      <button type="button" class="btn btn-sm" id="tplClearAllParams">清空勾选</button>
-      <a href="#/method-config/params/new" class="btn btn-sm">+ 新增参数字段</a>
-    </div>
-    <div class="method-config-step-hint" style="margin-bottom:12px">
-      <span class="hint-label">采集分区</span>指客户经理填报时的<strong>表区块名称</strong>（如「固定燃料」「购电」）。同一分区名下的字段会并排展示；保存后自动生成分区布局。
-    </div>
-    <div class="table-wrap">
-      <table class="data-table method-config-param-pick-table">
-        <thead><tr><th width="40">选用</th><th>参数 ID</th><th>名称</th><th>格式</th><th>采集分区</th><th width="56">必填</th><th width="72" title="可增行">可增行</th></tr></thead>
-        <tbody id="tplParamBody">${rows}</tbody>
-      </table>
-    </div>
-    <p class="text-muted" style="font-size:13px;margin-top:12px">已选 ${selectedIds.size} 个字段。勾选「可增行」的分区在数据采集页支持客户经理自行增添多行（如多种燃料品种）。</p>
-    ${layoutPreview ? `<div class="method-config-layout-preview"><span class="text-muted">当前分区预览：</span><ul>${layoutPreview}</ul></div>` : ''}`;
+function renderTemplateStructureTab(detail) {
+  return MethodConfigEditor.renderStructureTab(detail);
 }
 
 function renderFormulaBuilderToolbar(detail) {
   const params = detail.params || [];
   const paramChips = params.length
-    ? params.map(p => `<button type="button" class="formula-insert-chip" data-insert="{${escapeHtml(p.id)}}" title="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join('')
-    : '<span class="text-muted">请先在 Step1 勾选采集参数</span>';
+    ? params.map(p => `<button type="button" class="formula-insert-chip" data-insert="{${escapeHtml(p.id)}}">${escapeHtml(p.name)}</button>`).join('')
+    : '<span class="text-muted">请先在「表单结构」Tab 挂载参数</span>';
   const ops = ['+', '-', '*', '/', '(', ')', 'SUM(', ','].map(op =>
     `<button type="button" class="formula-insert-op" data-insert="${escapeHtml(op)}">${escapeHtml(op)}</button>`
   ).join('');
-  const factorHints = ['factor_coal', 'factor_gas', 'factor_grid', 'factor_electric'].map(k =>
-    `<button type="button" class="formula-insert-factor" data-insert="{${k}}">${k.replace('factor_', '')}</button>`
-  ).join('');
   return `
     <div class="formula-builder-bar">
-      <div class="formula-builder-row">
-        <span class="formula-builder-label">点选插入参数</span>
-        <div class="formula-builder-chips">${paramChips}</div>
-      </div>
-      <div class="formula-builder-row">
-        <span class="formula-builder-label">运算符</span>
-        <div class="formula-builder-ops">${ops}</div>
-      </div>
-      <div class="formula-builder-row">
-        <span class="formula-builder-label">因子占位</span>
-        <div class="formula-builder-chips formula-builder-factors">${factorHints}</div>
-        <span class="text-muted" style="font-size:12px;margin-left:8px">Step3 再绑定具体排放因子</span>
-      </div>
-      <p class="text-muted" style="font-size:12px;margin:8px 0 0">先点击某行「表达式」输入框，再点上方按钮即可插入；也可直接键盘输入。</p>
+      <div class="formula-builder-row"><span class="formula-builder-label">参数</span><div class="formula-builder-chips">${paramChips}</div></div>
+      <div class="formula-builder-row"><span class="formula-builder-label">运算符</span><div class="formula-builder-ops">${ops}</div></div>
+      <p class="text-muted" style="font-size:12px;margin:8px 0 0">保存「表单与核算」Tab 时会自动生成公式；此处可微调表达式。</p>
     </div>`;
 }
 
-function renderTemplateStep2Edit(detail) {
+function renderTemplateFormulaTab(detail) {
   const rows = (detail.formulas || []).map(f => MethodConfigEditor.formulaRowHtml(f)).join('') ||
-    MethodConfigEditor.formulaRowHtml({ id: 'F1', sort: 1, name: '主体排放合计', isEntityTotal: true });
+    MethodConfigEditor.formulaRowHtml({ id: 'F1', sort: 1, name: '总排放合计', isEntityTotal: true });
   return `
     ${renderFormulaBuilderToolbar(detail)}
-    <div class="method-config-step-hint" style="margin:12px 0">
-      <span class="hint-label">分项 / 合计</span>
-      <strong>分项</strong>：一条公式对应一类排放（如燃料燃烧、购电）；<strong>合计</strong>：用 SUM 汇总各分项为主体总排放（每模板仅勾选一个合计行）。
-      分项勾选「可增行」时，对应采集分区支持多种品种逐行填报。
-    </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="margin-top:12px">
       <table class="data-table method-config-formula-edit-table">
         <thead><tr><th>序</th><th>ID</th><th>名称</th><th>表达式</th><th>单位</th><th>活动数据</th><th>标记</th><th></th></tr></thead>
         <tbody id="tplFormulaBody">${rows}</tbody>
       </table>
     </div>
     <div class="toolbar" style="margin-top:12px">
+      <button type="button" class="btn btn-sm btn-primary" id="tplGenFormulasBtn">从结构生成分项公式</button>
       <button type="button" class="btn btn-sm" id="tplAddFormulaBtn">+ 添加公式</button>
       <button type="button" class="btn btn-sm" id="formulaValidateBtn">公式校验</button>
     </div>`;
 }
 
-function renderTemplateStep3Edit(detail) {
+function renderTemplateFactorTab(detail) {
   const rows = (detail.factorBindings || []).map(b => MethodConfigEditor.factorCardHtml(b, detail)).join('');
+  const isReport = detail.meta?.methodId === 'report';
+  const dynamicBlocks = METHOD_CONFIG.ensureDetailLayout(detail).filter(b => b.type === 'dynamic_row');
+  const dynamicSummary = dynamicBlocks.map(b => {
+    const norm = METHOD_CONFIG.normalizeDynamicBlock(b);
+    const ok = !!(norm.varietyParamId && norm.amountParamId && (norm.presetRows || []).length);
+    const variety = METHOD_CONFIG.getParam(norm.varietyParamId)?.name || norm.varietyParamId || '—';
+    const amount = METHOD_CONFIG.getParam(norm.amountParamId)?.name || norm.amountParamId || '—';
+    return `<tr class="${ok ? '' : 'row-warn'}"><td>${escapeHtml(b.title)}</td><td>动态行区块</td><td>${ok ? '<span class="tag tag-success">已配置</span>' : '<span class="tag tag-danger">未完成</span>'}</td><td>${escapeHtml(variety)} / ${escapeHtml(amount)} · ${(norm.presetRows || []).length} 行</td></tr>`;
+  }).join('');
+  if (isReport) {
+    return '<p class="method-config-step-hint">报告法模板无需绑定因子。</p>';
+  }
   return `
     <div class="method-config-step-hint" style="margin-bottom:12px">
-      <span class="hint-label">如何选择因子</span>
-      每条卡片对应公式里的 <code>{factor_xxx}</code>。先看「用于公式」确认对应关系，再从<strong>排放因子库</strong>选用或填写缺省值；匹配方式为「按选项/品种」时需指定依赖的采集字段。
+      固定/下拉绑定已在「表单与核算」Tab 行内配置；此处可查看汇总或做高级调整。
     </div>
-    <div class="factor-binding-cards" id="tplFactorBody">${rows || '<p class="text-muted">暂无因子配置，请点击下方「从公式提取」</p>'}</div>
+    ${dynamicSummary ? `<div class="table-wrap" style="margin-bottom:16px"><table class="data-table"><thead><tr><th>区块名称</th><th>类型</th><th>绑定状态</th><th>因子分类</th></tr></thead><tbody>${dynamicSummary}</tbody></table></div>` : ''}
+    <div class="factor-binding-cards" id="tplFactorBody">${rows || '<p class="text-muted">暂无因子配置，请点击「从公式提取」</p>'}</div>
     <div class="toolbar" style="margin-top:12px">
       <button type="button" class="btn btn-sm" id="tplAddFactorBtn">+ 添加因子</button>
       <button type="button" class="btn btn-sm btn-primary" id="tplExtractFactorsBtn">从公式提取因子引用</button>
     </div>`;
 }
 
+function renderMethodConfigFormPreview(detail, form) {
+  let previewDetail = { ...detail };
+  if (form) {
+    const structure = METHOD_CONFIG.readPreviewStructure(form);
+    previewDetail = { ...detail, layout: structure.layout, params: structure.params };
+  } else {
+    previewDetail.layout = METHOD_CONFIG.filterLayoutForPreview(
+      METHOD_CONFIG.normalizeLayoutBlocks(METHOD_CONFIG.ensureDetailLayout(detail))
+    );
+  }
+  const layout = METHOD_CONFIG.normalizeLayoutBlocks(previewDetail.layout || []);
+  if (!layout.length) {
+    return '<p class="text-muted">保存排放源或动态行后，将在此预览采集表单</p>';
+  }
+  return layout.map(sec => renderPreviewPartition(sec, previewDetail)).join('');
+}
+
+function renderPreviewFieldLabel(p, fid) {
+  const name = escapeHtml(p?.name || fid);
+  const unit = p?.unit && p.unit !== '—'
+    ? `<span class="preview-field-unit">(${escapeHtml(p.unit)})</span>`
+    : '';
+  const req = p?.required ? '<span class="req">*</span>' : '';
+  return `${req}${name}${unit}`;
+}
+
+function renderPreviewFieldControl(p) {
+  if (!p) return '<input type="text" disabled class="preview-input" placeholder="请输入">';
+  if (METHOD_CONFIG.fieldIsAttachmentType(p)) {
+    const accept = p.attachAccept || '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg';
+    const maxCount = p.attachMaxCount ?? 3;
+    const maxMb = p.attachMaxMb ?? 20;
+    return `<div class="preview-attach-field">
+      <button type="button" class="btn btn-sm" disabled>选择文件</button>
+      <p class="text-muted preview-attach-meta">支持 ${escapeHtml(accept.replace(/\./g, '').replace(/,/g, '、'))}；最多 ${maxCount} 个，单文件 ≤ ${maxMb}MB</p>
+    </div>`;
+  }
+  if (METHOD_CONFIG.fieldIsOptionType(p)) {
+    const opts = (p.enumValues || []).map(v => `<option>${escapeHtml(v)}</option>`).join('');
+    return `<select disabled class="preview-input"><option value="">请选择</option>${opts}</select>`;
+  }
+  if (METHOD_CONFIG.fieldIsNumberType(p)) {
+    return '<input type="number" step="any" disabled class="preview-input" placeholder="请输入">';
+  }
+  return '<input type="text" disabled class="preview-input" placeholder="请输入">';
+}
+
+function renderPreviewFixedFields(section, detail) {
+  const paramMap = Object.fromEntries((detail?.params || []).map(p => [p.id, p]));
+  const blockNorm = { ...section, fields: section.fields || [] };
+  const sources = METHOD_CONFIG.ensureEmissionSources(blockNorm);
+  const inSource = METHOD_CONFIG.fieldsInEmissionSources(blockNorm);
+  const simpleFields = (blockNorm.fields || []).filter(fid => !inSource.has(fid));
+  const cells = [];
+
+  simpleFields.forEach(fid => {
+    const p = paramMap[fid] || METHOD_CONFIG.getParam(fid);
+    cells.push(`<th>${renderPreviewFieldLabel(p, fid)}</th>`);
+  });
+  sources.forEach(source => {
+    (source.fields || []).forEach(fid => {
+      const p = paramMap[fid] || METHOD_CONFIG.getParam(fid);
+      cells.push(`<th>${renderPreviewFieldLabel(p, fid)}</th>`);
+    });
+  });
+
+  const inputs = [];
+  simpleFields.forEach(fid => {
+    const p = paramMap[fid] || METHOD_CONFIG.getParam(fid);
+    inputs.push(`<td>${renderPreviewFieldControl(p)}</td>`);
+  });
+  sources.forEach(source => {
+    (source.fields || []).forEach(fid => {
+      const p = paramMap[fid] || METHOD_CONFIG.getParam(fid);
+      inputs.push(`<td>${renderPreviewFieldControl(p)}</td>`);
+    });
+  });
+
+  if (!cells.length) return '';
+  return `<table class="data-table preview-mini-table preview-partition-fixed-table">
+    <thead><tr>${cells.join('')}</tr></thead>
+    <tbody><tr>${inputs.join('')}</tr></tbody>
+  </table>`;
+}
+
+function renderPreviewDynamicSection(section, detail) {
+  const blockNorm = METHOD_CONFIG.normalizeDynamicBlock(section);
+  const paramMap = Object.fromEntries((detail?.params || []).map(p => [p.id, p]));
+  const varietyP = paramMap[blockNorm.varietyParamId] || METHOD_CONFIG.getParam(blockNorm.varietyParamId);
+  const amountP = paramMap[blockNorm.amountParamId] || METHOD_CONFIG.getParam(blockNorm.amountParamId);
+
+  return `<div class="preview-partition-section preview-partition-section--dynamic">
+    <table class="data-table preview-mini-table preview-dynamic-row-table">
+      <thead><tr>
+        <th>${renderPreviewFieldLabel(varietyP, blockNorm.varietyParamId)}</th>
+        <th>${renderPreviewFieldLabel(amountP, blockNorm.amountParamId)}</th>
+        <th class="preview-dynamic-row-actions" aria-label="行操作"></th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><select disabled class="preview-input"><option value="">请选择</option></select></td>
+          <td><input type="number" step="any" disabled class="preview-input" placeholder="请输入"></td>
+          <td class="preview-dynamic-row-actions">
+            <button type="button" class="btn btn-sm preview-dynamic-row-add" disabled title="新增一行">+</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderPreviewFixedSection(section, detail) {
+  const tableHtml = renderPreviewFixedFields(section, detail);
+  if (!tableHtml) return '';
+  return `<div class="preview-partition-section preview-partition-section--fixed">${tableHtml}</div>`;
+}
+
+function renderPreviewPartition(partition, detail) {
+  if (partition?.type !== 'partition') {
+    return renderPreviewBlockLegacy(partition, detail);
+  }
+  const title = partition.title || '未命名分区';
+  const sectionsHtml = (partition.sections || [])
+    .map(s => s.type === 'dynamic_row'
+      ? renderPreviewDynamicSection(s, detail)
+      : renderPreviewFixedSection(s, detail))
+    .filter(Boolean)
+    .join('');
+
+  if (!sectionsHtml) {
+    return `<div class="method-config-preview-block method-config-preview-partition">
+      <h4 class="preview-partition-title">${escapeHtml(title)}</h4>
+      <p class="text-muted">暂无字段</p>
+    </div>`;
+  }
+
+  return `<div class="method-config-preview-block method-config-preview-partition">
+    <h4 class="preview-partition-title">${escapeHtml(title)}</h4>
+    <div class="preview-partition-sections">${sectionsHtml}</div>
+  </div>`;
+}
+
+function renderPreviewBlockLegacy(sec, detail) {
+  const paramMap = Object.fromEntries((detail?.params || []).map(p => [p.id, p]));
+  const type = sec.type === 'dynamic_row' ? 'dynamic_row' : 'fixed';
+  if (type === 'dynamic_row') {
+    const blockNorm = METHOD_CONFIG.normalizeDynamicBlock(sec);
+    const varietyP = METHOD_CONFIG.getParam(blockNorm.varietyParamId);
+    const amountP = METHOD_CONFIG.getParam(blockNorm.amountParamId);
+    const varietyLabel = varietyP?.name || '品种';
+    const amountLabel = amountP?.name || '消耗量';
+    const amountUnit = amountP?.unit && amountP.unit !== '—' ? amountP.unit : '';
+    const rows = (blockNorm.presetRows || []).length ? blockNorm.presetRows : [{ label: '—' }];
+    const tbody = rows.map(r => `
+      <tr>
+        <td><select disabled class="preview-input"><option>${escapeHtml(r.label || '—')}</option></select></td>
+        <td><input disabled class="preview-input" placeholder="请输入"></td>
+        ${blockNorm.showUnitCol !== false ? `<td>${escapeHtml(r.unit || amountUnit || '—')}</td>` : ''}
+        ${blockNorm.showEmissionCol !== false ? '<td class="text-muted">自动计算</td>' : ''}
+      </tr>`).join('');
+    return `<div class="method-config-preview-block">
+      <h4>${escapeHtml(sec.title)} <span class="tag tag-info">动态行</span></h4>
+      <p class="text-muted" style="font-size:12px;margin-bottom:8px">
+        ${escapeHtml(varietyLabel)} × ${escapeHtml(amountLabel)}${blockNorm.allowAddRow !== false ? ' · 可新增行' : ''}
+      </p>
+      <table class="data-table preview-mini-table">
+        <thead><tr>
+          <th>${escapeHtml(varietyLabel)}</th>
+          <th>${escapeHtml(amountLabel)}</th>
+          ${blockNorm.showUnitCol !== false ? '<th>单位</th>' : ''}
+          ${blockNorm.showEmissionCol !== false ? '<th>排放量</th>' : ''}
+        </tr></thead>
+        <tbody>${tbody}${blockNorm.allowAddRow !== false ? '<tr><td colspan="4" class="text-muted">采集端可继续新增品种行…</td></tr>' : ''}</tbody>
+      </table>
+    </div>`;
+  }
+  return `<div class="method-config-preview-block">
+    <h4>${escapeHtml(sec.title)}</h4>
+    <div class="form-grid preview-fields">
+      ${(sec.fields || []).map(fid => {
+        const p = paramMap[fid] || METHOD_CONFIG.getParam(fid);
+        return `<div class="form-item">
+          <label>${renderPreviewFieldLabel(p, fid)}</label>
+          ${renderPreviewFieldControl(p)}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderTemplatePreviewTab(detail) {
+  const previewDetail = {
+    ...detail,
+    layout: METHOD_CONFIG.filterLayoutForPreview(
+      METHOD_CONFIG.normalizeLayoutBlocks(METHOD_CONFIG.ensureDetailLayout(detail))
+    )
+  };
+  const validation = METHOD_CONFIG.validateTemplate({ ...detail, layout: previewDetail.layout });
+  const checklist = [
+    ['基础信息完整性', !!(detail.meta?.templateName && detail.meta?.industry && detail.meta?.methodId)],
+    ['表单结构配置', !!(detail.params || []).length],
+    ['因子绑定完整性', detail.meta?.methodId === 'report' || !!(detail.factorBindings || []).length],
+    ['总排放公式', detail.meta?.methodId === 'report' || (detail.formulas || []).some(f => f.expression && f.isEntityTotal)],
+    ['公式语法校验', METHOD_CONFIG.validateFormulas(detail).ok]
+  ].map(([label, ok]) =>
+    `<li class="${ok ? 'check-ok' : 'check-fail'}">${ok ? '✓' : '✗'} ${label}</li>`
+  ).join('');
+
+  const previewSections = renderMethodConfigFormPreview(previewDetail, null);
+
+  return `
+    <div class="method-config-preview-layout">
+      <div class="card"><div class="card-header"><h3>一键校验</h3></div>
+        <div class="card-body">
+          <ul class="method-config-checklist">${checklist}</ul>
+          ${validation.ok
+            ? '<p class="tag tag-success" style="display:inline-block">校验通过，可发布</p>'
+            : `<p class="tag tag-danger" style="display:inline-block">校验未通过</p><ul class="text-danger">${validation.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`}
+          <div class="toolbar" style="margin-top:12px">
+            <button type="button" class="btn btn-sm" id="tplRunValidateBtn">重新校验</button>
+          </div>
+        </div>
+      </div>
+      <div class="card"><div class="card-header"><h3>表单预览</h3></div>
+        <div class="card-body method-config-form-preview">${previewSections || '<p class="text-muted">暂无表单结构</p>'}</div>
+      </div>
+    </div>`;
+}
+
 SPA_VIEWS['#/method-config/templates/edit'] = function() {
   const q = new URLSearchParams((location.hash.split('?')[1] || ''));
   const { id, tpl, detail } = METHOD_CONFIG.resolveTemplateForEdit(q);
-  const stepRaw = q.get('step') || '1';
-  const step = stepRaw === '4' ? '1' : stepRaw;
-  const title = `${detail.meta.industry} · ${METHOD_CONFIG.bizLabel(detail.meta.bizType)} · ${METHOD_CONFIG.methodLabel(detail.meta.methodId)}`;
+  const step = METHOD_CONFIG.normalizeTemplateEditStep(q.get('step') || '1');
+  const title = detail.meta.templateName || METHOD_CONFIG.formatTemplateLabel(detail.meta, id);
 
   const steps = [
-    { id: '1', label: 'Step1 选择参数' },
-    { id: '2', label: 'Step2 输入公式' },
-    { id: '3', label: 'Step3 选择因子' }
+    { id: '1', label: '基础信息' },
+    { id: '2', label: '表单与核算' },
+    { id: '3', label: '预览发布' }
   ];
 
   const stepNav = steps.map(s => {
@@ -383,28 +695,41 @@ SPA_VIEWS['#/method-config/templates/edit'] = function() {
   }).join('');
 
   let body;
-  if (step === '2') body = renderTemplateStep2Edit(detail);
-  else if (step === '3') body = renderTemplateStep3Edit(detail);
-  else body = renderTemplateStep1Edit(detail);
+  if (step === '2') body = renderTemplateStructureTab(detail);
+  else if (step === '3') body = renderTemplatePreviewTab(detail);
+  else body = renderTemplateBasicInfoTab(detail);
+
+  const prevStep = String(Math.max(1, Number(step) - 1));
+  const nextStep = String(Math.min(3, Number(step) + 1));
+  const prevParams = new URLSearchParams(q); prevParams.set('step', prevStep); prevParams.set('id', id);
+  const nextParams = new URLSearchParams(q); nextParams.set('step', nextStep); nextParams.set('id', id);
+  const previewValidation = step === '3'
+    ? METHOD_CONFIG.validateTemplate({
+      ...detail,
+      layout: METHOD_CONFIG.normalizeLayoutBlocks(METHOD_CONFIG.ensureDetailLayout(detail))
+    })
+    : null;
 
   return `
     <div class="method-config-edit-head">
       <div>
-        <h1 class="page-title" style="margin-bottom:4px">${title}</h1>
-        <p class="text-muted" style="margin:0;font-size:13px">${METHOD_CONFIG.statusBadge(tpl.status)} · 模板 ID：<code>${id}</code> · 版本 ${tpl.version || '—'}</p>
-      </div>
-      <div class="toolbar">
-        <button type="button" class="btn btn-sm" id="tplCopyFlatGlassBtn">从平板玻璃复制</button>
-        <button type="button" class="btn btn-primary" id="tplPublishBtn">发布模板</button>
+        <h1 class="page-title" style="margin-bottom:4px">${escapeHtml(title)}</h1>
+        <p class="text-muted" style="margin:0;font-size:13px">
+          ${METHOD_CONFIG.templateStatusBadge(tpl)} · 版本 ${escapeHtml(tpl.version || '—')} · 模板 ID <code>${escapeHtml(id)}</code>
+        </p>
       </div>
     </div>
     <div class="method-config-step-tabs">${stepNav}</div>
     <form id="tplEditForm">
       <div class="card"><div class="card-body">${body}</div></div>
-      <div class="form-actions">
-        <a href="#/method-config/templates" class="btn">返回列表</a>
-        <button type="button" class="btn btn-primary" id="tplSaveDraftBtn">保存草稿</button>
+      <div class="form-actions method-config-edit-actions">
+        <a href="#/method-config/templates" class="btn">取消</a>
+        ${Number(step) > 1 ? `<a href="#/method-config/templates/edit?${prevParams}" class="btn" id="tplPrevBtn">上一步</a>` : ''}
+        ${step === '1' ? '<button type="button" class="btn btn-primary" id="tplSaveDraftBtn">保存草稿</button>' : ''}
+        ${Number(step) < 3 ? `<a href="#/method-config/templates/edit?${nextParams}" class="btn btn-primary" id="tplNextBtn">下一步</a>` : ''}
+        ${Number(step) === 3 ? `<button type="button" class="btn btn-primary" id="tplPublishBtn" ${previewValidation?.ok ? '' : 'disabled'}>发布模板</button>` : ''}
       </div>
     </form>`;
 };
 
+window.renderMethodConfigFormPreview = renderMethodConfigFormPreview;

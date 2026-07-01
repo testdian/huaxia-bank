@@ -15,14 +15,14 @@ window.MenuPermissions = {
 
   CATALOG: [
     { id: 'tasks', label: '核算任务管理', section: 'main', roles: ['hq', 'branch'] },
-    { id: 'branch-board', label: '数据收集', section: 'main', roles: ['hq', 'branch', 'manager'] },
+    { id: 'branch-board', label: '数据采集', section: 'main', roles: ['hq', 'branch', 'manager'] },
     { id: 'approvals', label: '数据审核', section: 'main', roles: ['hq', 'branch'] },
     { id: 'ledger', label: '台账管理', section: 'main', roles: ['hq', 'branch'] },
     { id: 'carbon-accounts', label: '企业碳账户', section: 'main', roles: ['hq', 'branch'] },
     { id: 'factors', label: '排放因子库', section: 'main', roles: ['hq', 'branch'] },
-    { id: 'method-params', label: '参数字段库', section: 'basic', group: '基础配置', roles: ['hq'] },
-    { id: 'method-templates', label: '方法模板', section: 'basic', group: '基础配置', roles: ['hq'] },
-    { id: 'industry-config', label: '行业配置', section: 'basic', group: '基础配置', roles: ['hq'] },
+    { id: 'method-params', label: '参数管理', section: 'basic', group: '碳核算模板配置中心', roles: ['hq'] },
+    { id: 'method-templates', label: '模版配置', section: 'basic', group: '碳核算模板配置中心', roles: ['hq'] },
+    { id: 'industry-config', label: '行业配置', section: 'basic', group: '碳核算模板配置中心', roles: ['hq'] },
     { id: 'permission-mgmt', label: '权限管理', section: 'admin', roles: ['hq'] }
   ],
 

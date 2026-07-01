@@ -76,26 +76,64 @@
   ];
 
   const FLAT_GLASS_LAYOUT = [
-    { title: '燃料燃烧排放', fields: ['P_coal', 'P_coke', 'P_diesel', 'P_gas'], note: '带*为必填（联合赤道采集表）' },
-    { title: '其他能源（下拉选择）', type: 'repeatable_pair', pairs: [
-      { typeField: 'P_other_fuel_type_1', amountField: 'P_other_fuel_amount_1', label: '其他能源1' },
-      { typeField: 'P_other_fuel_type_2', amountField: 'P_other_fuel_amount_2', label: '其他能源2' }
-    ]},
-    { title: '净购入电量', fields: ['P_grid_region', 'P_purchased_electricity'] },
-    { title: '净购入热力', fields: ['P_purchased_heat'] },
-    { title: '过程排放 — 碳粉', fields: ['P_carbon_powder'] },
-    { title: '过程排放 — 碳酸盐分解（下拉选择）', type: 'repeatable_pair', pairs: [
-      { typeField: 'P_carbonate_type_1', amountField: 'P_carbonate_amount_1', label: '碳酸盐1' },
-      { typeField: 'P_carbonate_type_2', amountField: 'P_carbonate_amount_2', label: '碳酸盐2' }
-    ]},
-    { title: '过程排放 — 脱硫试剂（下拉选择）', type: 'repeatable_pair', pairs: [
-      { typeField: 'P_desulfur_type_1', amountField: 'P_desulfur_amount_1', label: '脱硫试剂1' },
-      { typeField: 'P_desulfur_type_2', amountField: 'P_desulfur_amount_2', label: '脱硫试剂2' }
-    ]}
+    {
+      type: 'partition',
+      title: '燃料燃烧排放',
+      sections: [
+        {
+          type: 'fixed',
+          fields: ['P_coal', 'P_coke', 'P_diesel', 'P_gas'],
+          emissionSources: [
+            { id: 'es_coal', fields: ['P_coal'] },
+            { id: 'es_coke', fields: ['P_coke'] },
+            { id: 'es_diesel', fields: ['P_diesel'] },
+            { id: 'es_gas', fields: ['P_gas'] }
+          ]
+        },
+        {
+          type: 'dynamic_row',
+          sectionLabel: '其他能源（下拉选择）',
+          varietyParamId: 'P_other_fuel_type_1',
+          amountParamId: 'P_other_fuel_amount_1',
+          presetRows: OTHER_FUEL_OPTIONS.filter(x => x !== '无').slice(0, 2).map((label, i) => ({
+            label: `其他燃料${i + 1}`,
+            enumValue: label,
+            refKey: `factor_other_${i + 1}`
+          })),
+          allowAddRow: true,
+          allowDeleteRow: true
+        }
+      ]
+    },
+    {
+      type: 'partition',
+      title: '净购入电量',
+      sections: [{ type: 'fixed', fields: ['P_grid_region', 'P_purchased_electricity'] }]
+    },
+    {
+      type: 'partition',
+      title: '净购入热力',
+      sections: [{ type: 'fixed', fields: ['P_purchased_heat'] }]
+    },
+    {
+      type: 'partition',
+      title: '过程排放',
+      sections: [
+        { type: 'fixed', title: '碳粉', fields: ['P_carbon_powder'] },
+        {
+          type: 'fixed',
+          fields: ['P_carbonate_type_1', 'P_carbonate_amount_1', 'P_carbonate_type_2', 'P_carbonate_amount_2']
+        },
+        {
+          type: 'fixed',
+          fields: ['P_desulfur_type_1', 'P_desulfur_amount_1', 'P_desulfur_type_2', 'P_desulfur_amount_2']
+        }
+      ]
+    }
   ];
 
   const DESIGN_GAPS = [
-    { level: 'ok', item: '分层采集字段', detail: '燃料固定项 + 其他能源成对（品种+消耗量）+ 电网选择 + 过程排放块，可用 section / repeatable_pair 表达' },
+    { level: 'ok', item: '分层采集字段', detail: '燃料固定项 + 其他能源/碳酸盐（类型+消耗量同区块）+ 电网 + 过程排放块' },
     { level: 'ok', item: '数值小数位', detail: '消耗量字段 decimalPlaces=4，因子支持 4～6 位' },
     { level: 'ok', item: '选项枚举', detail: '其他燃料、电网、碳酸盐/脱硫试剂均配置 enumValues' },
     { level: 'ok', item: '主体排放分项求和', detail: 'F1～F4 分项 + F_total 合计，对应业务公式四段结构' },
@@ -110,13 +148,17 @@
     templateId: 'tpl_np_平板玻璃_energy',
     meta: {
       id: 'tpl_np_平板玻璃_energy',
-      industry: '平板玻璃',
+      templateName: '建材-平板玻璃-能源法',
+      industry: '建材',
       industryMajor: '建材',
+      subCategory: '平板玻璃',
       bizType: 'non_project',
       methodId: 'energy',
+      priority: 1,
+      applyScene: ['entity', 'project_loan'],
       gbCodes: ['C3041'],
       status: 'published',
-      version: '2026.1',
+      version: 'V1.0',
       fieldCount: FLAT_GLASS_PARAMS.length,
       formulaCount: FLAT_GLASS_FORMULAS.length,
       updatedAt: '2026-06-24',

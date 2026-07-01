@@ -43,13 +43,25 @@ async function go(page, hash, roleKey) {
 
 async function shot(page, name, opts = {}) {
   const file = path.join(OUT_DIR, `${name}.png`);
-  if (opts.fullPage) {
-    await page.screenshot({ path: file, fullPage: true });
-  } else {
-    await page.screenshot({ path: file });
-  }
-  console.log('  ✓', name);
+  const fullPage = opts.fullPage !== false;
+  await page.screenshot({ path: file, fullPage });
+  console.log('  ✓', name, fullPage ? '(fullPage)' : '');
   return file;
+}
+
+async function enableBasicConfigMenus(page) {
+  await page.evaluate(() => {
+    Store.update((d) => {
+      d.menuVisibility = {
+        ...MenuPermissions.DEFAULT_VISIBILITY,
+        'method-params': true,
+        'method-templates': true,
+        'industry-config': true,
+        'permission-mgmt': true
+      };
+    });
+  });
+  await waitStable(page, 400);
 }
 
 async function findApprovalId(page, reviewLevel) {
@@ -98,6 +110,9 @@ async function main() {
     await go(page, '#/task-create', 'hq');
     await shot(page, 'HQ-03-新建任务');
 
+    await go(page, '#/task-edit?id=T2025001', 'hq');
+    await shot(page, 'SRS-02-编辑任务');
+
     await go(page, '#/tasks', 'hq');
     await shot(page, 'HQ-04-任务操作');
 
@@ -127,6 +142,12 @@ async function main() {
       document.querySelectorAll('.dispatch-row-check').forEach((cb) => { cb.checked = false; });
     });
     await shot(page, 'HQ-15-数据采集筛选与操作');
+    await page.evaluate(() => {
+      const btn = document.getElementById('creditFallbackBtn');
+      if (btn) btn.scrollIntoView({ block: 'center' });
+    });
+    await waitStable(page, 300);
+    await shot(page, 'SRS-14-信贷兜底法');
     await shot(page, 'HQ-16-一键提交数据');
 
     await go(page, '#/approvals', 'hq');
@@ -159,6 +180,23 @@ async function main() {
     await shot(page, 'HQ-26-因子列表');
     await go(page, '#/factors/new', 'hq');
     await shot(page, 'HQ-27-因子维护');
+    await go(page, '#/factors/import', 'hq');
+    await shot(page, 'SRS-28-因子导入');
+
+    await go(page, '#/ledger', 'hq');
+    await shot(page, 'SRS-26-台账管理');
+    await go(page, '#/ledger/detail?taskId=T2025001', 'hq');
+    await shot(page, 'SRS-27-排放计算清单');
+
+    await enableBasicConfigMenus(page);
+    await go(page, '#/method-config/params', 'hq');
+    await shot(page, 'SRS-29-参数字段库');
+    await go(page, '#/method-config/templates', 'hq');
+    await shot(page, 'SRS-30-方法模板');
+    await go(page, '#/industry-config', 'hq');
+    await shot(page, 'SRS-31-行业配置');
+    await go(page, '#/permission-mgmt', 'hq');
+    await shot(page, 'SRS-32-权限管理');
 
     await go(page, '#/interfaces', 'hq');
     await shot(page, 'HQ-28-接口列表');

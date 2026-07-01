@@ -289,9 +289,9 @@ assert(!isRouteAllowedForRole('#/data-collect', 'manager'), '客户经理不可�
 assert(!isRouteAllowedForRole('#/approvals', 'manager'), '客户经理不可访问数据审核');
 assert(getDefaultRouteForRole('manager') === '#/manager-tasks', '客户经理默认首页');
 
-console.log('\n--- 管理员不可访问数据收集 ---');
-assert(!isRouteAllowedForRole('#/branch-board', 'hq'), '总行不可访问数据收集');
-assert(!isRouteAllowedForRole('#/branch-board', 'branch'), '分行不可访问数据收集');
+console.log('\n--- 管理员不可访问数据采集 ---');
+assert(!isRouteAllowedForRole('#/branch-board', 'hq'), '总行不可访问数据采集');
+assert(!isRouteAllowedForRole('#/branch-board', 'branch'), '分行不可访问数据采集');
 assert(!isRouteAllowedForRole('#/manager-tasks', 'hq'), '总行不可访问客户经理任务');
 assert(isRouteAllowedForRole('#/data-collect', 'hq'), '总行可访问数据采集');
 assert(isRouteAllowedForRole('#/approvals', 'branch'), '分行可访问数据审核');

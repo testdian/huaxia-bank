@@ -84,6 +84,24 @@ function factorSourceBadge(f) {
   return '<span class="badge badge-primary">自定义</span>';
 }
 
+/** Excel tab 如 2-1BB/2-1CC 为「表号+方法字母」连写，规范为人行附2表号 */
+function normalizeFactorSourceSheet(code) {
+  if (!code) return '';
+  const s = String(code).trim();
+  const m = s.match(/^(2-\d+)([BC])\2$/);
+  return m ? m[1] + m[2] : s;
+}
+
+/** 列表/详情展示：内置因子显示「人行2-1C」等人行附2表号 */
+function formatFactorSourceLabel(f) {
+  if (!f) return '-';
+  if (!f.isBuiltin) return f.sourceNote || '自定义';
+  const sheet = normalizeFactorSourceSheet(f.sourceSheet || '附2');
+  if (sheet === '附2') return '人行附2';
+  if (sheet === '2-9') return '人行2-9';
+  return '人行' + sheet;
+}
+
 function filterFactors(list, filters) {
   const f = normalizeFactorFilters(filters);
   let out = list || [];
@@ -118,17 +136,78 @@ const FACTOR_CALIBER_OPTIONS = [
   { value: 'bank', label: '我行/项目组自定义' }
 ];
 
+function getFactorIndustryTableRows() {
+  const pbo = typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : [];
+  const bank = typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined' ? INDUSTRY_BANK_MAJOR_TABLE : [];
+  const seen = new Set();
+  const out = [];
+  pbo.forEach(row => {
+    if (!row?.code || seen.has(row.code)) return;
+    seen.add(row.code);
+    out.push(row);
+  });
+  bank.forEach(row => {
+    if (!row?.code || seen.has(row.code)) return;
+    seen.add(row.code);
+    out.push(row);
+  });
+  if (typeof IndustryConfig !== 'undefined' && IndustryConfig.isImported()) {
+    IndustryConfig.getRows()
+      .filter(r => IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR))
+      .forEach(r => {
+        const code = r.code || r.scopedCode;
+        if (!code || seen.has(code)) return;
+        seen.add(code);
+        out.push({
+          code,
+          name: r.level4Name || r.name,
+          major: r.major || r.level2Name || (typeof inferIndustryMajor === 'function' ? inferIndustryMajor(code) : '')
+        });
+      });
+  }
+  return out;
+}
+
+function getFactorIndustryMajorGroups() {
+  const pboEight = (typeof GUIDE !== 'undefined' ? GUIDE.INDUSTRIES : []).map(i => i.major);
+  const bankSet = new Set();
+  getFactorIndustryTableRows().forEach(row => {
+    if (pboEight.includes(row.major)) return;
+    if (row.major) bankSet.add(row.major);
+  });
+  return {
+    pboEight,
+    bankMajor: [...bankSet].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  };
+}
+
 function getFactorIndustryMajorOptions() {
-  const set = new Set();
-  GUIDE.INDUSTRIES.forEach(i => set.add(i.major));
-  (typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : []).forEach(i => set.add(i.major));
-  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  const { pboEight, bankMajor } = getFactorIndustryMajorGroups();
+  return [...pboEight, ...bankMajor];
+}
+
+function renderFactorIndustryMajorOptions(selectedMajor) {
+  const sel = selectedMajor || '';
+  const { pboEight, bankMajor } = getFactorIndustryMajorGroups();
+  const opt = major =>
+    `<option value="${escapeHtml(major)}" ${sel === major ? 'selected' : ''}>${escapeHtml(major)}</option>`;
+  return `
+    <optgroup label="人行八大高碳">${pboEight.map(opt).join('')}</optgroup>
+    <optgroup label="我行主要行业">${bankMajor.map(opt).join('')}</optgroup>`;
 }
 
 function inferIndustryMajorFromGbCode(code) {
   if (!code) return '';
-  const row = (typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : []).find(r => r.code === code);
-  return row?.major || '';
+  const cascade = typeof toCascadeIndustryCode === 'function' ? toCascadeIndustryCode(code) : code;
+  const table = getFactorIndustryTableRows();
+  const row = table.find(r =>
+    r.code === code
+    || r.code === cascade
+    || (typeof toCascadeIndustryCode === 'function' && toCascadeIndustryCode(r.code) === cascade)
+  );
+  if (row?.major) return row.major;
+  if (typeof inferIndustryMajor === 'function') return inferIndustryMajor(code);
+  return '';
 }
 
 function searchFactorGbIndustries(keyword, industryMajor, limit = 60) {
@@ -139,16 +218,13 @@ function searchFactorGbIndustries(keyword, industryMajor, limit = 60) {
     codes = INDUSTRY_TABLE.map(i => i.code);
   }
   if (industryMajor) {
-    const tableCodes = new Set(
-      (typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : [])
-        .filter(r => r.major === industryMajor)
-        .map(r => r.code)
-    );
-    if (tableCodes.size) codes = codes.filter(c => tableCodes.has(c));
+    const tableRows = getFactorIndustryTableRows().filter(r => r.major === industryMajor);
+    const tableCodes = new Set(tableRows.flatMap(r => [r.code, typeof toCascadeIndustryCode === 'function' ? toCascadeIndustryCode(r.code) : r.code]));
+    if (tableCodes.size) codes = codes.filter(c => tableCodes.has(c) || tableCodes.has(typeof toScopedIndustryCode === 'function' ? toScopedIndustryCode(c) : c));
   }
   const rows = codes.map(code => ({
     code,
-    name: nameMap[code] || (INDUSTRY_TABLE || []).find(r => r.code === code)?.name || '',
+    name: nameMap[code] || getFactorIndustryTableRows().find(r => r.code === code || (typeof toCascadeIndustryCode === 'function' && toCascadeIndustryCode(r.code) === code))?.name || (INDUSTRY_TABLE || []).find(r => r.code === code)?.name || '',
     major: inferIndustryMajorFromGbCode(code)
   }));
   if (!kw) return rows.slice(0, limit);
@@ -250,19 +326,16 @@ function renderFactorTableHead(methodId) {
 
 function renderFactorGroupTableRow(g) {
   const f = g.latest;
-  const ops = [];
-  if (g.isBuiltin && !g.isCustom) {
-    ops.push(`<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`);
-  } else if (g.isCustom) {
-    ops.push(`<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`);
-    ops.push(`<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`);
-    ops.push(`<button type="button" class="btn btn-sm factor-del-group-btn" data-group-key="${encodeURIComponent(g.groupKey)}">删除</button>`);
-  }
-  ops.push(`<button type="button" class="btn btn-sm factor-view-btn" data-group-key="${encodeURIComponent(g.groupKey)}">查看</button>`);
+  const ops = [
+    `<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`,
+    `<button type="button" class="btn btn-sm factor-del-group-btn" data-group-key="${encodeURIComponent(g.groupKey)}">删除</button>`,
+    `<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`,
+    `<button type="button" class="btn btn-sm factor-view-btn" data-group-key="${encodeURIComponent(g.groupKey)}">查看</button>`
+  ];
   const val = formatFactorValue(f);
   const src = g.isCustom
     ? (f.sourceNote || '自定义')
-    : (f.sourceSheet || '附2');
+    : formatFactorSourceLabel(f);
   const badge = g.isBuiltin && !g.isCustom
     ? factorSourceBadge(f)
     : (g.isCustom ? '<span class="badge badge-primary">自定义</span>' : factorSourceBadge(f));
@@ -280,16 +353,14 @@ function renderFactorGroupTableRow(g) {
 
 function renderFactorTableRow(f, options = {}) {
   const unified = options.unified;
-  const ops = [];
-  if (f.isBuiltin) {
-    ops.push(`<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制为自定义</button>`);
-    ops.push(`<button type="button" class="btn btn-sm factor-view-btn" data-id="${f.id}">查看</button>`);
-  } else {
-    ops.push(`<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`);
-    ops.push(`<button type="button" class="btn btn-sm factor-del-btn" data-id="${f.id}">删除</button>`);
-  }
+  const ops = [
+    `<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`,
+    `<button type="button" class="btn btn-sm factor-del-btn" data-id="${f.id}">删除</button>`,
+    `<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`,
+    `<button type="button" class="btn btn-sm factor-view-btn" data-id="${f.id}">查看</button>`
+  ];
   const val = formatFactorValue(f);
-  const src = f.isBuiltin ? (f.sourceSheet || '附2') : (f.sourceNote || '自定义');
+  const src = f.isBuiltin ? formatFactorSourceLabel(f) : (f.sourceNote || '自定义');
   if (unified) {
     return `<tr>
       <td>${factorMethodLabel(f.methodId)}</td>
@@ -355,7 +426,7 @@ function renderFactorFilterPanel(filters, allFactors) {
   const caliberOpts = FACTOR_CALIBER_OPTIONS.map(o => ({ value: o.value, label: o.label }));
   return `
     <div class="filter-panel factor-filter-panel">
-      <p class="candidate-filter-hint">行业筛选覆盖高碳及扩展行业大类。未勾选时表示包含全部。</p>
+      <p class="candidate-filter-hint">行业筛选覆盖人行八大高碳与我行主要行业大类。未勾选时表示包含全部。</p>
       <div class="filter-extra factor-filter-grid">
         <div class="form-item full">
           <label>计算方法</label>
@@ -486,10 +557,7 @@ function readFactorFormPayload(form) {
 function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
   const f = factor || {};
   const { identityReadonly = false, formMode = 'create' } = options;
-  const majorOptions = getFactorIndustryMajorOptions();
-  const indOpts = majorOptions.map(major =>
-    `<option value="${major}" ${(f.industryMajor || industryMajor) === major ? 'selected' : ''}>${major}</option>`
-  ).join('');
+  const selectedMajor = f.industryMajor || industryMajor || '';
   const methodOpts = FACTOR_METHOD_TABS.map(t =>
     `<option value="${t.id}" ${(f.methodId || methodId || 'energy') === t.id ? 'selected' : ''}>${t.label}</option>`).join('');
   const subIndRequired = ['建材', '有色'].includes(f.industryMajor || industryMajor);
@@ -542,7 +610,7 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
 
   const modeHint = formMode === 'edit'
     ? '<p class="candidate-filter-hint" style="margin-bottom:12px">编辑自定义因子；因子身份（方法、行业、名称与口径）不可变更，如需调整维度请新建因子。</p>'
-    : '<p class="candidate-filter-hint" style="margin-bottom:12px">支持新增、编辑、删除、复制；同一计算方法、行业、名称与口径视为一条因子。</p>';
+    : '<p class="candidate-filter-hint" style="margin-bottom:12px">支持新增、编辑、删除、复制；行业大类含人行八大高碳与我行主要行业；同一计算方法、行业、名称与口径视为一条因子。</p>';
 
   return `${modeHint}
     <div class="form-grid">
@@ -552,14 +620,14 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
         <select name="methodId" id="factorMethodSelect" required${idDis}>${methodOpts}</select></div>
       <div class="form-item"><label>行业大类 *</label>
         <select name="industryMajor" id="factorIndustrySelect" required${idDis}>
-          <option value="">请选择</option>${indOpts}
-          <option value="其他" ${(f.industryMajor || industryMajor) === '其他' ? 'selected' : ''}>其他</option>
+          <option value="">请选择</option>${renderFactorIndustryMajorOptions(selectedMajor)}
+          <option value="其他" ${selectedMajor === '其他' ? 'selected' : ''}>其他</option>
         </select></div>
       ${dynamic}
       <div class="form-item"><label>因子值</label>
         <input name="value" type="number" step="any" value="${f.value != null ? f.value : ''}" placeholder="留空表示需自行核算"></div>
       <div class="form-item full-width"><label>来源说明 *</label>
-        <input name="sourceNote" required value="${f.sourceNote && !f.isBuiltin ? f.sourceNote : ''}" placeholder="请说明因子来源，如人行附2、联合赤道采集表、内部测算等"></div>
+        <input name="sourceNote" required value="${escapeHtml(f.sourceNote || (f.isBuiltin ? formatFactorSourceLabel(f) + ' 指引内置因子' : ''))}" placeholder="请说明因子来源，如人行附2、联合赤道采集表、内部测算等"></div>
     </div>`;
 }
 
@@ -577,7 +645,7 @@ function openFactorGroupViewModal(groupKey, allFactors) {
     ['口径', factorCaliberLabel(f)],
     ['因子值', formatFactorValue(f)],
     ['单位', f.unit || '-'],
-    ['来源', f.isBuiltin ? (f.sourceSheet || '附2') : (f.sourceNote || '自定义')],
+    ['来源', f.isBuiltin ? formatFactorSourceLabel(f) : (f.sourceNote || '自定义')],
     ['类型', f.isBuiltin ? '指引内置' : '自定义']
   ];
   qs('#reviewModalBody').innerHTML = `
@@ -587,14 +655,25 @@ function openFactorGroupViewModal(groupKey, allFactors) {
     <p style="margin-top:12px;font-size:13px;color:#909399">同一计算方法、行业、名称与口径视为一条因子；产品法人行口径与我行/项目组自定义口径分别维护。</p>`;
   qs('#reviewModalFooter').innerHTML = `
     <button type="button" class="btn" onclick="hideModal('reviewModal')">关闭</button>
-    ${!f.isBuiltin ? `<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-primary">编辑</a>` : ''}
-    ${g.isBuiltin && !g.isCustom ? `<button type="button" class="btn btn-primary" id="factorModalCopyBtn">复制</button>` : ''}`;
+    <a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-primary">编辑</a>
+    <button type="button" class="btn btn-danger factor-modal-del-btn" data-id="${encodeURIComponent(f.id)}" data-group-key="${encodeURIComponent(g.groupKey)}">删除</button>
+    <button type="button" class="btn" id="factorModalCopyBtn">复制</button>`;
   qs('#factorModalCopyBtn')?.addEventListener('click', () => {
     hideModal('reviewModal');
     const id = Store.copyFactorAsCustom(f.id);
     if (id) {
       toast('已复制因子', 'success');
       location.hash = '#/factors/edit?id=' + encodeURIComponent(id);
+    }
+  });
+  qs('.factor-modal-del-btn')?.addEventListener('click', () => {
+    const tip = f.isBuiltin ? '\n\n该因子为人行/指引内置，删除后不可恢复。' : '';
+    if (!confirm(`确定删除因子「${factorDisplayName(f)}」？${tip}`)) return;
+    hideModal('reviewModal');
+    if (Store.deleteFactor(f.id)) {
+      toast('已删除', 'success');
+      location.hash = '#/factors';
+      if (typeof route === 'function') route();
     }
   });
   showModal('reviewModal');
