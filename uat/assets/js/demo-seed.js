@@ -66,16 +66,16 @@ const DemoSeed = {
     const taskId = 'T2026002';
     const year = 2026;
     const specs = [
-      { id: 'DC01', name: '华电发电有限公司（格澜有数据）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '北京分行', manager: '王磊' },
-      { id: 'DC02', name: '宝钢炼钢有限公司（格澜有数据）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: true, branch: '上海分行', manager: '陈静' },
-      { id: 'DC03', name: '河钢主体客户（格澜无·待直算）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' },
-      { id: 'DC04', name: '万华化学主体（格澜无·待直算）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '深圳分行', manager: '刘洋' },
-      { id: 'DC05', name: '紫金矿业主体（格澜无·待直算）', loanType: '个人经营性贷款', biz: 'non_project', gelan: false, branch: '杭州分行', manager: '赵敏' },
-      { id: 'DC06', name: '鞍钢炼铁项目（须收集）', loanType: '出口退税账户托管贷款', biz: 'project', gelan: null, branch: '北京分行', manager: '王磊', project: false },
-      { id: 'DC07', name: '国电基建项目（以项目计算）', loanType: '一般性固定资产贷款', biz: 'project', gelan: null, branch: '上海分行', manager: '陈静', project: true },
+      { id: 'DC01', name: '华电发电有限公司', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '北京分行', manager: '王磊' },
+      { id: 'DC02', name: '宝钢炼钢有限公司', loanType: '中期流动资金贷款', biz: 'non_project', gelan: true, branch: '上海分行', manager: '陈静' },
+      { id: 'DC03', name: '河钢主体客户', loanType: '短期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' },
+      { id: 'DC04', name: '万华化学主体', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '深圳分行', manager: '刘洋' },
+      { id: 'DC05', name: '紫金矿业主体', loanType: '个人经营性贷款', biz: 'non_project', gelan: false, branch: '杭州分行', manager: '赵敏' },
+      { id: 'DC06', name: '鞍钢炼铁项目', loanType: '出口退税账户托管贷款', biz: 'project', gelan: null, branch: '北京分行', manager: '王磊', project: false },
+      { id: 'DC07', name: '国电基建项目', loanType: '一般性固定资产贷款', biz: 'project', gelan: null, branch: '上海分行', manager: '陈静', project: true },
       { id: 'DC08', name: '贴现必收客户', loanType: '商票贴现-申请人一般授信（金融市场部）', biz: 'non_project', gelan: null, mandatory: true, branch: '南京分行', manager: '周强' },
-      { id: 'DC09', name: '海螺水泥主体（格澜有数据）', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '成都分行', manager: '李娜' },
-      { id: 'DC10', name: '中石化主体（格澜无·待直算）', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' }
+      { id: 'DC09', name: '海螺水泥主体', loanType: '短期流动资金贷款', biz: 'non_project', gelan: true, branch: '成都分行', manager: '李娜' },
+      { id: 'DC10', name: '中石化主体', loanType: '中期流动资金贷款', biz: 'non_project', gelan: false, branch: '北京分行', manager: '王磊' }
     ];
     const candidates = specs.map((s, i) => {
       const major = s.biz === 'project' ? (s.project ? '电力' : '钢铁') : ['钢铁', '化工', '有色', '建材', '石化'][i % 5];
@@ -101,6 +101,9 @@ const DemoSeed = {
         taskId,
         customerName: s.name,
         customerScale: i % 3 === 0 ? '中型企业' : '大型企业',
+        enterpriseScale: i % 3 === 0 ? '中型企业' : '大型企业',
+        companyNature: (GUIDE.COMPANY_NATURES || ['国有'])[i % 5],
+        companyType: (GUIDE.COMPANY_TYPES || ['有限责任公司'])[i % 6],
         creditCode,
         gbIndustryCode: code,
         gbIndustryName: major,
@@ -181,7 +184,7 @@ const DemoSeed = {
     });
     const task = {
       id: taskId,
-      name: '2026年度（数据采集·格澜+直算演示）',
+      name: '2026年度',
       year,
       industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -203,7 +206,7 @@ const DemoSeed = {
       supplementTotal: 0,
       approvalStatus: 'none',
       createdAt: `${year}-05-20`,
-      createdBy: '张明（总行绿金部）',
+      createdBy: '张明',
       deadline: '2027-09-30',
       branchDeadline: '2027-10-15',
       milestone: { candidatesSynced: true, formalLocked: true }
@@ -257,7 +260,7 @@ const DemoSeed = {
       initiatorOrg: 'hq',
       initiatorBranch: null,
       createdAt: '2025-01-08',
-      createdBy: '张明（总行绿金部）',
+      createdBy: '张明',
       deadline: '2025-09-30',
       syncedFromInterface: true,
       syncedAt: '2025-05-18 09:30:00',
@@ -281,7 +284,7 @@ const DemoSeed = {
     };
     const completedTask =       {
         id: 'T2024002',
-        name: '2023年度投融资碳排放核算（已完成）',
+        name: '2023年度投融资碳排放核算',
         year: 2023,
         industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -335,7 +338,7 @@ const DemoSeed = {
       completedTask,
       {
         id: 'T2025002',
-        name: '2024年度（分行发起·收集进行中）',
+        name: '2024年度',
         year: 2024,
         industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -358,13 +361,13 @@ const DemoSeed = {
         supplementTotal: 8,
         approvalStatus: 'none',
         createdAt: '2025-03-01',
-        createdBy: '王丽（北京分行）',
+        createdBy: '王丽',
         deadline: '2025-09-30',
         milestone: { candidatesSynced: true, formalLocked: true, supplementDispatched: true }
       },
       {
         id: 'T2025003',
-        name: '2025年度（待同步台账）',
+        name: '2025年度',
         year: 2025,
         industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -383,12 +386,12 @@ const DemoSeed = {
         supplementTotal: 0,
         approvalStatus: 'none',
         createdAt: '2025-05-01',
-        createdBy: '张明（总行绿金部）',
+        createdBy: '张明',
         deadline: '2026-09-30'
       },
       {
         id: 'T2026001',
-        name: '2026年度（新建·接口拉取演示）',
+        name: '2026年度',
         year: 2026,
         industryScope: '八大高碳行业',
       subjectIndustryScope: '八大高碳行业',
@@ -407,7 +410,7 @@ const DemoSeed = {
         supplementTotal: 0,
         approvalStatus: 'none',
         createdAt: '2026-05-01',
-        createdBy: '张明（总行绿金部）',
+        createdBy: '张明',
         deadline: '2027-09-30'
       }
     ];
@@ -605,7 +608,7 @@ const DemoSeed = {
       period: '自然年度',
       projectName: s.project,
       facilityLocation: s.loc,
-      boundaryNote: s.biz === 'project' ? '核算边界为项目建设期运营阶段，含范围一、二' : '核算边界为融资主体运营边界（范围一、二）',
+      boundaryNote: s.biz === 'project' ? '核算边界为项目建设期运营阶段，含范围一、二' : '核算边界为融资主体运营边界',
       gbIndustryCode: cand?.gbIndustryCode || s.code,
       gbIndustryName: cand?.gbIndustryName,
       industryMajor: s.major || cand?.industryMajor || '-',
@@ -762,7 +765,7 @@ const DemoSeed = {
         period: '自然年度',
         projectName: isProject ? `${tc.sheet}${this._methodLabel(tc.methodId)}示范项目` : null,
         facilityLocation: ['北京', '上海', '深圳', '杭州', '南京', '成都'][i % 6],
-        boundaryNote: isProject ? '项目建设期运营边界（范围一、二）' : '融资主体运营边界（范围一、二）',
+        boundaryNote: isProject ? '项目建设期运营边界' : '融资主体运营边界',
         gbIndustryCode: tc.gbCode,
         gbIndustryName: tc.gbName,
         industryMajor: tc.industryMajor,
@@ -872,7 +875,7 @@ const DemoSeed = {
       auditStage: cfg.auditStage || (status === 'completed' ? 'hq_review' : (status === 'returned' ? 'pending_fill' : 'pending_fill')),
       rejectReason: cfg.rejectReason || null,
       dispatchedAt: cfg.dispatched === false ? null : (cfg.dispatchedAt || '2025-02-16 10:00:00'),
-      dispatchedBy: cfg.dispatched === false ? null : (cfg.dispatchedBy || '张明（总行绿金部）')
+      dispatchedBy: cfg.dispatched === false ? null : (cfg.dispatchedBy || '张明')
     };
   },
 
@@ -989,14 +992,22 @@ const DemoSeed = {
     if (s.methodId === 'energy' && tpl?.methods?.energy) {
       const en = tpl.methods.energy;
       const energy = {
-        coal: 50000 + (n % 9) * 12000, coke: 4000 + (n % 5) * 500, diesel: 600 + (n % 4) * 80, gas: 150 + (n % 6) * 30,
-        otherFuel1Type: (en.otherFuelOptions || [])[n % (en.otherFuelOptions.length || 1)] || null,
-        otherFuel1Amount: 2000 + (n % 8) * 300,
-        otherFuel2Type: (en.otherFuelOptions || [])[(n + 3) % (en.otherFuelOptions.length || 1)] || null,
-        otherFuel2Amount: n % 2 === 0 ? 800 + (n % 5) * 150 : null,
         powerGrid: (en.gridOptions || ['全国平均'])[n % (en.gridOptions.length || 1)],
         purchasedElectricity: 300000 + (n % 10) * 50000
       };
+      if (en.fuelCategories?.length) {
+        en.fuelCategories.flatMap(c => c.items || []).slice(0, 4).forEach((item, i) => {
+          if (i < 3) energy[item.key] = 5000 + (n % (5 + i)) * (1000 * (i + 1));
+        });
+      } else {
+        Object.assign(energy, {
+          coal: 50000 + (n % 9) * 12000, coke: 4000 + (n % 5) * 500, diesel: 600 + (n % 4) * 80, gas: 150 + (n % 6) * 30,
+          otherFuel1Type: (en.otherFuelOptions || [])[n % (en.otherFuelOptions.length || 1)] || null,
+          otherFuel1Amount: 2000 + (n % 8) * 300,
+          otherFuel2Type: (en.otherFuelOptions || [])[(n + 3) % (en.otherFuelOptions.length || 1)] || null,
+          otherFuel2Amount: n % 2 === 0 ? 800 + (n % 5) * 150 : null
+        });
+      }
       if (en.hasPurchasedHeat) energy.purchasedHeat = 8000 + (n % 7) * 1200;
       (en.processBlocks || []).forEach(block => {
         if (block.type === 'desulfur') {
@@ -1006,8 +1017,8 @@ const DemoSeed = {
             energy.desulfur2Type = (block.typeOptions || [])[(n + 1) % (block.typeOptions.length || 1)];
             energy.desulfur2Amount = n % 3 === 0 ? 400 + (n % 4) * 80 : null;
           }
-        } else if (block.type === 'carbonate') {
-          const p = block.keyPrefix || 'carbonate';
+        } else if (block.type === 'carbonate' || block.type === 'process') {
+          const p = block.keyPrefix || (block.type === 'carbonate' ? 'carbonate' : 'process');
           energy[p + 'Type'] = (block.typeOptions || [])[n % (block.typeOptions.length || 1)];
           energy[p + 'Amount'] = 3000 + (n % 9) * 400;
         } else if (block.type === 'amount' && block.key) {
@@ -1122,10 +1133,10 @@ const DemoSeed = {
       return 'success';
     };
     const list = [
-      { id: 'RPT001', name: '2024年度监管报送报表（八大行业）', scope: scopes[0], format: 'Excel', status: 'success' },
-      { id: 'RPT002', name: '2024年度管理分析报表（8+15行业）', scope: scopes[1], format: 'Excel', status: 'success' },
+      { id: 'RPT001', name: '2024年度监管报送报表', scope: scopes[0], format: 'Excel', status: 'success' },
+      { id: 'RPT002', name: '2024年度管理分析报表', scope: scopes[1], format: 'Excel', status: 'success' },
       { id: 'RPT003', name: '归因排放明细清单', scope: scopes[2], format: 'Word', status: 'success' },
-      { id: 'RPT004', name: '数据质量说明（DQR附表）', scope: scopes[0], format: 'Word', status: 'generating' }
+      { id: 'RPT004', name: '数据质量说明', scope: scopes[0], format: 'Word', status: 'generating' }
     ];
     for (let i = list.length; i < 22; i++) {
       list.push({
@@ -1158,7 +1169,7 @@ const DemoSeed = {
   buildApprovals(taskId, supplements, formalList, calculations) {
     const list = [
       { id: 'APR001', taskId, docType: 'formal', docId: 'F001', docName: '正式清单-华能发电', submitter: '张明', submitTime: '2025-02-18 10:00', status: 'approved', approver: '李总', approveTime: '2025-02-19 15:30' },
-      { id: 'APR002B', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法（分行）', reviewLevel: 'branch', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '王丽', approveTime: '2025-03-06 11:00' },
+      { id: 'APR002B', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法', reviewLevel: 'branch', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '王丽', approveTime: '2025-03-06 11:00' },
       { id: 'APR002', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法', reviewLevel: 'hq', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '张明', approveTime: '2025-03-07 14:00' },
       { id: 'APR004', taskId, docType: 'calculation', docId: 'CAL001', docName: '碳排放计算-华能发电', submitter: '张明', submitTime: '2025-05-11 14:00', status: 'approved', approver: '李总', approveTime: '2025-05-12 09:00' },
       { id: 'APR005', taskId, docType: 'calculation', docId: 'CAL002', docName: '碳排放计算-宝钢炼钢', submitter: '张明', submitTime: '2025-05-11 14:05', status: 'pending', approver: null, approveTime: null },
@@ -1166,6 +1177,23 @@ const DemoSeed = {
     ];
     let seq = 100;
     (supplements || []).filter(s => s.taskId === taskId).forEach(s => {
+      const round = s.reviewRound || 1;
+      if (s.dispatchedAt && ['branch_review', 'hq_review', 'approved'].includes(s.auditStage)) {
+        list.push({
+          id: 'APR' + seq++,
+          taskId,
+          docType: 'supplement',
+          docId: s.id,
+          docName: '数据采集-' + (s.customerName || s.id),
+          reviewLevel: 'submit',
+          round,
+          submitter: s.manager || '王磊',
+          submitTime: s.submittedAt || '2025-04-08 17:20',
+          status: 'approved',
+          approver: s.manager || '王磊',
+          approveTime: s.submittedAt || '2025-04-08 17:20'
+        });
+      }
       if (s.auditStage === 'branch_review' && s.branchReviewStatus === 'pending') {
         list.push({
           id: 'APR' + seq++,

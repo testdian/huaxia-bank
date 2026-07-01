@@ -36,10 +36,10 @@ SPA_VIEWS['#/dashboard'] = function(ctx) {
     <div class="card"><div class="card-header"><h3>演示流程指引</h3></div><div class="card-body">
       <ol style="padding-left:20px;line-height:2">
         <li><a href="#/candidates">清单识别</a> → <a href="#/formal">对象边界</a> → <a href="#/data-collect">数据采集</a></li>
-        <li><a href="#/branch-board">数据收集填报</a> → <a href="#/approvals">数据审核</a> → 审核通过后进入排放计算</li>
+        <li><a href="#/branch-board">数据采集填报</a> → <a href="#/approvals">数据审核</a> → 审核通过后进入排放计算</li>
         <li><a href="#/calculation">排放计算</a> → 确认结果 → <a href="#/reports">生成报告</a></li>
       </ol>
-      <p style="margin-top:12px;color:#909399;font-size:13px">数据采集页发放任务，客户经理在「数据收集」填报，管理员在「数据审核」审批</p>
+      <p style="margin-top:12px;color:#909399;font-size:13px">数据采集页发放任务，客户经理在「数据采集」填报，管理员在「数据审核」审批</p>
     </div></div>`;
 };
 
@@ -100,10 +100,10 @@ SPA_VIEWS['#/tasks'] = function(ctx) {
           </div>
         </div>
       </div>
-      <div class="table-wrap"><table class="data-table">
+      <div class="table-wrap"><table class="data-table table-col-resizable" data-col-resize-key="tasks_col_widths">
         <thead><tr>
-          <th>序号</th><th>任务名称</th><th>核算年度</th><th>投向行业范围</th><th>所属行业范围</th><th>数据收集截止</th><th>分行审批截止</th>
-          <th>当前进度</th><th>操作</th>
+          <th class="col-no-resize">序号</th><th>任务名称</th><th>核算年度</th><th>投向行业范围</th><th>所属行业范围</th><th>数据采集截止</th><th>分行审批截止</th>
+          <th>当前进度</th><th class="col-no-resize actions">操作</th>
         </tr></thead>
         <tbody>${view.rows.length ? view.rows.map((t, i) => {
       normalizeTaskIndustryFields(t);
@@ -132,7 +132,7 @@ SPA_VIEWS['#/task-create'] = function() {
     <h1 class="page-title">新建核算任务</h1>
     ${demoSteps(0, { clickable: true })}
     <div class="card"><div class="card-body"><form id="taskForm" class="form-grid" novalidate>
-      ${renderTaskFormFields({ name: '2026年度投融资碳排放核算', year: 2026, subjectIndustryScope: '八大高碳行业', investIndustryScope: '八大高碳行业', deadline: '2027-09-30', balanceRule: '月均余额', orgScope: '全行', goal: '监管报送' })}
+      ${renderTaskFormFields({ name: '2026年度投融资碳排放核算', year: 2026, subjectIndustryScope: '八大高碳行业', investIndustryScope: '八大高碳行业', deadline: '2027-09-30', branchDeadline: '2027-10-15', balanceRule: '月均余额', orgScope: '全行', goal: '监管报送' })}
     </form></div>
     <div style="padding:12px 20px;text-align:right;border-top:1px solid #eee">
       <a href="#/tasks" class="btn">取消</a>
@@ -205,7 +205,7 @@ SPA_VIEWS['#/task-detail'] = function(ctx) {
       </div>` : ''}
       <div class="form-item"><label>组织范围</label><input readonly value="${formatTaskOrgScopeDisplay(t)}"></div>
       <div class="form-item"><label>输出目标</label><input readonly value="${t.goal}"></div>
-      <div class="form-item"><label>数据收集截止日期</label><input readonly value="${t.deadline}"></div>
+      <div class="form-item"><label>数据采集截止日期</label><input readonly value="${t.deadline}"></div>
       <div class="form-item"><label>分行审批截止日期</label><input readonly value="${t.branchDeadline || '-'}"></div>
     </div></div>`;
 };
@@ -372,7 +372,8 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         ? '<div class="demo-tip" style="border-color:#409eff;background:#ecf5ff;color:#337ecc">全部记录已计算出主体排放，可点击「一键提交数据」进入排放计算</div>'
         : ''}
     <div class="toolbar">
-      <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放收集任务</button>
+      <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放采集任务</button>
+      <span id="dispatchSelectedCount"></span>
       <button class="btn btn-success" id="fetchInterfaceDataBtn"${vma} title="先调取格澜报告法主体排放，再对剩余非项目主体记录执行经济活动法直算">调取接口数据</button>
       <button class="btn btn-primary" id="submitAllDataBtn"${viewOnly ? vma : (allHaveEntity ? '' : ' disabled title="请待全部记录计算出主体排放"')}>一键提交数据</button>
       <button class="btn" id="creditFallbackBtn"${viewOnly ? vma : (hasMissingEntity ? '' : ' disabled title="当前无缺失主体排放的记录"')}>信贷数据兜底法</button>
@@ -405,7 +406,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       </div>
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
-          <th class="col-select"><input type="checkbox" id="dispatchCheckAll" title="全选列表" ${viewOnly ? 'disabled' : ''}></th>
+          <th class="col-select"><label class="dispatch-check-all-label"><input type="checkbox" id="dispatchCheckAll" title="全选可派发记录" ${viewOnly ? 'disabled' : ''}><span>全选</span></label></th>
           <th>客户</th><th>贷款类型</th><th>业务种类</th><th>客户经理</th><th>系统核算方法</th><th>系统核算主体排放(tCO₂e)</th><th>手动核算方法</th><th>手动核算主体排放(tCO₂e)</th><th>排放结果(tCO₂e)</th><th>收集状态</th><th>审核状态</th><th>操作</th>
         </tr></thead>
         <tbody id="dispatchTbody">${rowsHtml || '<tr><td colspan="13" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的记录</td></tr>'}</tbody>
@@ -442,7 +443,7 @@ SPA_VIEWS['#/branch-board'] = function(ctx) {
   const listKey = 'branch_board_' + ctx.task.id;
   const view = paginateData(listKey, supps);
   return `
-    <h1 class="page-title">数据收集</h1>
+    <h1 class="page-title">数据采集</h1>
     <div class="stats-row">${['pending','in_progress','completed','returned'].map((st,i) => {
       const n = supps.filter(s=>s.status===st||(st==='pending'&&s.status==='pending')).length;
       const labels = {pending:'待处理',in_progress:'填报中',completed:'已完成',returned:'已退回'};
@@ -491,7 +492,7 @@ SPA_VIEWS['#/supplement-fill'] = function(ctx) {
       <button class="btn" onclick="location.hash='#/manager-tasks'">返回</button>
     </div>`;
   return `
-    <h1 class="page-title">数据收集</h1>
+    <h1 class="page-title">数据采集</h1>
     <p class="page-desc">按指引优先级填报</p>
     ${workflowStepsBar(ctx.task)}
     ${renderSupplementPageWithTabs(s, ctx.task, { readonly: !editable })}
@@ -546,7 +547,7 @@ SPA_VIEWS['#/approval-review'] = function(ctx) {
   const defaultTab = (approval.status === 'rejected' || s.status === 'returned') ? 'approval' : 'fill';
 
   return `
-    <h1 class="page-title">数据收集</h1>
+    <h1 class="page-title">数据采集</h1>
     <p class="page-desc">${isView ? '查看' : '审核'}收集填报内容</p>
     ${canReview ? auditMeta : ''}
     ${renderApprovalAuditAdjustPanel(s, task, { editable: canReview })}
@@ -713,15 +714,11 @@ SPA_VIEWS['#/factors/edit'] = function(ctx) {
     return `<h1 class="page-title">编辑排放因子</h1><p class="page-desc">未找到因子 <code>${id || ''}</code></p>
       <a href="#/factors" class="btn">返回列表</a>`;
   }
-  if (f.isBuiltin) {
-    return `<h1 class="page-title">编辑排放因子</h1>
-      <div class="demo-tip">指引内置因子不可直接编辑。请使用「复制为自定义」创建副本。</div>
-      <div class="toolbar"><button type="button" class="btn btn-primary" id="factorCopyBuiltinBtn">复制为自定义</button>
-      <a href="#/factors" class="btn">返回</a></div>`;
-  }
+  const typeHint = f.isBuiltin ? '人行/指引内置因子，修改后将影响后续匹配（已完成的核算任务仍使用锁定快照）' : '自定义因子需填写来源说明';
   return `
     <h1 class="page-title">编辑排放因子</h1>
-    <p class="page-desc">${factorDisplayName(f)} · ${f.id}</p>
+    <p class="page-desc">${factorDisplayName(f)} · ${f.id}${f.isBuiltin ? ' · 人行口径' : ''}</p>
+    ${f.isBuiltin ? '<div class="demo-tip" style="margin-bottom:12px">' + typeHint + '</div>' : ''}
     <div class="card"><div class="card-body">
       <form id="factorForm" data-factor-id="${f.id}" novalidate data-form-mode="edit">
         ${renderFactorFormFields(f.methodId, f.industryMajor, f, {
@@ -730,6 +727,7 @@ SPA_VIEWS['#/factors/edit'] = function(ctx) {
         })}
         <div class="toolbar" style="margin-top:16px">
           <button type="submit" class="btn btn-primary">保存</button>
+          <button type="button" class="btn btn-danger" id="factorEditDelBtn">删除</button>
           <a href="#/factors" class="btn">取消</a>
         </div>
       </form>

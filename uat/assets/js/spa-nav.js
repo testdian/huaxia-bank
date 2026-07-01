@@ -9,7 +9,7 @@ const SPA_NAV = [
   {
     id: 'branch-board',
     hash: '#/branch-board',
-    label: '数据收集',
+    label: '数据采集',
     match: ['#/branch-board', '#/manager-tasks', '#/supplement-fill']
   },
   { id: 'approvals', hash: '#/approvals', label: '数据审核', match: ['#/approvals', '#/approval-review'] },
@@ -18,17 +18,17 @@ const SPA_NAV = [
   { id: 'factors', hash: '#/factors', label: '排放因子库', match: ['#/factors', '#/factors/new', '#/factors/edit', '#/factors/import'] }
 ];
 
-/** 基础配置 — 二级菜单（仅总行） */
+/** 基础配置 — 碳核算模板配置中心（二级菜单） */
 const SPA_METHOD_CONFIG_NAV = {
-  title: '基础配置',
+  title: '碳核算模板配置中心',
   match: [
     '#/method-config/params', '#/method-config/params/new', '#/method-config/params/edit',
     '#/method-config/templates', '#/method-config/templates/new', '#/method-config/templates/edit',
     '#/industry-config'
   ],
   items: [
-    { id: 'method-params', hash: '#/method-config/params', label: '参数字段库', match: ['#/method-config/params', '#/method-config/params/new', '#/method-config/params/edit'] },
-    { id: 'method-templates', hash: '#/method-config/templates', label: '方法模板', match: ['#/method-config/templates', '#/method-config/templates/new', '#/method-config/templates/edit'] },
+    { id: 'method-params', hash: '#/method-config/params', label: '参数管理', match: ['#/method-config/params', '#/method-config/params/new', '#/method-config/params/edit'] },
+    { id: 'method-templates', hash: '#/method-config/templates', label: '模版配置', match: ['#/method-config/templates', '#/method-config/templates/new', '#/method-config/templates/edit'] },
     { id: 'industry-config', hash: '#/industry-config', label: '行业配置', match: ['#/industry-config'] }
   ]
 };

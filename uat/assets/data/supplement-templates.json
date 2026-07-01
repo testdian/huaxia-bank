@@ -1,6 +1,6 @@
 {
-  "version": "offline-template-2026",
-  "source": "高碳行业采集表模板（线下版）· 方法字段",
+  "version": "pbo-annex2-2026",
+  "source": "人行48号文附2八大行业碳核算信息采集表、碳排放因子表",
   "count": 20,
   "templates": [
     {
@@ -28,43 +28,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗中煤",
+                  "label": "洗中煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化石油气",
-            "液化天然气",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -82,86 +171,99 @@
             {
               "type": "desulfur",
               "label": "脱硫试剂",
-              "slots": 2,
               "typeOptions": [
-                "石灰石",
-                "菱镁石",
-                "纯碱",
-                "小苏打",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "CaCO3（石灰石）",
+                "MgCO3（菱镁石）",
+                "Na2CO3（纯碱）",
+                "NaHCO3（小苏打）",
+                "BaCO3（毒重石）",
+                "Li2CO3（锂盐）",
+                "K2CO3（草碱、珠碱）",
+                "SrCO3（菱锶矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "脱硫试剂"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "coalPower",
-              "label": "燃煤发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_燃煤发电",
+              "label": "燃煤发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "gasPower",
-              "label": "燃气发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_燃气发电",
+              "label": "燃气发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "hydroPower",
-              "label": "水力发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_水力发电",
+              "label": "水力发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "nuclearPower",
-              "label": "核能发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_核能发电",
+              "label": "核能发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "windPower",
-              "label": "风力发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_风力发电",
+              "label": "风力发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "solarPvPower",
-              "label": "光伏发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_光伏发电",
+              "label": "光伏发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "solarThermalPower",
-              "label": "光热发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_光热发电",
+              "label": "光热发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "biomassPower",
-              "label": "生物质发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_生物质发电",
+              "label": "生物质发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpPowerLevel1",
-              "label": "热电联产-供电排放水平I级机组发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_热电联产_供电I级",
+              "label": "热电联产-供电I级（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpPowerLevel2",
-              "label": "热电联产-供电排放水平II级机组发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_热电联产_供电II级",
+              "label": "热电联产-供电II级（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpHeatLevel1",
-              "label": "热电联产-供热排放水平I级机组供热量（GJ）",
-              "group": "供热"
+              "key": "热力生产_热电联产_供热I级",
+              "label": "热电联产-供热I级（GJ（吉焦））",
+              "group": "热力生产",
+              "unit": "GJ（吉焦）"
             },
             {
-              "key": "chpHeatLevel2",
-              "label": "热电联产-供热排放水平II级机组供热量（GJ）",
-              "group": "供热"
+              "key": "热力生产_热电联产_供热II级",
+              "label": "热电联产-供热II级（GJ（吉焦））",
+              "group": "热力生产",
+              "unit": "GJ（吉焦）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -189,43 +291,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗中煤",
+                  "label": "洗中煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化石油气",
-            "液化天然气",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -243,86 +434,99 @@
             {
               "type": "desulfur",
               "label": "脱硫试剂",
-              "slots": 2,
               "typeOptions": [
-                "石灰石",
-                "菱镁石",
-                "纯碱",
-                "小苏打",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "CaCO3（石灰石）",
+                "MgCO3（菱镁石）",
+                "Na2CO3（纯碱）",
+                "NaHCO3（小苏打）",
+                "BaCO3（毒重石）",
+                "Li2CO3（锂盐）",
+                "K2CO3（草碱、珠碱）",
+                "SrCO3（菱锶矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "脱硫试剂"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "coalPower",
-              "label": "燃煤发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_燃煤发电",
+              "label": "燃煤发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "gasPower",
-              "label": "燃气发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_燃气发电",
+              "label": "燃气发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "hydroPower",
-              "label": "水力发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_水力发电",
+              "label": "水力发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "nuclearPower",
-              "label": "核能发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_核能发电",
+              "label": "核能发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "windPower",
-              "label": "风力发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_风力发电",
+              "label": "风力发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "solarPvPower",
-              "label": "光伏发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_光伏发电",
+              "label": "光伏发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "solarThermalPower",
-              "label": "光热发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_光热发电",
+              "label": "光热发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "biomassPower",
-              "label": "生物质发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_生物质发电",
+              "label": "生物质发电（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpPowerLevel1",
-              "label": "热电联产-供电排放水平I级机组发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_热电联产_供电I级",
+              "label": "热电联产-供电I级（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpPowerLevel2",
-              "label": "热电联产-供电排放水平II级机组发电量（MWh）",
-              "group": "供电"
+              "key": "电力生产_热电联产_供电II级",
+              "label": "热电联产-供电II级（MWh（兆瓦时））",
+              "group": "电力生产",
+              "unit": "MWh（兆瓦时）"
             },
             {
-              "key": "chpHeatLevel1",
-              "label": "热电联产-供热排放水平I级机组供热量（GJ）",
-              "group": "供热"
+              "key": "热力生产_热电联产_供热I级",
+              "label": "热电联产-供热I级（GJ（吉焦））",
+              "group": "热力生产",
+              "unit": "GJ（吉焦）"
             },
             {
-              "key": "chpHeatLevel2",
-              "label": "热电联产-供热排放水平II级机组供热量（GJ）",
-              "group": "供热"
+              "key": "热力生产_热电联产_供热II级",
+              "label": "热电联产-供热II级（GJ（吉焦））",
+              "group": "热力生产",
+              "unit": "GJ（吉焦）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -348,43 +552,152 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗中煤",
+                  "label": "洗中煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化石油气",
-            "液化天然气",
-            "焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -403,29 +716,24 @@
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "水泥熟料（倒算）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "clinkerOutput",
-              "label": "水泥熟料产量（吨）"
+              "key": "水泥熟料_水泥熟料",
+              "label": "水泥熟料（t（吨））",
+              "group": "水泥熟料",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -450,43 +758,152 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗中煤",
+                  "label": "洗中煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化石油气",
-            "液化天然气",
-            "焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -505,29 +922,24 @@
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "水泥熟料（倒算）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "clinkerOutput",
-              "label": "水泥熟料产量（吨）"
+              "key": "水泥熟料_水泥熟料",
+              "label": "水泥熟料（t（吨））",
+              "group": "水泥熟料",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -553,43 +965,107 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化石油气",
-            "液化天然气",
-            "焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -605,32 +1081,37 @@
           "hasPurchasedHeat": true,
           "processBlocks": [
             {
+              "type": "amount",
+              "key": "碳粉使用_碳粉",
+              "label": "碳粉使用 · 碳粉（t（吨））"
+            },
+            {
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "CaCO3（方解石、文石）",
+                "MgCO3（菱镁石）",
+                "CaMg(CO3)2（白云石）",
+                "Na2CO3（纯碱）",
+                "MnCO3（菱锰矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "glassOutput",
-              "label": "平板玻璃产量（吨）"
+              "key": "平板玻璃_平板玻璃",
+              "label": "平板玻璃（t（吨））",
+              "group": "平板玻璃",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -655,43 +1136,107 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化石油气",
-            "液化天然气",
-            "焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -707,32 +1252,37 @@
           "hasPurchasedHeat": true,
           "processBlocks": [
             {
+              "type": "amount",
+              "key": "碳粉使用_碳粉",
+              "label": "碳粉使用 · 碳粉（t（吨））"
+            },
+            {
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿"
+                "CaCO3（方解石、文石）",
+                "MgCO3（菱镁石）",
+                "CaMg(CO3)2（白云石）",
+                "Na2CO3（纯碱）",
+                "MnCO3（菱锰矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "glassOutput",
-              "label": "平板玻璃产量（吨）"
+              "key": "平板玻璃_平板玻璃",
+              "label": "平板玻璃（t（吨））",
+              "group": "平板玻璃",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -760,45 +1310,147 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤矸石",
+                  "label": "煤矸石",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤焦油",
+                  "label": "煤焦油",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "煤焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -815,65 +1467,86 @@
           "processBlocks": [
             {
               "type": "amount",
-              "key": "electrode",
-              "label": "电极使用消耗量（吨）"
+              "key": "电极使用_电极",
+              "label": "电极使用 · 电极（t（吨））"
             },
             {
-              "type": "amount",
-              "key": "limestone",
-              "label": "石灰石分解消耗量（吨）"
-            },
-            {
-              "type": "amount",
-              "key": "dolomite",
-              "label": "白云石分解消耗量（吨）"
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石"
+              ],
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "pigIron",
-              "label": "生铁产量（吨）"
+              "key": "钢铁_生铁",
+              "label": "生铁（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelBof",
-              "label": "粗钢（转炉）产量（吨）"
+              "key": "钢铁_粗钢_转炉",
+              "label": "粗钢（转炉）（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelEaf",
-              "label": "粗钢（电炉）产量（吨）"
+              "key": "钢铁_粗钢_电炉",
+              "label": "粗钢（电炉）（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "rebar",
-              "label": "钢筋产量（吨）"
+              "key": "钢铁_钢筋",
+              "label": "钢筋（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "sectionSteel",
-              "label": "型钢产量（吨）"
+              "key": "钢铁_型钢",
+              "label": "型钢（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "largeSteel",
-              "label": "大型钢材产量（吨）"
+              "key": "钢铁_大型钢材",
+              "label": "大型钢材（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "smallSteel",
-              "label": "小型钢材产量（吨）"
+              "key": "钢铁_小型钢材",
+              "label": "小型钢材（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "lowCarbonSteel",
-              "label": "低碳钢产量（吨）"
+              "key": "钢铁_低碳钢",
+              "label": "低碳钢（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "ironProducts",
-              "label": "铁制品产量（吨）"
+              "key": "钢铁_铁制品",
+              "label": "铁制品（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelProducts",
-              "label": "钢制品产量（吨）"
+              "key": "钢铁_钢制品",
+              "label": "钢制品（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -900,45 +1573,147 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤矸石",
+                  "label": "煤矸石",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤泥",
+                  "label": "煤泥",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤焦油",
+                  "label": "煤焦油",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "煤焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -955,65 +1730,86 @@
           "processBlocks": [
             {
               "type": "amount",
-              "key": "electrode",
-              "label": "电极使用消耗量（吨）"
+              "key": "电极使用_电极",
+              "label": "电极使用 · 电极（t（吨））"
             },
             {
-              "type": "amount",
-              "key": "limestone",
-              "label": "石灰石分解消耗量（吨）"
-            },
-            {
-              "type": "amount",
-              "key": "dolomite",
-              "label": "白云石分解消耗量（吨）"
+              "type": "carbonate",
+              "label": "碳酸盐分解",
+              "typeOptions": [
+                "石灰石",
+                "白云石"
+              ],
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "pigIron",
-              "label": "生铁产量（吨）"
+              "key": "钢铁_生铁",
+              "label": "生铁（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelBof",
-              "label": "粗钢（转炉）产量（吨）"
+              "key": "钢铁_粗钢_转炉",
+              "label": "粗钢（转炉）（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelEaf",
-              "label": "粗钢（电炉）产量（吨）"
+              "key": "钢铁_粗钢_电炉",
+              "label": "粗钢（电炉）（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "rebar",
-              "label": "钢筋产量（吨）"
+              "key": "钢铁_钢筋",
+              "label": "钢筋（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "sectionSteel",
-              "label": "型钢产量（吨）"
+              "key": "钢铁_型钢",
+              "label": "型钢（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "largeSteel",
-              "label": "大型钢材产量（吨）"
+              "key": "钢铁_大型钢材",
+              "label": "大型钢材（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "smallSteel",
-              "label": "小型钢材产量（吨）"
+              "key": "钢铁_小型钢材",
+              "label": "小型钢材（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "lowCarbonSteel",
-              "label": "低碳钢产量（吨）"
+              "key": "钢铁_低碳钢",
+              "label": "低碳钢（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "ironProducts",
-              "label": "铁制品产量（吨）"
+              "key": "钢铁_铁制品",
+              "label": "铁制品（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             },
             {
-              "key": "steelProducts",
-              "label": "钢制品产量（吨）"
+              "key": "钢铁_钢制品",
+              "label": "钢制品（t（吨））",
+              "group": "钢铁",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1039,43 +1835,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1089,24 +1974,44 @@
           ],
           "gridLabel": "企业所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "process",
+              "label": "铝冶炼 — 生产过程",
+              "typeOptions": [
+                "炭阳极用量",
+                "铝液/原铝（倒算）",
+                "石灰石",
+                "纯碱"
+              ],
+              "keyPrefix": "铝冶炼_生产过程"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "alumina",
-              "label": "氧化铝产量（吨）"
+              "key": "铝冶炼_氧化铝",
+              "label": "氧化铝（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             },
             {
-              "key": "aluminumLiquid",
-              "label": "铝液（原铝）产量（吨）"
+              "key": "铝冶炼_铝液_原铝",
+              "label": "铝液（原铝）（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             },
             {
-              "key": "aluminumIngot",
-              "label": "铝锭产量（吨）"
+              "key": "铝冶炼_铝锭",
+              "label": "铝锭（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1131,43 +2036,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1181,24 +2175,44 @@
           ],
           "gridLabel": "项目所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "process",
+              "label": "铝冶炼 — 生产过程",
+              "typeOptions": [
+                "炭阳极用量",
+                "铝液/原铝（倒算）",
+                "石灰石",
+                "纯碱"
+              ],
+              "keyPrefix": "铝冶炼_生产过程"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "alumina",
-              "label": "氧化铝产量（吨）"
+              "key": "铝冶炼_氧化铝",
+              "label": "氧化铝（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             },
             {
-              "key": "aluminumLiquid",
-              "label": "铝液（原铝）产量（吨）"
+              "key": "铝冶炼_铝液_原铝",
+              "label": "铝液（原铝）（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             },
             {
-              "key": "aluminumIngot",
-              "label": "铝锭产量（吨）"
+              "key": "铝冶炼_铝锭",
+              "label": "铝锭（t（吨））",
+              "group": "铝冶炼",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1224,44 +2238,122 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1275,16 +2367,31 @@
           ],
           "gridLabel": "企业所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "process",
+              "label": "铜冶炼 — 生产过程",
+              "typeOptions": [
+                "电极糊",
+                "石灰石",
+                "纯碱"
+              ],
+              "keyPrefix": "铜冶炼_生产过程"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "copperOutput",
-              "label": "铜产量（吨）"
+              "key": "铜冶炼_铜",
+              "label": "铜（t（吨））",
+              "group": "铜冶炼",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1309,44 +2416,122 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其它煤气",
+                  "label": "其它煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1360,16 +2545,31 @@
           ],
           "gridLabel": "项目所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "process",
+              "label": "铜冶炼 — 生产过程",
+              "typeOptions": [
+                "电极糊",
+                "石灰石",
+                "纯碱"
+              ],
+              "keyPrefix": "铜冶炼_生产过程"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "copperOutput",
-              "label": "铜产量（吨）"
+              "key": "铜冶炼_铜",
+              "label": "铜（t（吨））",
+              "group": "铜冶炼",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1395,45 +2595,147 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "煤焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1447,84 +2749,122 @@
           ],
           "gridLabel": "企业所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "crudeOil",
-              "label": "原油产量（吨）"
+              "key": "石油及石油制品_原油",
+              "label": "原油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ngl",
-              "label": "天然气凝析液产量（吨）"
+              "key": "石油及石油制品_天然气凝析液",
+              "label": "天然气凝析液（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "aviationGasoline",
-              "label": "航空汽油产量（吨）"
+              "key": "石油及石油制品_航空汽油",
+              "label": "航空汽油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "motorGasoline",
-              "label": "车用汽油产量（吨）"
+              "key": "石油及石油制品_车用汽油",
+              "label": "车用汽油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "aviationKerosene",
-              "label": "航空煤油产量（吨）"
+              "key": "石油及石油制品_航空煤油",
+              "label": "航空煤油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lampKerosene",
-              "label": "灯用煤油产量（吨）"
+              "key": "石油及石油制品_灯用煤油",
+              "label": "灯用煤油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "diesel",
-              "label": "柴油产量（吨）"
+              "key": "石油及石油制品_柴油",
+              "label": "柴油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "marineFuelOil",
-              "label": "船用燃料油产量（吨）"
+              "key": "石油及石油制品_船用燃料油",
+              "label": "船用燃料油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "industrialFuelOil",
-              "label": "工业用燃料油产量（吨）"
+              "key": "石油及石油制品_工业用燃料油",
+              "label": "工业用燃料油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lpg",
-              "label": "液化石油气产量（吨）"
+              "key": "石油及石油制品_液化石油气",
+              "label": "液化石油气（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "methaneHydrogen",
-              "label": "甲烷氢产量（吨）"
+              "key": "石油及石油制品_甲烷氢",
+              "label": "甲烷氢（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "paraffin",
-              "label": "石蜡产量（吨）"
+              "key": "石油及石油制品_石蜡",
+              "label": "石蜡（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "coalTarPitch",
-              "label": "煤焦沥青产量（吨）"
+              "key": "石油及石油制品_煤焦沥青",
+              "label": "煤焦沥青（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "petroleumAsphalt",
-              "label": "石油沥青产量（吨）"
+              "key": "石油及石油制品_石油沥青",
+              "label": "石油沥青（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "petroleumCoke",
-              "label": "石油焦产量（吨）"
+              "key": "石油及石油制品_石油焦",
+              "label": "石油焦（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lubricant",
-              "label": "润滑油产量（吨）"
+              "key": "石油及石油制品_润滑油",
+              "label": "润滑油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "naphtha",
-              "label": "石脑油产量（吨）"
+              "key": "石油及石油制品_石脑油",
+              "label": "石脑油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ethane",
-              "label": "乙烷产量（吨）"
+              "key": "石油及石油制品_乙烷",
+              "label": "乙烷（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1549,45 +2889,147 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "其他石油制品",
-            "液化天然气",
-            "液化石油气",
-            "煤焦油",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "炼厂干气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1601,84 +3043,122 @@
           ],
           "gridLabel": "项目所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "crudeOil",
-              "label": "原油产量（吨）"
+              "key": "石油及石油制品_原油",
+              "label": "原油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ngl",
-              "label": "天然气凝析液产量（吨）"
+              "key": "石油及石油制品_天然气凝析液",
+              "label": "天然气凝析液（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "aviationGasoline",
-              "label": "航空汽油产量（吨）"
+              "key": "石油及石油制品_航空汽油",
+              "label": "航空汽油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "motorGasoline",
-              "label": "车用汽油产量（吨）"
+              "key": "石油及石油制品_车用汽油",
+              "label": "车用汽油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "aviationKerosene",
-              "label": "航空煤油产量（吨）"
+              "key": "石油及石油制品_航空煤油",
+              "label": "航空煤油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lampKerosene",
-              "label": "灯用煤油产量（吨）"
+              "key": "石油及石油制品_灯用煤油",
+              "label": "灯用煤油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "diesel",
-              "label": "柴油产量（吨）"
+              "key": "石油及石油制品_柴油",
+              "label": "柴油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "marineFuelOil",
-              "label": "船用燃料油产量（吨）"
+              "key": "石油及石油制品_船用燃料油",
+              "label": "船用燃料油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "industrialFuelOil",
-              "label": "工业用燃料油产量（吨）"
+              "key": "石油及石油制品_工业用燃料油",
+              "label": "工业用燃料油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lpg",
-              "label": "液化石油气产量（吨）"
+              "key": "石油及石油制品_液化石油气",
+              "label": "液化石油气（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "methaneHydrogen",
-              "label": "甲烷氢产量（吨）"
+              "key": "石油及石油制品_甲烷氢",
+              "label": "甲烷氢（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "paraffin",
-              "label": "石蜡产量（吨）"
+              "key": "石油及石油制品_石蜡",
+              "label": "石蜡（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "coalTarPitch",
-              "label": "煤焦沥青产量（吨）"
+              "key": "石油及石油制品_煤焦沥青",
+              "label": "煤焦沥青（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "petroleumAsphalt",
-              "label": "石油沥青产量（吨）"
+              "key": "石油及石油制品_石油沥青",
+              "label": "石油沥青（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "petroleumCoke",
-              "label": "石油焦产量（吨）"
+              "key": "石油及石油制品_石油焦",
+              "label": "石油焦（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "lubricant",
-              "label": "润滑油产量（吨）"
+              "key": "石油及石油制品_润滑油",
+              "label": "润滑油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "naphtha",
-              "label": "石脑油产量（吨）"
+              "key": "石油及石油制品_石脑油",
+              "label": "石脑油（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ethane",
-              "label": "乙烷产量（吨）"
+              "key": "石油及石油制品_乙烷",
+              "label": "乙烷（t（吨））",
+              "group": "石油及石油制品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1714,46 +3194,142 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤制品",
+                  "label": "煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "原油",
-            "燃料油",
-            "汽油",
-            "一般煤油",
-            "石油焦",
-            "液化天然气",
-            "液化石油气",
-            "焦油",
-            "其他石油制品",
-            "粗苯",
-            "炼厂干气",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1770,114 +3346,155 @@
           "processBlocks": [
             {
               "type": "amount",
-              "key": "n2oEmission",
-              "label": "氧化亚氮排放（吨）"
+              "key": "氧化亚氮排放_氧化亚氮",
+              "label": "氧化亚氮排放 · 氧化亚氮（t（吨））"
             },
             {
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿",
-                "菱锰石"
+                "CaCO3（石灰石）",
+                "CaMg(CO3)2（白云石）",
+                "Na2CO3（纯碱）",
+                "NaHCO3（小苏打）",
+                "MgCO3（菱镁石）",
+                "MnCO3（菱锰石）",
+                "BaCO3（毒重石）",
+                "Li2CO3（锂盐）",
+                "K2CO3（草碱、珠碱）",
+                "SrCO3（菱锶矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t",
-              "keyPrefix": "carbonate"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "pvc1",
-              "label": "聚氯乙烯产量（吨）"
+              "key": "化工产品_聚氯乙烯",
+              "label": "聚氯乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "causticSoda",
-              "label": "氢氧化钠产量（吨）"
+              "key": "化工产品_氢氧化钠",
+              "label": "氢氧化钠（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "potassiumChloride",
-              "label": "氯化钾产量（吨）"
+              "key": "化工产品_氯化钾",
+              "label": "氯化钾（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "carbonAnode",
-              "label": "碳阳极产量（吨）"
+              "key": "化工产品_碳阳极",
+              "label": "碳阳极（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ethylene",
-              "label": "乙烯产量（吨）"
+              "key": "化工产品_乙烯",
+              "label": "乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pesticide",
-              "label": "化学农药产量（吨）"
+              "key": "化工产品_化学农药",
+              "label": "化学农药（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ppc",
-              "label": "聚碳酸亚丙酯产量（吨）"
+              "key": "化工产品_聚碳酸亚丙酯",
+              "label": "聚碳酸亚丙酯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polypropylene",
-              "label": "聚丙烯产量（吨）"
+              "key": "化工产品_聚丙烯",
+              "label": "聚丙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polyethylene",
-              "label": "聚乙烯产量（吨）"
+              "key": "化工产品_聚乙烯",
+              "label": "聚乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pvc2",
-              "label": "聚氯乙烯产量-2（吨）"
+              "key": "化工产品_聚氯乙烯",
+              "label": "聚氯乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "abs",
-              "label": "丙烯腈-苯乙烯-丁二烯共聚物产量（吨）"
+              "key": "化工产品_丙烯腈_苯乙烯_丁二烯共聚物",
+              "label": "丙烯腈-苯乙烯-丁二烯共聚物（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pc",
-              "label": "聚碳酸酯产量（吨）"
+              "key": "化工产品_聚碳酸酯",
+              "label": "聚碳酸酯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "detergentRegular",
-              "label": "普通洗涤液产量（吨）"
+              "key": "化工产品_普通洗涤液",
+              "label": "普通洗涤液（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "detergentConc",
-              "label": "浓缩洗涤液产量（吨）"
+              "key": "化工产品_浓缩洗涤液",
+              "label": "浓缩洗涤液（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "cellulose",
-              "label": "纤维素产量（吨）"
+              "key": "化工产品_纤维素",
+              "label": "纤维素（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polyesterResin",
-              "label": "聚酯树脂产量（吨）"
+              "key": "化工产品_聚酯树脂",
+              "label": "聚酯树脂（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pta",
-              "label": "对苯二甲酸产量（吨）"
+              "key": "化工产品_对苯二甲酸",
+              "label": "对苯二甲酸（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "methanol",
-              "label": "甲醇产量（吨）"
+              "key": "化工产品_甲醇",
+              "label": "甲醇（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "coating",
-              "label": "涂料产量（吨）"
+              "key": "化工产品_涂料",
+              "label": "涂料（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "nitrogenFertilizer",
-              "label": "氮肥（含尿素）产量（吨）"
+              "key": "化工产品_氮肥_含尿素",
+              "label": "氮肥（含尿素）（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -1912,46 +3529,142 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_煤制品",
+                  "label": "煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_粗苯",
+                  "label": "粗苯",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "原油",
-            "燃料油",
-            "汽油",
-            "一般煤油",
-            "石油焦",
-            "液化天然气",
-            "液化石油气",
-            "焦油",
-            "其他石油制品",
-            "粗苯",
-            "炼厂干气",
-            "高炉煤气",
-            "转炉煤气",
-            "焦炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -1968,114 +3681,155 @@
           "processBlocks": [
             {
               "type": "amount",
-              "key": "n2oEmission",
-              "label": "氧化亚氮排放（吨）"
+              "key": "氧化亚氮排放_氧化亚氮",
+              "label": "氧化亚氮排放 · 氧化亚氮（t（吨））"
             },
             {
               "type": "carbonate",
               "label": "碳酸盐分解",
               "typeOptions": [
-                "石灰石",
-                "白云石",
-                "纯碱",
-                "小苏打",
-                "菱镁石",
-                "毒重石",
-                "锂盐",
-                "草碱、珠碱",
-                "菱锶矿",
-                "菱铁矿",
-                "菱锰石"
+                "CaCO3（石灰石）",
+                "CaMg(CO3)2（白云石）",
+                "Na2CO3（纯碱）",
+                "NaHCO3（小苏打）",
+                "MgCO3（菱镁石）",
+                "MnCO3（菱锰石）",
+                "BaCO3（毒重石）",
+                "Li2CO3（锂盐）",
+                "K2CO3（草碱、珠碱）",
+                "SrCO3（菱锶矿）",
+                "FeCO3（菱铁矿）"
               ],
-              "amountUnit": "t",
-              "keyPrefix": "carbonate"
+              "keyPrefix": "碳酸盐分解"
             }
-          ]
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "pvc1",
-              "label": "聚氯乙烯产量（吨）"
+              "key": "化工产品_聚氯乙烯",
+              "label": "聚氯乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "causticSoda",
-              "label": "氢氧化钠产量（吨）"
+              "key": "化工产品_氢氧化钠",
+              "label": "氢氧化钠（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "potassiumChloride",
-              "label": "氯化钾产量（吨）"
+              "key": "化工产品_氯化钾",
+              "label": "氯化钾（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "carbonAnode",
-              "label": "碳阳极产量（吨）"
+              "key": "化工产品_碳阳极",
+              "label": "碳阳极（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ethylene",
-              "label": "乙烯产量（吨）"
+              "key": "化工产品_乙烯",
+              "label": "乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pesticide",
-              "label": "化学农药产量（吨）"
+              "key": "化工产品_化学农药",
+              "label": "化学农药（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "ppc",
-              "label": "聚碳酸亚丙酯产量（吨）"
+              "key": "化工产品_聚碳酸亚丙酯",
+              "label": "聚碳酸亚丙酯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polypropylene",
-              "label": "聚丙烯产量（吨）"
+              "key": "化工产品_聚丙烯",
+              "label": "聚丙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polyethylene",
-              "label": "聚乙烯产量（吨）"
+              "key": "化工产品_聚乙烯",
+              "label": "聚乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pvc2",
-              "label": "聚氯乙烯产量-2（吨）"
+              "key": "化工产品_聚氯乙烯",
+              "label": "聚氯乙烯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "abs",
-              "label": "丙烯腈-苯乙烯-丁二烯共聚物产量（吨）"
+              "key": "化工产品_丙烯腈_苯乙烯_丁二烯共聚物",
+              "label": "丙烯腈-苯乙烯-丁二烯共聚物（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pc",
-              "label": "聚碳酸酯产量（吨）"
+              "key": "化工产品_聚碳酸酯",
+              "label": "聚碳酸酯（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "detergentRegular",
-              "label": "普通洗涤液产量（吨）"
+              "key": "化工产品_普通洗涤液",
+              "label": "普通洗涤液（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "detergentConc",
-              "label": "浓缩洗涤液产量（吨）"
+              "key": "化工产品_浓缩洗涤液",
+              "label": "浓缩洗涤液（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "cellulose",
-              "label": "纤维素产量（吨）"
+              "key": "化工产品_纤维素",
+              "label": "纤维素（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "polyesterResin",
-              "label": "聚酯树脂产量（吨）"
+              "key": "化工产品_聚酯树脂",
+              "label": "聚酯树脂（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "pta",
-              "label": "对苯二甲酸产量（吨）"
+              "key": "化工产品_对苯二甲酸",
+              "label": "对苯二甲酸（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "methanol",
-              "label": "甲醇产量（吨）"
+              "key": "化工产品_甲醇",
+              "label": "甲醇（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "coating",
-              "label": "涂料产量（吨）"
+              "key": "化工产品_涂料",
+              "label": "涂料（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             },
             {
-              "key": "nitrogenFertilizer",
-              "label": "氮肥（含尿素）产量（吨）"
+              "key": "化工产品_氮肥_含尿素",
+              "label": "氮肥（含尿素）（t（吨））",
+              "group": "化工产品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -2103,44 +3857,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -2154,28 +3996,44 @@
           ],
           "gridLabel": "企业所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "石灰石煅烧_石灰石",
+              "label": "石灰石煅烧 · 石灰石（t（吨））"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "packagingPaper",
-              "label": "包装纸（吨）"
+              "key": "纸制品_包装纸",
+              "label": "包装纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "copyPaper",
-              "label": "复印纸（吨）"
+              "key": "纸制品_复印纸",
+              "label": "复印纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "householdPaper",
-              "label": "生活用纸（吨）"
+              "key": "纸制品_生活用纸",
+              "label": "生活用纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "paperProducts",
-              "label": "纸制品（吨）"
+              "key": "纸制品_纸制品",
+              "label": "纸制品（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -2202,44 +4060,132 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他煤制品",
+                  "label": "其他煤制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_煤油",
+                  "label": "煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_焦油",
+                  "label": "焦油",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_高炉煤气",
+                  "label": "高炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_转炉煤气",
+                  "label": "转炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -2253,28 +4199,44 @@
           ],
           "gridLabel": "项目所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [
+            {
+              "type": "amount",
+              "key": "石灰石煅烧_石灰石",
+              "label": "石灰石煅烧 · 石灰石（t（吨））"
+            }
+          ],
+          "allowCustomFuel": true
         },
         "product": {
           "supported": true,
           "fields": [
             {
-              "key": "packagingPaper",
-              "label": "包装纸（吨）"
+              "key": "纸制品_包装纸",
+              "label": "包装纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "copyPaper",
-              "label": "复印纸（吨）"
+              "key": "纸制品_复印纸",
+              "label": "复印纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "householdPaper",
-              "label": "生活用纸（吨）"
+              "key": "纸制品_生活用纸",
+              "label": "生活用纸（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             },
             {
-              "key": "paperProducts",
-              "label": "纸制品（吨）"
+              "key": "纸制品_纸制品",
+              "label": "纸制品（t（吨））",
+              "group": "纸制品",
+              "unit": "t（吨）"
             }
-          ]
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -2302,44 +4264,137 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_航空汽油",
+                  "label": "航空汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_航空煤油",
+                  "label": "航空煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -2353,11 +4408,26 @@
           ],
           "gridLabel": "企业所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [],
+          "allowCustomFuel": true
         },
         "product": {
-          "supported": false,
-          "fields": []
+          "supported": true,
+          "fields": [
+            {
+              "key": "客运_货运_旅客周转量",
+              "label": "旅客周转量（n（人次））",
+              "group": "客运/货运",
+              "unit": "n（人次）"
+            },
+            {
+              "key": "客运_货运_货物周转量",
+              "label": "货物周转量（t（吨））",
+              "group": "客运/货运",
+              "unit": "t（吨）"
+            }
+          ],
+          "allowCustomProducts": true
         }
       }
     },
@@ -2384,44 +4454,137 @@
           "hasAttachments": true
         },
         "energy": {
-          "fuelFixed": [
+          "fuelCategories": [
             {
-              "key": "coal",
-              "label": "煤炭消耗量（吨）",
-              "required": true
+              "category": "固体燃料",
+              "items": [
+                {
+                  "key": "固体燃料_无烟煤",
+                  "label": "无烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_烟煤",
+                  "label": "烟煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_褐煤",
+                  "label": "褐煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_型煤",
+                  "label": "型煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_洗精煤",
+                  "label": "洗精煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_其他洗煤",
+                  "label": "其他洗煤",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_焦炭",
+                  "label": "焦炭",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "固体燃料_石油焦",
+                  "label": "石油焦",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "coke",
-              "label": "焦炭消耗量（吨）",
-              "required": true
+              "category": "液体燃料",
+              "items": [
+                {
+                  "key": "液体燃料_原油",
+                  "label": "原油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_燃料油",
+                  "label": "燃料油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_汽油",
+                  "label": "汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_柴油",
+                  "label": "柴油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_一般煤油",
+                  "label": "一般煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化天然气",
+                  "label": "液化天然气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_液化石油气",
+                  "label": "液化石油气",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_航空汽油",
+                  "label": "航空汽油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_航空煤油",
+                  "label": "航空煤油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_石脑油",
+                  "label": "石脑油",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_其他石油制品",
+                  "label": "其他石油制品",
+                  "unit": "t（吨）"
+                },
+                {
+                  "key": "液体燃料_炼厂干气",
+                  "label": "炼厂干气",
+                  "unit": "t（吨）"
+                }
+              ]
             },
             {
-              "key": "diesel",
-              "label": "柴油消耗量（吨）",
-              "required": false
-            },
-            {
-              "key": "gas",
-              "label": "天然气消耗量（万立方米）",
-              "required": true,
-              "step": "0.0001"
+              "category": "气体燃料",
+              "items": [
+                {
+                  "key": "气体燃料_天然气",
+                  "label": "天然气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_焦炉煤气",
+                  "label": "焦炉煤气",
+                  "unit": "104Nm3（万立方米）"
+                },
+                {
+                  "key": "气体燃料_其他煤气",
+                  "label": "其他煤气",
+                  "unit": "104Nm3（万立方米）"
+                }
+              ]
             }
-          ],
-          "otherFuelOptions": [
-            "石油焦",
-            "原油",
-            "燃料油",
-            "汽油",
-            "煤油",
-            "液化天然气",
-            "液化石油气",
-            "炼厂干气",
-            "焦油",
-            "焦炉煤气",
-            "高炉煤气",
-            "转炉煤气",
-            "其他煤气",
-            "无"
           ],
           "gridOptions": [
             "华北电网",
@@ -2435,11 +4598,26 @@
           ],
           "gridLabel": "项目所属电网",
           "hasPurchasedHeat": true,
-          "processBlocks": []
+          "processBlocks": [],
+          "allowCustomFuel": true
         },
         "product": {
-          "supported": false,
-          "fields": []
+          "supported": true,
+          "fields": [
+            {
+              "key": "客运_货运_旅客周转量",
+              "label": "旅客周转量（n（人次））",
+              "group": "客运/货运",
+              "unit": "n（人次）"
+            },
+            {
+              "key": "客运_货运_货物周转量",
+              "label": "货物周转量（t（吨））",
+              "group": "客运/货运",
+              "unit": "t（吨）"
+            }
+          ],
+          "allowCustomProducts": true
         }
       }
     }

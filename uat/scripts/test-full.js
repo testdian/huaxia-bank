@@ -112,7 +112,7 @@ assert(hqPending, '存在待总行终审的收集审核单');
 ['review', 'view'].forEach(mode => {
   location.hash = `#/approval-review?approvalId=${hqPending.id}&mode=${mode}`;
   const html = SPA_VIEWS['#/approval-review'](ctx);
-  assert(html.includes('数据收集'), mode + ' 模式标题为收集页');
+  assert(html.includes('数据采集'), mode + ' 模式标题为收集页');
   assert(html.includes('supplement-page-tabs'), mode + ' 模式含填报/审批 Tab');
   assert(html.includes('method-tabs-bar'), mode + ' 模式含核算方法 Tab');
   assert(html.includes('企业基本信息'), mode + ' 模式含企业基本信息');

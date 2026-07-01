@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""解析线下采集表 Excel，生成 supplement-templates.json（仅方法相关字段）"""
+"""从人行48号文附2 Excel 生成 supplement-templates-data.js"""
 import json
 import re
 import sys
@@ -13,8 +13,11 @@ except ImportError:
     import openpyxl
 
 ROOT = Path(__file__).resolve().parent.parent
-NP_PATH = Path('/Users/fangdanyang/Desktop/华夏银行/人行投融资碳核算工作要求/【终版】高碳行业非项目采集表模板（线下版）.xlsx')
-P_PATH = Path('/Users/fangdanyang/Desktop/华夏银行/人行投融资碳核算工作要求/【终版】高碳行业项目采集表模板（线下版）.xlsx')
+PBO_PATH = Path(
+    '/Users/fangdanyang/Desktop/华夏银行/人行投融资碳核算工作要求/'
+    '附件5．中国人民银行信贷市场司关于开展年度金融机构投融资碳核算工作的通知（银信贷〔2026〕3号）/'
+    '附件2 《操作指引》附2八大行业碳核算信息采集表、碳排放因子表.xlsx'
+)
 
 INDUSTRY_SHEETS = ['电力', '水泥', '平板玻璃', '钢铁', '铝冶炼', '铜冶炼', '石化', '化工', '造纸', '民航']
 
@@ -26,9 +29,25 @@ SHEET_META = {
     '铝冶炼': {'industryMajor': '有色', 'gbCodes': ['C3216']},
     '铜冶炼': {'industryMajor': '有色', 'gbCodes': ['C3211']},
     '石化': {'industryMajor': '石化', 'gbCodes': ['C2511']},
-    '化工': {'industryMajor': '化工', 'gbCodes': ['C2611', 'C2612', 'C2613', 'C2614', 'C2619', 'C2621', 'C2622', 'C2623', 'C2624', 'C2625', 'C2629']},
+    '化工': {'industryMajor': '化工', 'gbCodes': [
+        'C2611', 'C2612', 'C2613', 'C2614', 'C2619',
+        'C2621', 'C2622', 'C2623', 'C2624', 'C2625', 'C2629'
+    ]},
     '造纸': {'industryMajor': '造纸', 'gbCodes': ['C2211', 'C2212', 'C2221']},
     '民航': {'industryMajor': '民航', 'gbCodes': ['G5631', 'G5611', 'G5612']},
+}
+
+SHEET_CONFIG = {
+    '电力': ('2-1B', '2-1C', 4),
+    '水泥': ('2-2B', '2-2C', 4),
+    '平板玻璃': ('2-2B', '2-2C', 5),
+    '钢铁': ('2-3B', '2-3C', 4),
+    '铝冶炼': ('2-4B', '2-4C', 4),
+    '铜冶炼': ('2-4B', '2-4C', 5),
+    '石化': ('2-5B', '2-5C', 4),
+    '化工': ('2-6B', '2-6C', 4),
+    '造纸': ('2-7B', '2-7C', 4),
+    '民航': ('2-8B', '2-8C', 4),
 }
 
 REPORT_SOURCES_NP = [
@@ -44,185 +63,181 @@ GRID_OPTIONS = [
     '华北电网', '东北电网', '华东电网', '华中电网', '西北电网', '南方电网', '西南电网', '全国平均'
 ]
 
-DESULFUR_OPTIONS = [
-    '石灰石', '菱镁石', '纯碱', '小苏打', '毒重石', '锂盐', '草碱、珠碱', '菱锶矿', '菱铁矿'
-]
-
-CARBONATE_OPTIONS_CEMENT = ['石灰石', '白云石', '纯碱', '小苏打', '菱镁石', '毒重石', '锂盐', '草碱、珠碱', '菱锶矿', '菱铁矿']
-CARBONATE_OPTIONS_CHEM = CARBONATE_OPTIONS_CEMENT + ['菱锰石']
-
-OTHER_FUEL = {
-    '电力': ['原油', '燃料油', '汽油', '煤油', '其他石油制品', '液化石油气', '液化天然气', '焦炉煤气', '高炉煤气', '转炉煤气', '炼厂干气', '其他煤气', '无'],
-    '水泥': ['石油焦', '原油', '燃料油', '汽油', '煤油', '液化石油气', '液化天然气', '焦油', '高炉煤气', '转炉煤气', '焦炉煤气', '炼厂干气', '无'],
-    '平板玻璃': ['石油焦', '原油', '燃料油', '汽油', '煤油', '液化石油气', '液化天然气', '焦油', '高炉煤气', '转炉煤气', '焦炉煤气', '炼厂干气', '无'],
-    '钢铁': ['石油焦', '原油', '燃料油', '汽油', '煤油', '其他石油制品', '液化天然气', '液化石油气', '煤焦油', '高炉煤气', '转炉煤气', '焦炉煤气', '炼厂干气', '其他煤气', '无'],
-    '铝冶炼': ['石油焦', '原油', '燃料油', '煤油', '其他石油制品', '液化天然气', '液化石油气', '高炉煤气', '转炉煤气', '焦炉煤气', '炼厂干气', '其他煤气', '无'],
-    '铜冶炼': ['石油焦', '原油', '燃料油', '汽油', '煤油', '液化天然气', '液化石油气', '炼厂干气', '焦油', '焦炉煤气', '高炉煤气', '转炉煤气', '其他煤气', '无'],
-    '石化': ['石油焦', '原油', '燃料油', '汽油', '煤油', '其他石油制品', '液化天然气', '液化石油气', '煤焦油', '高炉煤气', '转炉煤气', '焦炉煤气', '炼厂干气', '其他煤气', '无'],
-    '化工': ['原油', '燃料油', '汽油', '一般煤油', '石油焦', '液化天然气', '液化石油气', '焦油', '其他石油制品', '粗苯', '炼厂干气', '高炉煤气', '转炉煤气', '焦炉煤气', '其他煤气', '无'],
-    '造纸': ['石油焦', '原油', '燃料油', '汽油', '煤油', '液化天然气', '液化石油气', '炼厂干气', '焦油', '焦炉煤气', '高炉煤气', '转炉煤气', '其他煤气', '无'],
-    '民航': ['石油焦', '原油', '燃料油', '汽油', '煤油', '液化天然气', '液化石油气', '炼厂干气', '焦油', '焦炉煤气', '高炉煤气', '转炉煤气', '其他煤气', '无'],
-}
-
-POWER_PRODUCT = [
-    {'key': 'coalPower', 'label': '燃煤发电量（MWh）', 'group': '供电'},
-    {'key': 'gasPower', 'label': '燃气发电量（MWh）', 'group': '供电'},
-    {'key': 'hydroPower', 'label': '水力发电量（MWh）', 'group': '供电'},
-    {'key': 'nuclearPower', 'label': '核能发电量（MWh）', 'group': '供电'},
-    {'key': 'windPower', 'label': '风力发电量（MWh）', 'group': '供电'},
-    {'key': 'solarPvPower', 'label': '光伏发电量（MWh）', 'group': '供电'},
-    {'key': 'solarThermalPower', 'label': '光热发电量（MWh）', 'group': '供电'},
-    {'key': 'biomassPower', 'label': '生物质发电量（MWh）', 'group': '供电'},
-    {'key': 'chpPowerLevel1', 'label': '热电联产-供电排放水平I级机组发电量（MWh）', 'group': '供电'},
-    {'key': 'chpPowerLevel2', 'label': '热电联产-供电排放水平II级机组发电量（MWh）', 'group': '供电'},
-    {'key': 'chpHeatLevel1', 'label': '热电联产-供热排放水平I级机组供热量（GJ）', 'group': '供热'},
-    {'key': 'chpHeatLevel2', 'label': '热电联产-供热排放水平II级机组供热量（GJ）', 'group': '供热'},
-]
-
-PRODUCT_BY_SHEET = {
-    '水泥': [{'key': 'clinkerOutput', 'label': '水泥熟料产量（吨）'}],
-    '平板玻璃': [{'key': 'glassOutput', 'label': '平板玻璃产量（吨）'}],
-    '钢铁': [
-        {'key': 'pigIron', 'label': '生铁产量（吨）'},
-        {'key': 'steelBof', 'label': '粗钢（转炉）产量（吨）'},
-        {'key': 'steelEaf', 'label': '粗钢（电炉）产量（吨）'},
-        {'key': 'rebar', 'label': '钢筋产量（吨）'},
-        {'key': 'sectionSteel', 'label': '型钢产量（吨）'},
-        {'key': 'largeSteel', 'label': '大型钢材产量（吨）'},
-        {'key': 'smallSteel', 'label': '小型钢材产量（吨）'},
-        {'key': 'lowCarbonSteel', 'label': '低碳钢产量（吨）'},
-        {'key': 'ironProducts', 'label': '铁制品产量（吨）'},
-        {'key': 'steelProducts', 'label': '钢制品产量（吨）'},
-    ],
-    '铝冶炼': [
-        {'key': 'alumina', 'label': '氧化铝产量（吨）'},
-        {'key': 'aluminumLiquid', 'label': '铝液（原铝）产量（吨）'},
-        {'key': 'aluminumIngot', 'label': '铝锭产量（吨）'},
-    ],
-    '铜冶炼': [{'key': 'copperOutput', 'label': '铜产量（吨）'}],
-    '石化': [
-        {'key': 'crudeOil', 'label': '原油产量（吨）'},
-        {'key': 'ngl', 'label': '天然气凝析液产量（吨）'},
-        {'key': 'aviationGasoline', 'label': '航空汽油产量（吨）'},
-        {'key': 'motorGasoline', 'label': '车用汽油产量（吨）'},
-        {'key': 'aviationKerosene', 'label': '航空煤油产量（吨）'},
-        {'key': 'lampKerosene', 'label': '灯用煤油产量（吨）'},
-        {'key': 'diesel', 'label': '柴油产量（吨）'},
-        {'key': 'marineFuelOil', 'label': '船用燃料油产量（吨）'},
-        {'key': 'industrialFuelOil', 'label': '工业用燃料油产量（吨）'},
-        {'key': 'lpg', 'label': '液化石油气产量（吨）'},
-        {'key': 'methaneHydrogen', 'label': '甲烷氢产量（吨）'},
-        {'key': 'paraffin', 'label': '石蜡产量（吨）'},
-        {'key': 'coalTarPitch', 'label': '煤焦沥青产量（吨）'},
-        {'key': 'petroleumAsphalt', 'label': '石油沥青产量（吨）'},
-        {'key': 'petroleumCoke', 'label': '石油焦产量（吨）'},
-        {'key': 'lubricant', 'label': '润滑油产量（吨）'},
-        {'key': 'naphtha', 'label': '石脑油产量（吨）'},
-        {'key': 'ethane', 'label': '乙烷产量（吨）'},
-    ],
-    '化工': [
-        {'key': 'pvc1', 'label': '聚氯乙烯产量（吨）'},
-        {'key': 'causticSoda', 'label': '氢氧化钠产量（吨）'},
-        {'key': 'potassiumChloride', 'label': '氯化钾产量（吨）'},
-        {'key': 'carbonAnode', 'label': '碳阳极产量（吨）'},
-        {'key': 'ethylene', 'label': '乙烯产量（吨）'},
-        {'key': 'pesticide', 'label': '化学农药产量（吨）'},
-        {'key': 'ppc', 'label': '聚碳酸亚丙酯产量（吨）'},
-        {'key': 'polypropylene', 'label': '聚丙烯产量（吨）'},
-        {'key': 'polyethylene', 'label': '聚乙烯产量（吨）'},
-        {'key': 'pvc2', 'label': '聚氯乙烯产量-2（吨）'},
-        {'key': 'abs', 'label': '丙烯腈-苯乙烯-丁二烯共聚物产量（吨）'},
-        {'key': 'pc', 'label': '聚碳酸酯产量（吨）'},
-        {'key': 'detergentRegular', 'label': '普通洗涤液产量（吨）'},
-        {'key': 'detergentConc', 'label': '浓缩洗涤液产量（吨）'},
-        {'key': 'cellulose', 'label': '纤维素产量（吨）'},
-        {'key': 'polyesterResin', 'label': '聚酯树脂产量（吨）'},
-        {'key': 'pta', 'label': '对苯二甲酸产量（吨）'},
-        {'key': 'methanol', 'label': '甲醇产量（吨）'},
-        {'key': 'coating', 'label': '涂料产量（吨）'},
-        {'key': 'nitrogenFertilizer', 'label': '氮肥（含尿素）产量（吨）'},
-    ],
-    '造纸': [
-        {'key': 'packagingPaper', 'label': '包装纸（吨）'},
-        {'key': 'copyPaper', 'label': '复印纸（吨）'},
-        {'key': 'householdPaper', 'label': '生活用纸（吨）'},
-        {'key': 'paperProducts', 'label': '纸制品（吨）'},
-    ],
-    '民航': [],
-}
-
-PROCESS_BY_SHEET = {
-    '电力': [{
-        'type': 'desulfur',
-        'label': '脱硫试剂',
-        'slots': 2,
-        'typeOptions': DESULFUR_OPTIONS,
-        'amountUnit': 't'
-    }],
-    '水泥': [{
-        'type': 'carbonate',
-        'label': '碳酸盐分解',
-        'typeOptions': CARBONATE_OPTIONS_CEMENT,
-        'amountUnit': 't'
-    }],
-    '平板玻璃': [{
-        'type': 'carbonate',
-        'label': '碳酸盐分解',
-        'typeOptions': CARBONATE_OPTIONS_CEMENT,
-        'amountUnit': 't'
-    }],
-    '钢铁': [
-        {'type': 'amount', 'key': 'electrode', 'label': '电极使用消耗量（吨）'},
-        {'type': 'amount', 'key': 'limestone', 'label': '石灰石分解消耗量（吨）'},
-        {'type': 'amount', 'key': 'dolomite', 'label': '白云石分解消耗量（吨）'},
-    ],
-    '铝冶炼': [],
-    '铜冶炼': [],
-    '石化': [],
-    '化工': [
-        {'type': 'amount', 'key': 'n2oEmission', 'label': '氧化亚氮排放（吨）'},
-        {'type': 'carbonate', 'label': '碳酸盐分解', 'typeOptions': CARBONATE_OPTIONS_CHEM, 'amountUnit': 't', 'keyPrefix': 'carbonate'},
-    ],
-    '造纸': [],
-    '民航': [],
-}
+FUEL_CATEGORIES = {'固体燃料', '液体燃料', '气体燃料'}
+SKIP_PROCESS_AS_PAIR = {'脱硫试剂', '碳酸盐分解'}
+SKIP_PROCESS_AS_AMOUNT = {'碳粉使用', '电极使用', '氧化亚氮排放', '石灰石煅烧'}
 
 
-def slug_key(label):
-    s = re.sub(r'[^\w]', '', label)
-    return s[:40] if s else 'field'
+def slug(text):
+    s = re.sub(r'[^\w\u4e00-\u9fff]+', '_', str(text or ''))
+    s = re.sub(r'_+', '_', s).strip('_')
+    return (s[:48] if s else 'item')
 
 
-def build_template(sheet_name, biz_type):
+def find_sheet(wb, pattern, keyword):
+    for name in wb.sheetnames:
+        if pattern in name and keyword in name:
+            return wb[name]
+    return None
+
+
+def parse_energy_categories(ws, value_col):
+    categories = {}
+    current_cat = None
+    for row in range(3, ws.max_row + 1):
+        cat = ws.cell(row, 1).value
+        item = ws.cell(row, 2).value
+        unit = ws.cell(row, 3).value
+        val = ws.cell(row, value_col).value
+        if cat and str(cat).startswith('*'):
+            break
+        if cat and str(cat).strip():
+            current_cat = str(cat).strip()
+        if not current_cat:
+            continue
+        if current_cat in ('购入电力', '购入热力'):
+            continue
+        item_s = str(item).strip() if item else ''
+        if not item_s or item_s == '/':
+            continue
+        if val in (None, '/', ''):
+            continue
+        unit_s = str(unit).strip() if unit else ''
+        bucket = categories.setdefault(current_cat, [])
+        if any(x['label'] == item_s for x in bucket):
+            continue
+        bucket.append({
+            'key': slug(f'{current_cat}_{item_s}'),
+            'label': item_s,
+            'unit': unit_s,
+        })
+    return [{'category': k, 'items': v} for k, v in categories.items()]
+
+
+def build_process_blocks(categories):
+    blocks = []
+    for cat in categories:
+        name = cat['category']
+        items = cat['items']
+        labels = [x['label'] for x in items]
+        if name in SKIP_PROCESS_AS_PAIR:
+            block_type = 'desulfur' if name == '脱硫试剂' else 'carbonate'
+            blocks.append({
+                'type': block_type,
+                'label': name,
+                'typeOptions': labels,
+                'keyPrefix': slug(name),
+            })
+        elif '生产过程' in name:
+            blocks.append({
+                'type': 'process',
+                'label': name.replace('：', ' — '),
+                'typeOptions': labels,
+                'keyPrefix': slug(name),
+            })
+        elif name in SKIP_PROCESS_AS_AMOUNT:
+            for it in items:
+                unit = it['unit'] or 't（吨）'
+                blocks.append({
+                    'type': 'amount',
+                    'key': slug(f'{name}_{it["label"]}'),
+                    'label': f'{name} · {it["label"]}（{unit}）',
+                })
+        elif name == '碳酸盐分解' and any('倒算' in x['label'] for x in items):
+            pair_items = [x for x in items if '倒算' not in x['label']]
+            amount_items = [x for x in items if '倒算' in x['label']]
+            if pair_items:
+                blocks.append({
+                    'type': 'carbonate',
+                    'label': '碳酸盐分解',
+                    'typeOptions': [x['label'] for x in pair_items],
+                    'keyPrefix': 'carbonate',
+                })
+            for it in amount_items:
+                blocks.append({
+                    'type': 'amount',
+                    'key': slug(it['label']),
+                    'label': f'{it["label"]}（{it["unit"] or "t（吨）"}）',
+                })
+    return blocks
+
+
+def parse_products(ws, sheet_name=None):
+    products = []
+    current_major = ''
+    for row in range(3, ws.max_row + 1):
+        c1 = ws.cell(row, 1).value
+        c2 = ws.cell(row, 2).value
+        c3 = ws.cell(row, 3).value
+        if c1 and str(c1).startswith('*'):
+            break
+        if c1 and str(c1).strip():
+            current_major = str(c1).strip()
+        sub = str(c2).strip() if c2 else ''
+        unit = str(c3).strip() if c3 else '吨'
+        if not current_major:
+            continue
+        if sub in ('/', '', '——'):
+            label = current_major
+        elif sub:
+            label = sub
+        else:
+            continue
+        entry = {
+            'key': slug(f'{current_major}_{label}'),
+            'label': f'{label}（{unit}）' if unit else label,
+            'group': current_major,
+            'unit': unit,
+            '_major': current_major,
+        }
+        products.append(entry)
+    if sheet_name:
+        products = filter_products(products, sheet_name)
+    for p in products:
+        p.pop('_major', None)
+    return products
+
+
+def filter_products(products, sheet_name):
+    if sheet_name == '水泥':
+        return [p for p in products if '水泥' in p.get('group', '')]
+    if sheet_name == '平板玻璃':
+        return [p for p in products if '平板' in p.get('group', '')]
+    if sheet_name == '铝冶炼':
+        return [p for p in products if p.get('group') == '铝冶炼']
+    if sheet_name == '铜冶炼':
+        return [p for p in products if p.get('group') == '铜冶炼']
+    return products
+
+
+def build_template(wb, sheet_name, biz_type):
     meta = SHEET_META[sheet_name]
+    pat, patc, value_col = SHEET_CONFIG[sheet_name]
+    en_ws = find_sheet(wb, pat, '能源法')
+    pr_ws = find_sheet(wb, patc, '产品法')
+    if not en_ws:
+        raise RuntimeError(f'未找到能源法 sheet: {pat}')
+
+    all_categories = parse_energy_categories(en_ws, value_col)
+    fuel_categories = [c for c in all_categories if c['category'] in FUEL_CATEGORIES]
+    process_blocks = build_process_blocks(all_categories)
+
+    products = parse_products(pr_ws, sheet_name) if pr_ws else []
+    has_product = len(products) > 0
     is_project = biz_type == 'project'
     has_heat = sheet_name != '电力'
-    has_product = sheet_name != '民航' and (
-        sheet_name == '电力' or bool(PRODUCT_BY_SHEET.get(sheet_name))
-    )
 
     energy = {
-        'fuelFixed': [
-            {'key': 'coal', 'label': '煤炭消耗量（吨）', 'required': True},
-            {'key': 'coke', 'label': '焦炭消耗量（吨）', 'required': True},
-            {'key': 'diesel', 'label': '柴油消耗量（吨）', 'required': False},
-            {'key': 'gas', 'label': '天然气消耗量（万立方米）', 'required': True, 'step': '0.0001'},
-        ],
-        'otherFuelOptions': OTHER_FUEL.get(sheet_name, OTHER_FUEL['电力']),
+        'fuelCategories': fuel_categories,
         'gridOptions': GRID_OPTIONS,
         'gridLabel': '项目所属电网' if is_project else '企业所属电网',
         'hasPurchasedHeat': has_heat,
-        'processBlocks': PROCESS_BY_SHEET.get(sheet_name, []),
+        'processBlocks': process_blocks,
+        'allowCustomFuel': True,
     }
 
-    product_fields = []
-    if sheet_name == '电力':
-        product_fields = POWER_PRODUCT
-    elif has_product:
-        product_fields = PRODUCT_BY_SHEET[sheet_name]
-
     return {
-        'id': f"{biz_type}_{sheet_name}",
+        'id': f'{biz_type}_{sheet_name}',
         'bizType': biz_type,
         'sheetName': sheet_name,
         'industryMajor': meta['industryMajor'],
@@ -235,17 +250,21 @@ def build_template(sheet_name, biz_type):
             'energy': energy,
             'product': {
                 'supported': has_product,
-                'fields': product_fields,
+                'fields': products,
+                'allowCustomProducts': True,
             },
         },
     }
 
 
 def build_all():
+    if not PBO_PATH.exists():
+        raise FileNotFoundError(f'附2 Excel 不存在: {PBO_PATH}')
+    wb = openpyxl.load_workbook(PBO_PATH, data_only=True)
     templates = []
     for sheet in INDUSTRY_SHEETS:
-        templates.append(build_template(sheet, 'non_project'))
-        templates.append(build_template(sheet, 'project'))
+        templates.append(build_template(wb, sheet, 'non_project'))
+        templates.append(build_template(wb, sheet, 'project'))
     return templates
 
 
@@ -253,8 +272,8 @@ def write_outputs(templates):
     out_dir = ROOT / 'assets' / 'data'
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {
-        'version': 'offline-template-2026',
-        'source': '高碳行业采集表模板（线下版）· 方法字段',
+        'version': 'pbo-annex2-2026',
+        'source': '人行48号文附2八大行业碳核算信息采集表、碳排放因子表',
         'count': len(templates),
         'templates': templates,
     }
@@ -262,7 +281,7 @@ def write_outputs(templates):
     json_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
     js_path = ROOT / 'assets' / 'js' / 'supplement-templates-data.js'
     js_path.write_text(
-        '/** 补录模板 · 由 scripts/parse-supplement-templates.py 生成 */\n'
+        '/** 采集模板 · 由 scripts/parse-supplement-templates.py 从人行附2生成 */\n'
         f'window.SUPPLEMENT_TEMPLATES = {json.dumps(templates, ensure_ascii=False)};\n',
         encoding='utf-8'
     )
@@ -272,7 +291,7 @@ def write_outputs(templates):
 def main():
     templates = build_all()
     json_path, js_path = write_outputs(templates)
-    print(f'Generated {len(templates)} supplement templates')
+    print(f'Generated {len(templates)} supplement templates from {PBO_PATH.name}')
     print(f'  Wrote {json_path}')
     print(f'  Wrote {js_path}')
 

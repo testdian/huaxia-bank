@@ -176,6 +176,36 @@ window.INDUSTRY_BANK_MAJOR_CODES = [
   "7299", "4710", "7010", "7810", "6631", "7211"
 ];
 
+/** 我行主要行业明细（code=带门类字母四级码，major=GB/T 4754 大类名称） */
+window.INDUSTRY_BANK_MAJOR_TABLE = [
+  { code: "B0610", name: "烟煤和无烟煤开采洗选", major: "煤炭开采和洗选业" },
+  { code: "C3024", name: "轻质建筑材料制造", major: "非金属矿物制品业" },
+  { code: "C2521", name: "炼焦", major: "石油、煤炭及其他燃料加工业" },
+  { code: "C3021", name: "水泥制品制造", major: "非金属矿物制品业" },
+  { code: "C3022", name: "砼结构构件制造", major: "非金属矿物制品业" },
+  { code: "D4430", name: "热力生产和供应", major: "电力、热力生产和供应业" },
+  { code: "C3251", name: "铜压延加工", major: "有色金属冶炼和压延加工业" },
+  { code: "C3252", name: "铝压延加工", major: "有色金属冶炼和压延加工业" },
+  { code: "C3240", name: "有色金属合金制造", major: "有色金属冶炼和压延加工业" },
+  { code: "C3012", name: "石灰和石膏制造", major: "非金属矿物制品业" },
+  { code: "C2669", name: "其他专用化学产品制造", major: "化学原料和化学制品制造业" },
+  { code: "G5443", name: "公路管理与养护", major: "道路运输业" },
+  { code: "C4190", name: "其他未列明制造业", major: "其他制造业" },
+  { code: "C2822", name: "涤纶纤维制造", major: "化学纤维制造业" },
+  { code: "C1711", name: "棉纺纱加工", major: "纺织业" },
+  { code: "C2523", name: "煤制液体燃料生产", major: "石油、煤炭及其他燃料加工业" },
+  { code: "C3140", name: "铁合金冶炼", major: "黑色金属冶炼和压延加工业" },
+  { code: "F5164", name: "金属及金属矿批发", major: "批发业" },
+  { code: "F5165", name: "建材批发", major: "批发业" },
+  { code: "L7212", name: "投资与资产管理", major: "商务服务业" },
+  { code: "L7299", name: "其他未列明商务服务业", major: "商务服务业" },
+  { code: "E4710", name: "住宅房屋建筑", major: "房屋建筑业" },
+  { code: "K7010", name: "房地产开发经营", major: "房地产业" },
+  { code: "N7810", name: "市政设施管理", major: "公共设施管理业" },
+  { code: "J6631", name: "融资租赁服务", major: "货币金融服务" },
+  { code: "L7211", name: "企业总部管理", major: "商务服务业" }
+];
+
 function toCascadeIndustryCode(code) {
   const s = String(code || '').trim();
   if (/^[A-Z]\d/.test(s)) return s.slice(1);
@@ -207,7 +237,20 @@ function inferIndustryMajor(code) {
   const cascade = toCascadeIndustryCode(code);
   if (INDUSTRY_EIGHT_MAJOR_BY_CASCADE[cascade]) return INDUSTRY_EIGHT_MAJOR_BY_CASCADE[cascade];
   const scoped = /^[A-Z]\d/.test(String(code || '').trim()) ? String(code).trim() : toScopedIndustryCode(cascade);
-  return INDUSTRY_TABLE.find(r => r.code === scoped || toCascadeIndustryCode(r.code) === cascade)?.major || '';
+  const pboRow = INDUSTRY_TABLE.find(r => r.code === scoped || toCascadeIndustryCode(r.code) === cascade);
+  if (pboRow?.major) return pboRow.major;
+  const bankRow = (INDUSTRY_BANK_MAJOR_TABLE || []).find(r =>
+    r.code === scoped || r.code === cascade || toCascadeIndustryCode(r.code) === cascade
+  );
+  if (bankRow?.major) return bankRow.major;
+  if (typeof IndustryConfig !== 'undefined' && IndustryConfig.isImported()) {
+    const cfgRow = IndustryConfig.getRows().find(r =>
+      r.code === scoped || r.cascadeCode === cascade || toCascadeIndustryCode(r.code) === cascade
+    );
+    if (cfgRow?.major) return cfgRow.major;
+    if (cfgRow?.level2Name) return cfgRow.level2Name;
+  }
+  return '';
 }
 
 function _buildLeafSectorMap() {

@@ -14,7 +14,7 @@ const NAV = [
     { href: 'boundary.html', label: '核算对象与边界' }
   ]},
   { group: '补数协同', items: [
-    { href: 'branch-board.html', label: '数据收集' },
+    { href: 'branch-board.html', label: '数据采集' },
     { href: 'manager-tasks.html', label: '客户经理任务' },
     { href: 'supplement-fill.html', label: '在线收集填报' }
   ]},
@@ -38,7 +38,7 @@ const ROLES = {
   manager: { label: '客户经理', user: '王磊', branch: '北京分行' }
 };
 
-/** 客户经理仅可访问数据收集相关路由 */
+/** 客户经理仅可访问数据采集相关路由 */
 const MANAGER_ALLOWED_ROUTES = ['#/branch-board', '#/manager-tasks', '#/supplement-fill'];
 const MANAGER_ONLY_ROUTES = MANAGER_ALLOWED_ROUTES;
 /** 企业碳账户：仅总行、分行 */
@@ -438,7 +438,7 @@ function getTaskMaxWorkflowStep(task) {
   return Math.max(task.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP.TASK_CREATE);
 }
 
-/** 数据收集模块页面不展示核算六步流程条 */
+/** 数据采集模块页面不展示核算六步流程条 */
 function shouldShowWorkflowSteps() {
   const base = (typeof location !== 'undefined' ? location.hash : '').split('?')[0];
   const hideOn = ['#/branch-board', '#/manager-tasks', '#/supplement-fill', '#/approval-review'];
@@ -739,7 +739,17 @@ function validateTaskForm(form) {
     return false;
   }
   if (!form.deadline?.value) {
-    toast('请填写数据收集截止日期', 'warning');
+    toast('请填写数据采集截止日期', 'warning');
+    form.deadline?.focus();
+    return false;
+  }
+  if (!form.branchDeadline?.value) {
+    toast('请填写分行审批截止日期', 'warning');
+    form.branchDeadline?.focus();
+    return false;
+  }
+  if (form.deadline.value >= form.branchDeadline.value) {
+    toast('数据采集截止日期须早于分行审批截止日期', 'warning');
     form.deadline?.focus();
     return false;
   }
@@ -748,6 +758,38 @@ function validateTaskForm(form) {
     return false;
   }
   return true;
+}
+
+function addCalendarDays(dateStr, days) {
+  if (!dateStr) return '';
+  const d = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** 数据采集截止须早于分行审批截止：联动 date 控件可选范围 */
+function bindTaskDeadlineValidation(rootEl) {
+  const root = rootEl || document;
+  const collect = qs('[name="deadline"]', root);
+  const branch = qs('[name="branchDeadline"]', root);
+  if (!collect || !branch || collect.disabled || branch.disabled) return;
+  const sync = () => {
+    const collectVal = collect.value;
+    const branchVal = branch.value;
+    collect.max = branchVal ? addCalendarDays(branchVal, -1) : '';
+    branch.min = collectVal ? addCalendarDays(collectVal, 1) : '';
+    if (collectVal && branchVal && collectVal >= branchVal) {
+      collect.setCustomValidity('数据采集截止日期须早于分行审批截止日期');
+      branch.setCustomValidity('分行审批截止日期须晚于数据采集截止日期');
+    } else {
+      collect.setCustomValidity('');
+      branch.setCustomValidity('');
+    }
+  };
+  collect.addEventListener('change', sync);
+  branch.addEventListener('change', sync);
+  sync();
 }
 
 function normalizeIndustryScopeValue(scope) {
@@ -943,9 +985,9 @@ function ledgerCalculationRowValues(f, calc, taskId) {
 const LEDGER_SUMMARY_EXPORT_HEADERS = ['任务名称', '核算年度', '投向行业范围', '所属行业范围', '台账笔数'];
 const LEDGER_DETAIL_EXPORT_HEADERS = [
   '任务名称', '核算年度',
-  '一级分行', '经办行', '客户名称', '客户规模', '信贷品种', '业务种类', '贷款账号',
+  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '贷款账号',
   '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
-  '月均贷款余额（元）', '年报营业收入（元）', '平均资产总额（元）', '主办客户经理',
+  '月均贷款余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理',
   '法人主体排放(tCO₂e)', '项目主体排放(tCO₂e)', '归因排放(tCO₂e)', '质量等级'
 ];
 
@@ -1091,11 +1133,11 @@ function renderTaskFormFields(task, options = {}) {
         <option ${t.balanceRule === '日均余额' ? 'selected' : ''}>日均余额</option>
       </select>
     </div>
-    <div class="form-item"><label>${label('数据收集截止日期')}</label>
+    <div class="form-item"><label>${label('数据采集截止日期')}</label>
       <input type="date" name="deadline" ${readonly ? '' : 'required'} value="${t.deadline || ''}" ${ro}>
     </div>
     <div class="form-item"><label>${label('分行审批截止日期')}</label>
-      <input type="date" name="branchDeadline" value="${t.branchDeadline || ''}" ${ro}>
+      <input type="date" name="branchDeadline" ${readonly ? '' : 'required'} value="${t.branchDeadline || ''}" ${ro}>
     </div>
     ${readonly ? '' : `
     <input type="hidden" name="goal" value="${t.goal || '监管报送'}">
@@ -2114,8 +2156,229 @@ function reviewLevelLabel(level) {
   if (level === 'branch') return '分行初审';
   if (level === 'hq') return '总行终审';
   if (level === 'admin') return '管理员退回';
-  if (level === 'submit') return '提交审核';
+  if (level === 'submit') return '客户经理填报';
   return '审核';
+}
+
+function supplementApprovalFlowSteps(task) {
+  const hqInitiated = task?.initiatorOrg !== 'branch';
+  const steps = [
+    { key: 'dispatch', title: hqInitiated ? '总行派发' : '分行派发' },
+    { key: 'manager_fill', title: '客户经理填报' },
+    { key: 'branch', title: '分行初审' }
+  ];
+  if (hqInitiated) steps.push({ key: 'hq', title: '总行终审' });
+  return steps;
+}
+
+function pickLatestSupplementApproval(approvals, level) {
+  const list = (approvals || []).filter(a => a.reviewLevel === level);
+  if (!list.length) return null;
+  return list.slice().sort((a, b) => {
+    const ra = a.round || 0;
+    const rb = b.round || 0;
+    if (ra !== rb) return rb - ra;
+    const ta = Date.parse(String(a.submitTime || '').replace(/-/g, '/')) || 0;
+    const tb = Date.parse(String(b.submitTime || '').replace(/-/g, '/')) || 0;
+    return tb - ta;
+  })[0];
+}
+
+function resolveSupplementFlowStep(step, s, task, approvals) {
+  const stage = s?.auditStage || 'pending_fill';
+  const round = s?.reviewRound || 1;
+  const branchApproval = pickLatestSupplementApproval(approvals, 'branch');
+  const hqApproval = pickLatestSupplementApproval(approvals, 'hq');
+  const submitApproval = pickLatestSupplementApproval(approvals, 'submit');
+  const adminApproval = pickLatestSupplementApproval(approvals, 'admin');
+
+  if (step.key === 'dispatch') {
+    if (!s?.dispatchedAt) {
+      return { state: 'pending', badge: '待派发', meta: [{ label: '说明', value: '任务尚未派发至客户经理' }] };
+    }
+    return {
+      state: 'done',
+      badge: '已完成',
+      meta: [
+        { label: '派发人', value: s.dispatchedBy || (task?.initiatorOrg === 'branch' ? '分行绿金部' : '总行绿金部') },
+        { label: '派发时间', value: s.dispatchedAt },
+        { label: '截止日期', value: s.deadline || '—' }
+      ]
+    };
+  }
+
+  if (step.key === 'manager_fill') {
+    if (!s?.dispatchedAt) {
+      return { state: 'pending', badge: '待填报', meta: [{ label: '客户经理', value: s?.manager || '—' }] };
+    }
+    if (s.status === 'returned' || (stage === 'pending_fill' && s.rejectReason)) {
+      return {
+        state: 'rejected',
+        badge: '已退回',
+        meta: [
+          { label: '客户经理', value: s.manager || submitApproval?.submitter || '—' },
+          { label: '填报状态', value: '需重新填报' },
+          { label: '退回原因', value: s.rejectReason || adminApproval?.rejectReason || '—', reason: true }
+        ]
+      };
+    }
+    if (s.status === 'pending') {
+      return {
+        state: 'pending',
+        badge: '待填报',
+        meta: [{ label: '客户经理', value: s.manager || '—' }, { label: '填报状态', value: '待开始' }]
+      };
+    }
+    if (s.status === 'in_progress') {
+      return {
+        state: 'current',
+        badge: '填报中',
+        meta: [
+          { label: '客户经理', value: s.manager || '—' },
+          { label: '填报状态', value: `进行中（${s.fieldsDone || 0}/${s.fieldsTotal || '—'}）` }
+        ]
+      };
+    }
+    const submitTime = submitApproval?.submitTime || s.submittedAt || '—';
+    const isCurrent = stage === 'pending_fill' && s.status === 'completed' && canSubmitSupplementForReview(s);
+    return {
+      state: isCurrent ? 'current' : 'done',
+      badge: isCurrent ? '待提交审核' : '已完成',
+      meta: [
+        { label: '客户经理', value: s.manager || submitApproval?.submitter || '—' },
+        { label: '提交时间', value: submitTime },
+        { label: '填报状态', value: isCurrent ? '已填报，待提交审核' : '已提交审核' }
+      ]
+    };
+  }
+
+  if (step.key === 'branch') {
+    const notReached = !s?.dispatchedAt || s.status === 'pending' || s.status === 'in_progress'
+      || (s.status === 'completed' && stage === 'pending_fill' && !branchApproval);
+    if (notReached) {
+      return {
+        state: 'pending',
+        badge: '待审核',
+        meta: [{ label: '审批人', value: `分行绿金负责人（${s?.branch || '—'}）` }]
+      };
+    }
+    const approval = branchApproval;
+    const branchStatus = s.branchReviewStatus || approval?.status;
+    if (branchStatus === 'rejected' || approval?.status === 'rejected') {
+      return {
+        state: 'rejected',
+        badge: '不通过',
+        meta: buildReviewStepMeta(approval, s, task, 'branch', s.rejectReason)
+      };
+    }
+    if (stage === 'branch_review' && branchStatus === 'pending') {
+      return {
+        state: 'current',
+        badge: '审核中',
+        meta: buildReviewStepMeta(approval, s, task, 'branch')
+      };
+    }
+    if (branchStatus === 'approved' || approval?.status === 'approved' || ['hq_review', 'approved'].includes(stage)) {
+      return {
+        state: 'done',
+        badge: '已通过',
+        meta: buildReviewStepMeta(approval, s, task, 'branch')
+      };
+    }
+    return {
+      state: 'pending',
+      badge: '待审核',
+      meta: buildReviewStepMeta(approval, s, task, 'branch')
+    };
+  }
+
+  if (step.key === 'hq') {
+    if (task?.initiatorOrg === 'branch') return null;
+    if (!['hq_review', 'approved'].includes(stage)) {
+      return {
+        state: 'pending',
+        badge: '待审核',
+        meta: [{ label: '审批人', value: '总行绿金部' }, { label: '说明', value: '待分行初审通过后进入' }]
+      };
+    }
+    const approval = hqApproval;
+    const hqStatus = s.hqReviewStatus || approval?.status;
+    if (hqStatus === 'rejected' || approval?.status === 'rejected') {
+      return {
+        state: 'rejected',
+        badge: '不通过',
+        meta: buildReviewStepMeta(approval, s, task, 'hq', s.rejectReason)
+      };
+    }
+    if (stage === 'hq_review' && hqStatus === 'pending') {
+      return {
+        state: 'current',
+        badge: '审核中',
+        meta: buildReviewStepMeta(approval, s, task, 'hq')
+      };
+    }
+    if (hqStatus === 'approved' || approval?.status === 'approved' || stage === 'approved') {
+      return {
+        state: 'done',
+        badge: '已通过',
+        meta: buildReviewStepMeta(approval, s, task, 'hq')
+      };
+    }
+    return {
+      state: 'pending',
+      badge: '待审核',
+      meta: buildReviewStepMeta(approval, s, task, 'hq')
+    };
+  }
+
+  return { state: 'pending', badge: '待处理', meta: [] };
+}
+
+function buildReviewStepMeta(approval, s, task, level, fallbackReason) {
+  const approver = approval?.status === 'pending'
+    ? (level === 'branch'
+      ? `分行绿金负责人（${s?.branch || task?.initiatorBranch || '所属分行'}）`
+      : '总行绿金部')
+    : (approval?.approver || '—');
+  const rows = [
+    { label: '提交人', value: `${approval?.submitter || s?.manager || '—'} · ${approval?.submitTime || s?.submittedAt || '—'}` },
+    { label: '审批人', value: approver },
+    { label: '审批状态', value: approval ? approvalStatusLabel(approval.status) : '待创建' },
+    { label: '审批结果', value: approval ? approvalResultLabel(approval.status) : '—' }
+  ];
+  if (approval?.approveTime) rows.push({ label: '审批时间', value: approval.approveTime });
+  const reason = (approval?.rejectReason || fallbackReason || '').trim();
+  if (reason) rows.push({ label: '审批原因', value: reason, reason: true });
+  if (approval?.round) rows.unshift({ label: '审核轮次', value: `第 ${approval.round} 轮` });
+  return rows;
+}
+
+function renderSupplementFlowTimelineNode(step, snapshot) {
+  if (!snapshot) return '';
+  const stateCls = {
+    done: 'is-done',
+    current: 'is-current',
+    pending: 'is-pending',
+    rejected: 'is-rejected'
+  }[snapshot.state] || 'is-pending';
+  const extraCls = step.key === 'dispatch' ? ' is-dispatch' : (step.key === 'manager_fill' ? ' is-manager-fill' : '');
+  const currentTag = snapshot.state === 'current' ? '<span class="badge badge-warning approval-current-tag">当前节点</span>' : '';
+  const badgeCls = snapshot.state === 'done' ? 'badge-success'
+    : snapshot.state === 'current' ? 'badge-warning'
+    : snapshot.state === 'rejected' ? 'badge-danger'
+    : 'badge-draft';
+  const metaHtml = (snapshot.meta || []).map(row =>
+    row.reason
+      ? `<div class="approval-timeline-reason"><span class="label">${row.label}</span>${escapeHtml(row.value)}</div>`
+      : `<div><span class="label">${row.label}</span>${escapeHtml(row.value)}</div>`
+  ).join('');
+  return `<div class="approval-timeline-item ${stateCls}${extraCls}">
+    <div class="approval-timeline-head">
+      <strong>${step.title}</strong>${currentTag}
+      <span class="badge ${badgeCls}">${snapshot.badge}</span>
+    </div>
+    <div class="approval-timeline-meta">${metaHtml}</div>
+  </div>`;
 }
 
 function supplementActiveTab(s) {
@@ -2369,77 +2632,36 @@ function approvalResultLabel(status) {
   return '—';
 }
 
-function renderSupplementDispatchTimelineNode(s) {
-  if (!s?.dispatchedAt) return '';
-  return `<div class="approval-timeline-item is-done is-dispatch">
-    <div class="approval-timeline-head">
-      <strong>任务派发</strong>
-      <span class="badge badge-success">已完成</span>
-    </div>
-    <div class="approval-timeline-meta">
-      <div><span class="label">派发人</span>${escapeHtml(s.dispatchedBy || '总行绿金部')}</div>
-      <div><span class="label">派发时间</span>${s.dispatchedAt}</div>
-      <div><span class="label">截止日期</span>${s.deadline || '—'}</div>
-    </div>
-  </div>`;
+function renderSupplementDispatchTimelineNode(s, task) {
+  const snapshot = resolveSupplementFlowStep({ key: 'dispatch', title: '派发' }, s, task, getSupplementApprovals(s));
+  return renderSupplementFlowTimelineNode({ key: 'dispatch', title: supplementApprovalFlowSteps(task)[0]?.title || '任务派发' }, snapshot);
 }
 
 function renderSupplementApprovalTimeline(s, task) {
   const approvals = getSupplementApprovals(s);
-  const dispatchNode = renderSupplementDispatchTimelineNode(s);
+  const steps = supplementApprovalFlowSteps(task);
+  const items = steps.map(step => {
+    const snapshot = resolveSupplementFlowStep(step, s, task, approvals);
+    return renderSupplementFlowTimelineNode(step, snapshot);
+  }).join('');
 
-  const approvalItems = approvals.map(a => {
-    if (a.reviewLevel === 'submit') {
-      const round = a.round || 1;
-      return `<div class="approval-timeline-item is-done">
-        <div class="approval-timeline-head">
-          <strong>提交审核（第${round}轮）</strong>
-          <span class="badge badge-success">已完成</span>
-        </div>
-        <div class="approval-timeline-meta">
-          <div><span class="label">提交人</span>${escapeHtml(a.submitter || '—')}</div>
-          <div><span class="label">提交时间</span>${a.submitTime || '—'}</div>
-        </div>
-      </div>`;
-    }
-    const isCurrent = a.status === 'pending';
-    const stateCls = a.status === 'voided' ? 'is-voided'
-      : a.status === 'rejected' ? 'is-rejected'
-      : a.status === 'approved' ? 'is-done'
-      : isCurrent ? 'is-current' : '';
-    const nodeTitle = reviewLevelLabel(a.reviewLevel);
-    const approver = a.reviewLevel === 'admin'
-      ? (a.approver || '总行管理员')
-      : a.status === 'pending'
-        ? approvalCurrentApproverLabel(a, task)
-        : (a.approver || '—');
-    const reason = (a.rejectReason || '').trim()
-      || (a.status === 'rejected' && a.reviewLevel === 'admin' && s.rejectReason ? String(s.rejectReason).trim() : '');
-    const currentTag = isCurrent ? '<span class="badge badge-warning approval-current-tag">当前节点</span>' : '';
-    const voidTag = a.status === 'voided' ? '<span class="badge badge-draft">已作废</span>' : '';
-    return `<div class="approval-timeline-item ${stateCls}">
+  const adminNodes = approvals.filter(a => a.reviewLevel === 'admin').map(a => {
+    const stateCls = a.status === 'rejected' ? 'is-rejected' : 'is-done';
+    return `<div class="approval-timeline-item ${stateCls} is-admin">
       <div class="approval-timeline-head">
-        <strong>${nodeTitle}</strong>${currentTag}${voidTag}
+        <strong>${reviewLevelLabel('admin')}</strong>
         ${approvalStatusBadge(a.status)}
       </div>
       <div class="approval-timeline-meta">
-        ${a.reviewLevel !== 'admin' ? `<div><span class="label">提交人</span>${escapeHtml(a.submitter || '—')} · ${a.submitTime || '—'}</div>` : ''}
-        <div><span class="label">${a.reviewLevel === 'admin' ? '操作人' : '审批人'}</span>${escapeHtml(approver)}</div>
-        <div><span class="label">${a.reviewLevel === 'admin' ? '操作状态' : '审批状态'}</span>${approvalStatusLabel(a.status)}</div>
-        <div><span class="label">${a.reviewLevel === 'admin' ? '操作结果' : '审批结果'}</span>${approvalResultLabel(a.status)}</div>
-        ${a.approveTime ? `<div><span class="label">${a.reviewLevel === 'admin' ? '操作时间' : '审批时间'}</span>${a.approveTime}</div>` : ''}
-        ${reason ? `<div class="approval-timeline-reason"><span class="label">${a.reviewLevel === 'admin' ? '退回原因' : '审批原因'}</span>${escapeHtml(reason)}</div>` : ''}
+        <div><span class="label">操作人</span>${escapeHtml(a.approver || '总行管理员')}</div>
+        <div><span class="label">操作时间</span>${a.approveTime || a.submitTime || '—'}</div>
+        ${a.rejectReason ? `<div class="approval-timeline-reason"><span class="label">退回原因</span>${escapeHtml(a.rejectReason)}</div>` : ''}
       </div>
     </div>`;
   }).join('');
 
-  const reviewApprovals = approvals.filter(a => a.reviewLevel !== 'submit');
-  const items = dispatchNode + approvalItems;
-  const followHint = !reviewApprovals.some(a => a.status === 'pending') && dispatchNode && !reviewApprovals.length
-    ? '<p style="color:#909399;text-align:center;padding:16px 0 4px;font-size:13px">提交审核后可查看后续审批节点</p>'
-    : '';
   const timelineContent = items
-    ? `<div class="approval-timeline">${items}</div>${followHint}`
+    ? `<div class="approval-timeline">${items}${adminNodes}</div>`
     : '<p style="color:#909399;text-align:center;padding:24px 0">暂无审批记录，任务派发后可在此查看流程进度</p>';
   const extra = s.rejectReason && !approvals.some(a => a.status === 'rejected')
     ? `<div class="demo-tip" style="border-color:#f56c6c;background:#fef0f0;color:#c45656;margin-top:12px">退回原因：${escapeHtml(s.rejectReason)}</div>`
@@ -2838,6 +3060,43 @@ function renderGbIndustrySelectOptions(industryMajor, selectedCode) {
   return opts.join('');
 }
 
+function isPboBuiltinAuditFactor(f) {
+  if (!f?.isBuiltin) return false;
+  return typeof normalizeFactorCaliber === 'function'
+    ? normalizeFactorCaliber(f) === 'pbo'
+    : (f.caliberTag === 'pbo' || !f.caliberTag);
+}
+
+function sortAuditFactorCandidates(factors) {
+  return [...(factors || [])].sort((a, b) => {
+    const ap = isPboBuiltinAuditFactor(a) ? 0 : 1;
+    const bp = isPboBuiltinAuditFactor(b) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    return String(a.id || '').localeCompare(String(b.id || ''), 'zh-CN');
+  });
+}
+
+function resolveDefaultAuditFactor(s, task, methodId, factors) {
+  const pool = sortAuditFactorCandidates(factors);
+  if (s.auditFactorId && s.auditFactorMethodId === methodId) {
+    const picked = Store.getFactor(s.auditFactorId);
+    if (picked && pool.some(f => f.id === picked.id)) return picked;
+  }
+  const ctx = getSupplementIndustryContext(s);
+  const pboPool = pool.filter(isPboBuiltinAuditFactor);
+  const searchPool = pboPool.length ? pboPool : pool.filter(f => f.isBuiltin);
+  const finalPool = searchPool.length ? searchPool : pool;
+  if (ctx.gbIndustryCode) {
+    const byCode = finalPool.find(f => f.gbCode === ctx.gbIndustryCode);
+    if (byCode) return byCode;
+  }
+  if (ctx.industryMajor && ctx.industryMajor !== '-') {
+    const byMajor = finalPool.find(f => f.industryMajor === ctx.industryMajor);
+    if (byMajor) return byMajor;
+  }
+  return finalPool[0] || null;
+}
+
 function listAuditFactorOptions(s, task) {
   const ctx = getSupplementIndustryContext(s);
   const factors = Store.get().factors || [];
@@ -2863,35 +3122,60 @@ function listAuditFactorOptions(s, task) {
     }
     pool = pool.filter(x => x.value != null && x.valueType !== 'custom');
     const groups = typeof groupFactorRecords === 'function' ? groupFactorRecords(pool) : [];
-    out[methodId] = groups.map(g =>
+    out[methodId] = sortAuditFactorCandidates(groups.map(g =>
       typeof pickFactorVersion === 'function' ? pickFactorVersion(g.versions, taskYear) : g.latest
-    ).filter(Boolean);
+    ).filter(Boolean));
   });
   return out;
 }
 
-function resolveSupplementAuditFactorValue(s, task) {
+function resolveSupplementAuditFactorValue(s, task, methodId, factors) {
   if (s.auditFactorValue != null && s.auditFactorValue !== '') return Number(s.auditFactorValue);
-  if (s.auditFactorId) {
+  const mid = methodId || s.auditFactorMethodId || 'economy';
+  if (s.auditFactorId && s.auditFactorMethodId === mid) {
     const f = Store.getFactor(s.auditFactorId);
     if (f?.value != null) return Number(f.value);
   }
+  const defaultFactor = resolveDefaultAuditFactor(s, task, mid, factors);
+  if (defaultFactor?.value != null) return Number(defaultFactor.value);
   const ctx = getSupplementIndustryContext(s);
   return Store._getIndustryFactor(Store.get(), ctx.industryMajor, ctx.gbIndustryCode, task?.year);
+}
+
+function renderAuditFactorSelectOptions(factors, selectedId, defaultId) {
+  const pbo = (factors || []).filter(isPboBuiltinAuditFactor);
+  const custom = (factors || []).filter(f => !isPboBuiltinAuditFactor(f));
+  const renderOpt = f => {
+    const caliberLabel = isPboBuiltinAuditFactor(f) ? '人行口径' : '我行自定义';
+    const defaultTag = f.id === defaultId ? '（默认）' : '';
+    const name = typeof factorDisplayName === 'function' ? factorDisplayName(f) : f.id;
+    const val = typeof formatFactorValue === 'function' ? formatFactorValue(f) : f.value;
+    return `<option value="${f.id}" ${selectedId === f.id ? 'selected' : ''}>${escapeHtml(caliberLabel)} · ${escapeHtml(name)} · ${val} ${f.unit || ''}${defaultTag}</option>`;
+  };
+  let html = '';
+  if (pbo.length) {
+    html += `<optgroup label="人行口径（系统默认）">${pbo.map(renderOpt).join('')}</optgroup>`;
+  }
+  if (custom.length) {
+    html += `<optgroup label="我行自定义（可选覆盖）">${custom.map(renderOpt).join('')}</optgroup>`;
+  }
+  return html || '<option value="">暂无匹配因子</option>';
 }
 
 function renderAuditFactorMethodSection(methodId, factors, s, task, editable) {
   const dis = editable ? '' : 'disabled';
   const label = typeof factorMethodLabel === 'function' ? factorMethodLabel(methodId) : methodId;
-  const currentId = s.auditFactorMethodId === methodId ? (s.auditFactorId || '') : '';
+  const sorted = sortAuditFactorCandidates(factors);
+  const defaultFactor = resolveDefaultAuditFactor(s, task, methodId, sorted);
+  const selectedId = (s.auditFactorMethodId === methodId && s.auditFactorId)
+    ? s.auditFactorId
+    : (defaultFactor?.id || '');
+  const selectedFactor = selectedId ? Store.getFactor(selectedId) : defaultFactor;
+  const resolvedVal = resolveSupplementAuditFactorValue(s, task, methodId, sorted);
   const currentVal = methodId === 'economy'
-    ? (s.economyFactor ?? resolveSupplementAuditFactorValue(s, task))
-    : (s.fallbackFactor ?? s.economyFactor ?? resolveSupplementAuditFactorValue(s, task));
-  const opts = ['<option value="">系统默认匹配</option>'].concat(
-    (factors || []).map(f =>
-      `<option value="${f.id}" ${currentId === f.id ? 'selected' : ''}>${escapeHtml(typeof factorDisplayName === 'function' ? factorDisplayName(f) : f.id)} · ${formatFactorValue(f)} ${f.unit || ''}</option>`
-    )
-  ).join('');
+    ? (s.auditFactorValue ?? s.economyFactor ?? selectedFactor?.value ?? resolvedVal)
+    : (s.auditFactorValue ?? s.fallbackFactor ?? s.economyFactor ?? selectedFactor?.value ?? resolvedVal);
+  const opts = renderAuditFactorSelectOptions(sorted, selectedId, defaultFactor?.id);
   return `
     <div class="audit-factor-method-block" data-method="${methodId}">
       <div class="form-item"><label>${label} · 选用因子</label>
@@ -2943,6 +3227,7 @@ function renderApprovalAuditAdjustPanel(s, task, options = {}) {
             <select id="auditGbIndustryCode" ${dis}>${renderGbIndustrySelectOptions(ctx.industryMajor, ctx.gbIndustryCode)}</select></div>
         </div>
         <div class="form-section-title" style="margin-top:16px">适用碳排放因子</div>
+        <p class="candidate-filter-hint audit-factor-hint">选用因子：指定本条记录引用的因子库条目，<strong>默认匹配人行口径内置因子</strong>。因子数值：核算实际采用的因子值，默认取自所选因子，审核人员可按需手工覆写。</p>
         <div class="form-grid audit-factor-grid">${factorSections || '<p style="color:#909399">暂无匹配因子，请先设置归属行业</p>'}</div>
         ${actionBar}
         ${adjustMeta}
@@ -2971,6 +3256,9 @@ function readApprovalAuditAdjustForm(rootEl) {
     if (valInput?.value !== '' && valInput?.value != null) {
       factorValue = Number(valInput.value);
       if (!factorMethodId) factorMethodId = methodId;
+    } else if (sel?.value) {
+      const f = Store.getFactor(sel.value);
+      if (f?.value != null) factorValue = Number(f.value);
     }
   });
   return {
@@ -3001,8 +3289,18 @@ function bindApprovalAuditAdjustPanel(rootEl, supplementId) {
   });
   qs('#auditResetFactorBtn', root)?.addEventListener('click', () => {
     Store.applyApprovalAuditAdjustments(supplementId, { clearFactor: true });
-    toast('已恢复系统默认因子匹配', 'success');
+    toast('已恢复人行默认因子匹配', 'success');
     route();
+  });
+  qsa('.audit-factor-select', root).forEach(sel => {
+    sel.addEventListener('change', () => {
+      const block = sel.closest('.audit-factor-method-block');
+      const valInput = qs('.audit-factor-value', block);
+      const factorId = sel.value;
+      if (!factorId || !valInput) return;
+      const f = Store.getFactor(factorId);
+      if (f?.value != null) valInput.value = f.value;
+    });
   });
   qs('#auditSaveAdjustBtn', root)?.addEventListener('click', () => {
     const data = readApprovalAuditAdjustForm(root);
@@ -3019,19 +3317,32 @@ function renderApprovalReviewActions(canReview, approval, task) {
       <button class="btn" onclick="location.hash='#/approvals'">返回列表</button>
     </div>`;
   }
-  const showRejectToBranch = approval?.reviewLevel === 'hq'
-    && task?.initiatorOrg !== 'branch'
-    && approval?.docType === 'supplement';
-  const rejectToBranchBtn = showRejectToBranch
-    ? `<button type="button" class="btn" id="approvalRejectToBranchBtn">退回到分行</button>`
-    : '';
   return `<div style="padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;background:#fff;margin-top:16px">
     <button type="button" class="btn btn-success" id="approvalApproveBtn">审核通过</button>
-    ${rejectToBranchBtn}
     <button type="button" class="btn btn-danger" id="approvalRejectBtn">退回至客户经理</button>
-    <button type="button" class="btn" id="approvalLocalFixBtn">本级修正</button>
+    <button type="button" class="btn btn-primary" id="approvalSaveBtn">保存</button>
+    <button type="button" class="btn" id="approvalLocalFixBtn">修改</button>
     <button type="button" class="btn" id="approvalCancelBtn">取消</button>
   </div>`;
+}
+
+/** 退回对象候选（任务相关角色与人员） */
+function buildApprovalRejectTargets(approval, supplement) {
+  const list = [];
+  const seen = new Set();
+  const push = (value, label) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    list.push({ value, label });
+  };
+  const mgr = supplement?.manager;
+  if (mgr) push(`manager:${mgr}`, `${mgr} · 客户经理`);
+  if (approval?.submitter) push(`user:${approval.submitter}`, `${approval.submitter} · 提交人`);
+  Object.entries(ROLES || {}).forEach(([key, r]) => {
+    const branchSuffix = r.branch ? `（${r.branch}）` : '';
+    push(`role:${key}`, `${r.user} · ${r.label}${branchSuffix}`);
+  });
+  return list;
 }
 
 function ensureApprovalConfirmModal() {
@@ -3051,6 +3362,10 @@ function ensureApprovalConfirmModal() {
           </div>
           <div id="approvalConfirmMethodWrap" style="margin-top:12px;display:none">
             <div id="approvalConfirmMethodList" class="method-select-list"></div>
+          </div>
+          <div class="form-item" id="approvalConfirmRejectTargetWrap" style="margin-top:12px;display:none">
+            <label>退回至</label>
+            <div id="approvalConfirmRejectTargetList" class="method-select-list"></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -3074,6 +3389,8 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
   const reasonInput = qs('#approvalConfirmReason');
   reasonWrap.style.display = isApprove ? 'none' : 'block';
   if (methodWrap) methodWrap.style.display = 'none';
+  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
+  if (targetWrap) targetWrap.style.display = 'none';
   reasonInput.value = '';
   const okBtn = qs('#approvalConfirmOkBtn');
   okBtn.className = isApprove ? 'btn btn-success' : 'btn btn-danger';
@@ -3097,6 +3414,44 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
   if (!isApprove) setTimeout(() => reasonInput.focus(), 100);
 }
 
+function openApprovalRejectConfirm(approval, supplement, onConfirm) {
+  if (!ensureApprovalConfirmModal()) return;
+  const targets = buildApprovalRejectTargets(approval, supplement);
+  qs('#approvalConfirmTitle').textContent = '退回至客户经理';
+  qs('#approvalConfirmMessage').textContent = '请选择退回对象并填写退回原因：';
+  qs('#approvalConfirmReasonWrap').style.display = 'block';
+  qs('#approvalConfirmMethodWrap').style.display = 'none';
+  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
+  const targetList = qs('#approvalConfirmRejectTargetList');
+  targetWrap.style.display = 'block';
+  targetList.innerHTML = targets.map((t, i) =>
+    `<label class="method-select-option"><input type="radio" name="approvalRejectTarget" value="${escapeHtml(t.value)}"${i === 0 ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`
+  ).join('');
+  const reasonInput = qs('#approvalConfirmReason');
+  reasonInput.value = '';
+  const okBtn = qs('#approvalConfirmOkBtn');
+  okBtn.className = 'btn btn-danger';
+  okBtn.textContent = '确认退回';
+  okBtn.onclick = () => {
+    const reason = (reasonInput.value || '').trim();
+    if (!reason) {
+      toast('请填写退回原因', 'warning');
+      reasonInput.focus();
+      return;
+    }
+    const targetVal = qs('input[name="approvalRejectTarget"]:checked')?.value;
+    if (!targetVal) {
+      toast('请选择退回对象', 'warning');
+      return;
+    }
+    const targetLabel = targets.find(t => t.value === targetVal)?.label || targetVal;
+    hideModal('approvalConfirmModal');
+    onConfirm(false, reason, { rejectTarget: 'manager', rejectAssignee: targetVal, rejectAssigneeLabel: targetLabel });
+  };
+  showModal('approvalConfirmModal');
+  setTimeout(() => reasonInput.focus(), 100);
+}
+
 /** 分行审核收集单据通过：须单选核算方法 */
 function openSupplementMethodApprovalConfirm(approval, onConfirm) {
   if (!ensureApprovalConfirmModal()) return;
@@ -3104,14 +3459,27 @@ function openSupplementMethodApprovalConfirm(approval, onConfirm) {
   const tabs = getSupplementMethodTabs(supplement || {});
   const defaultTabId = supplement?.activeMethodTab || supplementActiveTab(supplement || {});
   qs('#approvalConfirmTitle').textContent = '审核通过';
-  qs('#approvalConfirmMessage').textContent = '请您选择要使用的核算方法：';
+  qs('#approvalConfirmMessage').textContent = '请选择要使用的核算方法（括号内为主体排放预览，供审核参考）：';
   qs('#approvalConfirmReasonWrap').style.display = 'none';
+  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
+  if (targetWrap) targetWrap.style.display = 'none';
   const methodWrap = qs('#approvalConfirmMethodWrap');
   const methodList = qs('#approvalConfirmMethodList');
   methodWrap.style.display = 'block';
   methodList.innerHTML = tabs.map(t => {
     const checked = defaultTabId === t.id ? ' checked' : '';
-    return `<label class="method-select-option"><input type="radio" name="approvalMethodTab" value="${t.id}"${checked}> ${t.label}</label>`;
+    const preview = typeof SUPPLEMENT_FIELDS !== 'undefined'
+      ? SUPPLEMENT_FIELDS.resolveMethodTabEmissionPreview(supplement, t.id)
+      : { ok: false };
+    const emissionHint = typeof SUPPLEMENT_FIELDS !== 'undefined'
+      ? SUPPLEMENT_FIELDS.formatMethodEmissionPreview(preview)
+      : '缺少数据';
+    const hintCls = preview.ok ? 'method-emission-val' : 'method-emission-missing';
+    return `<label class="method-select-option">
+      <input type="radio" name="approvalMethodTab" value="${t.id}"${checked}>
+      <span class="method-select-main">${escapeHtml(t.label)}</span>
+      <span class="${hintCls}">${escapeHtml(emissionHint)}</span>
+    </label>`;
   }).join('');
   const okBtn = qs('#approvalConfirmOkBtn');
   okBtn.className = 'btn btn-success';
@@ -3147,10 +3515,17 @@ function bindSupplementMethodTabs(readonly, rootEl) {
 }
 
 function candidateBorrowerType(c) {
+  return candidateLoanSubjectType(c);
+}
+
+/** 贷款主体类型：优先信贷大表「公司类型 / 公司性质」 */
+function candidateLoanSubjectType(c) {
+  if (c?.companyType) return c.companyType;
+  if (c?.companyNature) return c.companyNature;
   if (c.borrowerType) return c.borrowerType;
   if (c.isIndividual) return '个体工商户';
   if (c.isOverseas) return '境外主体';
-  if (c.isSme) return '小微企业';
+  if (c.isSme) return '有限责任公司';
   return '有限责任公司';
 }
 
@@ -3717,7 +4092,7 @@ function renderCandidateFilterPanel(rules, task, options = {}) {
           ${renderCandidateFilterCheckboxes('f_borrower', borrowerOptions, rules.borrowerTypes)}
         </div>
         <div class="form-item full">
-          <label>客户规模</label>
+          <label>企业规模</label>
           ${renderCandidateFilterCheckboxes('f_customer_scale', customerScaleOptions, rules.customerScales)}
         </div>
         <div class="form-item full">
@@ -3875,12 +4250,27 @@ function candidateTier1Branch(c) {
 }
 
 function candidateCustomerScale(c) {
-  if (c?.customerScale && (GUIDE.CUSTOMER_SCALES || []).includes(c.customerScale)) return c.customerScale;
-  if (c?.isSme) return '小微企业';
+  return candidateEnterpriseScale(c);
+}
+
+/** 企业规模：优先信贷大表 enterpriseScale 字段 */
+function candidateEnterpriseScale(c) {
+  const scales = GUIDE.ENTERPRISE_SCALES || GUIDE.CUSTOMER_SCALES || [];
+  if (c?.enterpriseScale && scales.includes(c.enterpriseScale)) return c.enterpriseScale;
+  if (c?.customerScale === '小微企业') {
+    const bal = Number(c?.avgMonthlyBalance) || 0;
+    return bal < 800 ? '微型企业' : '小型企业';
+  }
+  if (c?.customerScale && scales.includes(c.customerScale)) return c.customerScale;
+  if (c?.isSme) {
+    const bal = Number(c?.avgMonthlyBalance) || 0;
+    return bal < 800 ? '微型企业' : '小型企业';
+  }
   const bal = Number(c?.avgMonthlyBalance) || 0;
   if (bal >= 5000) return '大型企业';
   if (bal >= 1500) return '中型企业';
-  return '中型企业';
+  if (bal >= 500) return '小型企业';
+  return '微型企业';
 }
 
 /** 候选清单表格数据列（含核算类型、客户规模） */
@@ -3898,33 +4288,31 @@ function renderCandidateListCells(c, options = {}) {
     <td>${branchCell}</td>
     <td>${c.handlingBranch || '-'}</td>
     <td>${c.customerName}</td>
-    <td>${candidateCustomerScale(c)}</td>
+    <td>${candidateEnterpriseScale(c)}</td>
     <td>${candidateProductType(c)}</td>
     <td>${candidateAccountingTypeLabel(c, options)}</td>
     <td>${c.loanAccount || '-'}</td>
     <td>${c.disbursementDate || '-'}</td>
-    <td>${candidateBorrowerType(c)}</td>
+    <td>${candidateLoanSubjectType(c)}</td>
     <td>${candidateIndustryLabel(c)}</td>
     <td>${candidateInvestIndustryLabel(c)}</td>
     <td>${listKind === 'formal'
       ? formatLedgerAmountYuan(computeCandidateAvgMonthlyBalance(c, c.accountingYear))
       : formatCandidateMonthEndBalance(c, c.accountingYear)}</td>
     <td>${formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue)}</td>
-    <td>${listKind === 'formal'
-      ? formatFormalAvgTotalAssets(c)
-      : formatCandidateConsolidatedTotalAssets(c)}</td>
+    <td>${formatFormalAvgTotalAssets(c)}</td>
     <td>${c.manager || '-'}</td>`;
 }
 
 const CANDIDATE_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
   <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  <th>月末余额（元）</th><th>年报营业收入（元）</th><th>合并报表资产总额（元）</th><th>主办客户经理</th>`;
+  <th>月末余额（元）</th><th>营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
 
 const FORMAL_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>客户规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
   <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  <th>月均贷款余额（元）</th><th>年报营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
+  <th>月均贷款余额（元）</th><th>营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
 
 const CALCULATION_LIST_TABLE_HEAD = `
   ${FORMAL_LIST_TABLE_HEAD}
@@ -3940,7 +4328,10 @@ function caRecordAsCandidateRow(r) {
     branch: r.tier1Branch,
     handlingBranch: r.handlingBranch,
     customerName: r.customerName,
-    customerScale: r.customerScale,
+    customerScale: r.customerScale || r.enterpriseScale,
+    enterpriseScale: r.enterpriseScale || r.customerScale,
+    companyNature: r.companyNature,
+    companyType: r.companyType,
     productType: r.productType || r.loanType,
     loanType: r.loanType,
     accountingType: r.accountingType,
@@ -4014,6 +4405,9 @@ function formalLedgerRow(f, taskId) {
     id: f.customerId || f.id,
     customerName: f.customerName,
     customerScale: f.customerScale ?? c?.customerScale,
+    enterpriseScale: f.enterpriseScale ?? f.customerScale ?? c?.enterpriseScale,
+    companyNature: f.companyNature ?? c?.companyNature,
+    companyType: f.companyType ?? c?.companyType,
     tier1Branch: f.tier1Branch || f.branch,
     handlingBranch: f.handlingBranch,
     productType: f.productType || f.loanType,

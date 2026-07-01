@@ -85,8 +85,18 @@ const CandidateSync = {
       else if (bucket === 4) { industryMajor = null; excludeReason = 'NON_HIGH_CARBON'; }
 
       let customerScale = '大型企业';
-      if (isSme) customerScale = '小微企业';
-      else if (idx % 3 === 0) customerScale = '中型企业';
+      let enterpriseScale = '大型企业';
+      if (isSme) {
+        enterpriseScale = idx % 2 === 0 ? '小型企业' : '微型企业';
+        customerScale = enterpriseScale;
+      } else if (idx % 3 === 0) {
+        customerScale = '中型企业';
+        enterpriseScale = '中型企业';
+      }
+      const companyNatures = GUIDE.COMPANY_NATURES || ['国有', '民营'];
+      const companyTypes = GUIDE.COMPANY_TYPES || GUIDE.CANDIDATE_BORROWER_TYPES || ['有限责任公司'];
+      const companyNature = companyNatures[idx % companyNatures.length];
+      const companyType = isIndividual ? '个体工商户' : companyTypes[idx % companyTypes.length];
 
       const excluded = !!excludeReason;
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
@@ -123,6 +133,9 @@ const CandidateSync = {
         taskId,
         customerName: name,
         customerScale,
+        enterpriseScale,
+        companyNature,
+        companyType,
         creditCode: this._creditCodeForGelan(idx, loanType, bizType),
         gbIndustryCode: industryMajor ? (industryOpt.code || code) : 'C4190',
         gbIndustryName: industryMajor ? (industryOpt.label || GUIDE.INDUSTRIES.find(x => x.major === major)?.names[0]) : '其他',

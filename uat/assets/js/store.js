@@ -189,6 +189,7 @@ const Store = {
     this._migrateCarbonAccountCustomerNames();
     this._migrateCarbonAccountEntityDedupe();
     this._migrateFactorMeta();
+    this._migrateFactorSourceSheet();
     this._migrateFactorDedupe();
     this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
@@ -312,6 +313,30 @@ const Store = {
     } catch { /* ignore */ }
   },
 
+  /** 排放因子库：Excel tab 连写表号（2-1CC）规范为人行附2表号（2-1C） */
+  _migrateFactorSourceSheet() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof normalizeFactorSourceSheet !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._factorSourceSheetMigrated) return;
+      let changed = false;
+      (d.factors || []).forEach(f => {
+        if (!f.sourceSheet) return;
+        const norm = normalizeFactorSourceSheet(f.sourceSheet);
+        if (norm !== f.sourceSheet) {
+          if (f.id && f.id.startsWith('EF-' + f.sourceSheet + '-')) {
+            f.id = 'EF-' + norm + f.id.slice(('EF-' + f.sourceSheet).length);
+          }
+          f.sourceSheet = norm;
+          changed = true;
+        }
+      });
+      d._factorSourceSheetMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
   /** 任务：行业范围值迁移、补全分行审批截止日期 */
   _migrateTaskBranchDeadline() {
     const raw = localStorage.getItem(this.KEY);
@@ -407,23 +432,33 @@ const Store = {
     } catch { /* ignore */ }
   },
 
-  /** 补全候选/正式清单客户规模字段 */
+  /** 补全候选/正式清单企业规模字段 */
   _migrateCandidateCustomerScale() {
     const raw = localStorage.getItem(this.KEY);
-    if (!raw || typeof candidateCustomerScale !== 'function') return;
+    if (!raw || typeof candidateEnterpriseScale !== 'function') return;
     try {
       const d = JSON.parse(raw);
       let changed = false;
-      (d.candidates || []).forEach(c => {
-        const next = candidateCustomerScale(c);
-        if (c.customerScale !== next) {
-          c.customerScale = next;
+      const patchScale = (row) => {
+        if (!row) return;
+        const next = candidateEnterpriseScale(row);
+        if (row.enterpriseScale !== next) {
+          row.enterpriseScale = next;
           changed = true;
         }
-      });
+        if (row.customerScale !== next) {
+          row.customerScale = next;
+          changed = true;
+        }
+      };
+      (d.candidates || []).forEach(patchScale);
       (d.formalList || []).forEach(f => {
         const cand = (d.candidates || []).find(c => c.id === f.customerId);
-        const next = f.customerScale || cand?.customerScale || candidateCustomerScale({ ...f, ...cand });
+        const next = candidateEnterpriseScale({ ...f, ...cand });
+        if (f.enterpriseScale !== next) {
+          f.enterpriseScale = next;
+          changed = true;
+        }
         if (f.customerScale !== next) {
           f.customerScale = next;
           changed = true;
@@ -431,6 +466,12 @@ const Store = {
       });
       (d.tasks || []).forEach(t => {
         const rules = t.candidateFilterRules;
+        if (rules?.customerScales?.includes('小微企业')) {
+          rules.customerScales = rules.customerScales.flatMap(s =>
+            s === '小微企业' ? ['小型企业', '微型企业'] : [s]
+          );
+          changed = true;
+        }
         if (!rules || rules.customized === true) return;
         if (rules.customerScales == null) {
           t.candidateFilterRules = getDefaultCandidateFilterRules(t);
@@ -932,10 +973,10 @@ const Store = {
       list = list.filter(c => r.productTypes.includes(candidateProductType(c)));
     }
     if (r.borrowerTypes?.length) {
-      list = list.filter(c => r.borrowerTypes.includes(candidateBorrowerType(c)));
+      list = list.filter(c => r.borrowerTypes.includes(candidateLoanSubjectType(c)));
     }
     if (r.customerScales?.length) {
-      list = list.filter(c => r.customerScales.includes(candidateCustomerScale(c)));
+      list = list.filter(c => r.customerScales.includes(candidateEnterpriseScale(c)));
     }
     if (r.industries?.length) {
       list = list.filter(c => {
@@ -1125,7 +1166,10 @@ const Store = {
           disbursementAmount: c.disbursementAmount,
           disbursementDate: c.disbursementDate,
           borrowerType: c.borrowerType,
+          companyNature: c.companyNature,
+          companyType: c.companyType,
           customerScale: c.customerScale || candidateCustomerScale(c),
+          enterpriseScale: c.enterpriseScale || c.customerScale || candidateEnterpriseScale(c),
           avgMonthlyBalance: c.avgMonthlyBalance,
           monthEndBalanceSum: c.monthEndBalanceSum,
           huaxiaTenureMonths: c.huaxiaTenureMonths,
@@ -1338,6 +1382,7 @@ const Store = {
       s.auditStage = 'branch_review';
       s.branchReviewStatus = 'pending';
       s.hqReviewStatus = 'none';
+      s.submittedAt = new Date().toLocaleString('zh-CN');
       delete s.rejectReason;
       this._createSubmitApproval(d, s, round);
       this._createSupplementApproval(d, s, task, 'branch', round);
@@ -1377,6 +1422,22 @@ const Store = {
     return count;
   },
 
+  _isPboBuiltinFactor(f) {
+    if (!f?.isBuiltin) return false;
+    if (typeof normalizeFactorCaliber === 'function') return normalizeFactorCaliber(f) === 'pbo';
+    return f.caliberTag === 'pbo' || !f.caliberTag;
+  },
+
+  _pickPreferredEconomyFactor(prev, next) {
+    if (!next) return prev || null;
+    if (!prev) return next;
+    const prevPbo = this._isPboBuiltinFactor(prev);
+    const nextPbo = this._isPboBuiltinFactor(next);
+    if (nextPbo && !prevPbo) return next;
+    if (prevPbo && !nextPbo) return prev;
+    return prev;
+  },
+
   _buildEconomyFactorLookup(d) {
     const factors = (d.factors || []).filter(x =>
       x.methodId === 'economy' && x.valueType === 'default' && x.value != null
@@ -1384,8 +1445,8 @@ const Store = {
     const byGb = new Map();
     const byMajor = new Map();
     factors.forEach(f => {
-      if (f.gbCode && !byGb.has(f.gbCode)) byGb.set(f.gbCode, f);
-      if (f.industryMajor && !byMajor.has(f.industryMajor)) byMajor.set(f.industryMajor, f);
+      if (f.gbCode) byGb.set(f.gbCode, this._pickPreferredEconomyFactor(byGb.get(f.gbCode), f));
+      if (f.industryMajor) byMajor.set(f.industryMajor, this._pickPreferredEconomyFactor(byMajor.get(f.industryMajor), f));
     });
     this._economyFactorLookup = { factors, byGb, byMajor, factorLen: (d.factors || []).length };
   },
@@ -1619,8 +1680,15 @@ const Store = {
     this.update(d => {
       const idx = (d.factors || []).findIndex(x => x.id === id);
       if (idx < 0) return;
-      if (d.factors[idx].isBuiltin) return;
-      d.factors[idx] = { ...d.factors[idx], ...payload, id, isBuiltin: false };
+      const prev = d.factors[idx];
+      d.factors[idx] = {
+        ...prev,
+        ...payload,
+        id,
+        isBuiltin: prev.isBuiltin,
+        updatedAt: new Date().toLocaleString('zh-CN'),
+        updatedBy: d.currentUser || '—'
+      };
       ok = true;
     });
     return ok;
@@ -1630,7 +1698,7 @@ const Store = {
     let ok = false;
     this.update(d => {
       const f = (d.factors || []).find(x => x.id === id);
-      if (!f || f.isBuiltin) return;
+      if (!f) return;
       d.factors = d.factors.filter(x => x.id !== id);
       ok = true;
     });
@@ -1658,7 +1726,6 @@ const Store = {
     this.update(d => {
       const before = (d.factors || []).length;
       d.factors = (d.factors || []).filter(f => {
-        if (f.isBuiltin) return true;
         if (typeof factorGroupKey !== 'function') return true;
         return factorGroupKey(f) !== groupKey;
       });
@@ -2002,6 +2069,8 @@ const Store = {
         item.auditStage = 'pending_fill';
         item.status = 'returned';
         item.rejectReason = (rejectReason || '').trim();
+        item.rejectAssignee = opts.rejectAssignee || null;
+        item.rejectAssigneeLabel = opts.rejectAssigneeLabel || null;
         delete item.approvedMethodId;
         if (approval.reviewLevel === 'branch') item.branchReviewStatus = 'rejected';
         if (approval.reviewLevel === 'hq') item.hqReviewStatus = 'rejected';

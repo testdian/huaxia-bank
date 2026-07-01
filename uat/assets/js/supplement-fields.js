@@ -1,21 +1,21 @@
-/** 数据收集 — 行业×业务类型 配置驱动填报（来源：线下采集表模板） */
+/** 数据采集 — 行业×业务类型 配置驱动填报（来源：线下采集表模板） */
 window.SUPPLEMENT_FIELDS = {
   ATTACH_ACCEPT: '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg',
   ATTACH_MAX_COUNT: 3,
   ATTACH_MAX_MB: 20,
+  ATTACH_MAX_MB_AUTHORITY: 2048,
+  REPORT_ATTACH_LABEL: '报告法佐证材料',
+  /** @deprecated */ REPORT_AUTHORITY_ATTACH_LABEL: '报告法佐证材料',
 
-  /** 项目类且可提供项目信息时：项目号、客户号非必填，其余必填 */
-  PROJECT_INFO_OPTIONAL_IDS: ['f_prj_no', 'f_prj_customer_no'],
-  PROJECT_INFO_REQUIRED: [
-    { id: 'f_prj_name', label: '项目名称', type: 'text' },
-    { id: 'f_prj_province', label: '项目所在地区域（省）', type: 'text' },
-    { id: 'f_prj_industry', label: '项目所属行业', type: 'text' },
-    { id: 'f_prj_customer_name', label: '客户名称', type: 'text' },
-    { id: 'f_prj_credit_code', label: '统一社会信用代码', type: 'text' },
-    { id: 'f_prj_industry_code_lv4', label: '国民经济行业代码（4级）', type: 'text' },
-    { id: 'f_prj_avg_loan', label: '月均贷款余额（万元）', type: 'number' },
+  /** 提交必填：项目（按项目计算） */
+  PROJECT_SUBMIT_REQUIRED: [
     { id: 'f_prj_revenue', label: '项目收入（万元）', type: 'number' },
     { id: 'f_prj_total_invest', label: '项目总投资（万元）', type: 'number' }
+  ],
+  /** 提交必填：非项目 / 项目（按非项目计算） */
+  ENTITY_SUBMIT_REQUIRED: [
+    { id: 'f_revenue', label: '营业收入（元）', type: 'number' },
+    { id: 'f_avg_total_assets', label: '平均资产总额（元）', type: 'number' }
   ],
 
   reqLabel(text, required = true) {
@@ -52,11 +52,22 @@ window.SUPPLEMENT_FIELDS = {
     return tpl || null;
   },
 
+  getAccountingType(s) {
+    const formal = typeof getFormalForSupplement === 'function' ? getFormalForSupplement(s) : null;
+    const row = { ...(formal || {}), ...(s || {}) };
+    if (typeof resolveAccountingType === 'function') {
+      const resolved = resolveAccountingType(row);
+      if (resolved) return resolved;
+    }
+    return (formal?.bizType || s?.bizType) === 'project' ? 'project_as_project' : 'non_project';
+  },
+
   getContext(s) {
     const formal = typeof getFormalForSupplement === 'function' ? getFormalForSupplement(s) : null;
     const industryMajor = formal?.industryMajor || s.industryMajor || '-';
     const bizType = formal?.bizType || s.bizType || 'non_project';
     const isProject = bizType === 'project';
+    const accountingType = this.getAccountingType(s);
     const template = this.resolveTemplate(s);
     return {
       formal,
@@ -65,6 +76,9 @@ window.SUPPLEMENT_FIELDS = {
       gbIndustryName: formal?.gbIndustryName || s.gbIndustryName || '',
       bizType,
       isProject,
+      accountingType,
+      needsEntityFinancials: accountingType === 'non_project' || accountingType === 'project_as_non_project',
+      needsProjectFinancials: accountingType === 'project_as_project',
       isPowerIndustry: String(industryMajor).includes('电力'),
       template,
       templateKey: template?.id || 'default',
@@ -144,31 +158,72 @@ window.SUPPLEMENT_FIELDS = {
     return this.reportKindFieldValues(s, 'report_other');
   },
 
-  renderReportExtendedFieldsForTab(s, dis, tabId) {
+  renderReportExtendedFieldsForTab(s, dis, tabId, kind) {
     const r = this.reportKindFieldValues(s, tabId);
+    if (kind === 'authority' || kind === 'other') {
+      return `
+      <div class="form-item"><label>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
+        ${this.numInput(`f_${tabId}_emission`, r.ghgTotalEmission, dis, '0.01')}</div>`;
+    }
     const ctx = this.getContext(s);
     const powerUnitField = ctx.isPowerIndustry
       ? `<div class="form-item"><label>全部机组二氧化碳排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_unit_total`, r.unitTotalCo2Emission, dis, '0.01')}</div>`
       : '';
     return `
       <div class="form-item"><label>碳数据年份</label>${this.numInput(`f_${tabId}_carbon_year`, r.carbonDataYear, dis, '1')}</div>
-      <div class="form-item"><label><span class="req">*</span>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
+      <div class="form-item"><label>核算周期内碳排放量（温室气体排放总量，tCO2e）</label>
         ${this.numInput(`f_${tabId}_emission`, r.ghgTotalEmission, dis, '0.01')}</div>
       <div class="form-item"><label>范围一的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope1`, r.scope1Emission, dis, '0.01')}</div>
       <div class="form-item"><label>范围二的排放总量（tCO2e）</label>${this.numInput(`f_${tabId}_scope2`, r.scope2Emission, dis, '0.01')}</div>
       ${powerUnitField}`;
   },
 
+  renderReportVerifiedField(tabId, kind, dis, row) {
+    if (kind === 'authority') {
+      return `<div class="form-item"><label>该数据是否经政府/第三方核查</label>
+        <input type="text" value="是" disabled>
+        <input type="hidden" id="f_${tabId}_verified" value="yes"></div>`;
+    }
+    if (kind === 'other') {
+      return `<div class="form-item"><label>该数据是否经政府/第三方核查</label>
+        <input type="text" value="否" disabled>
+        <input type="hidden" id="f_${tabId}_verified" value="no"></div>`;
+    }
+    const verified = row?.verified === 'no' || row?.verified === false ? 'no' : 'yes';
+    return `<div class="form-item"><label>该数据是否经政府/第三方核查</label>
+      <select id="f_${tabId}_verified" ${dis}>
+        <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
+        <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
+      </select></div>`;
+  },
+
+  reportAttachOptions(kind) {
+    if (kind === 'authority') {
+      return { required: true, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
+    }
+    if (kind === 'other') {
+      return { required: false, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
+    }
+    return { required: false };
+  },
+
+  formatAttachMaxHint(maxMb) {
+    if (maxMb >= 1024) return `每个不超过 ${Math.round(maxMb / 1024)}GB`;
+    return `每个不超过 ${maxMb}MB`;
+  },
+
   collectReportExtendedFieldsForTab(rootEl, tabId) {
-    const carbonDataYear = numVal(`#f_${tabId}_carbon_year`, rootEl);
-    const ghgTotalEmission = numVal(`#f_${tabId}_emission`, rootEl);
+    const ghgTotalEmission = qs(`#f_${tabId}_emission`, rootEl) ? numVal(`#f_${tabId}_emission`, rootEl) : null;
+    const carbonEl = qs(`#f_${tabId}_carbon_year`, rootEl);
+    const carbonDataYear = carbonEl ? numVal(`#f_${tabId}_carbon_year`, rootEl) : null;
     const hasPowerUnit = !!qs(`#f_${tabId}_unit_total`, rootEl);
+    const hasScope1 = !!qs(`#f_${tabId}_scope1`, rootEl);
     return {
       carbonDataYear: carbonDataYear != null ? Math.round(carbonDataYear) : null,
       ghgTotalEmission,
       emission: ghgTotalEmission,
-      scope1Emission: numVal(`#f_${tabId}_scope1`, rootEl),
-      scope2Emission: numVal(`#f_${tabId}_scope2`, rootEl),
+      scope1Emission: hasScope1 ? numVal(`#f_${tabId}_scope1`, rootEl) : null,
+      scope2Emission: qs(`#f_${tabId}_scope2`, rootEl) ? numVal(`#f_${tabId}_scope2`, rootEl) : null,
       unitTotalCo2Emission: hasPowerUnit ? numVal(`#f_${tabId}_unit_total`, rootEl) : null
     };
   },
@@ -293,6 +348,68 @@ window.SUPPLEMENT_FIELDS = {
     })).filter(r => r.type || (r.amount != null && r.amount !== '' && !Number.isNaN(Number(r.amount))));
   },
 
+  normalizeCustomFuelRows(d) {
+    if (Array.isArray(d.customFuels) && d.customFuels.length) {
+      return d.customFuels.map(r => ({
+        category: r?.category ?? '',
+        item: r?.item ?? '',
+        amount: r?.amount ?? null,
+        unit: r?.unit ?? ''
+      }));
+    }
+    return [{ category: '', item: '', amount: null, unit: '' }];
+  },
+
+  normalizeCustomProductRows(d) {
+    if (Array.isArray(d.customProducts) && d.customProducts.length) {
+      return d.customProducts.map(r => ({
+        name: r?.name ?? '',
+        amount: r?.amount ?? null,
+        unit: r?.unit ?? '吨'
+      }));
+    }
+    return [{ name: '', amount: null, unit: '吨' }];
+  },
+
+  renderRepeatableCustomRow(row, fields, dis) {
+    const removeBtn = dis === 'disabled' ? '' : `<div class="form-item repeatable-row-actions"><button type="button" class="btn btn-sm btn-link repeatable-remove-row">删除</button></div>`;
+    const cells = fields.map(f => {
+      const val = row[f.key] == null ? '' : row[f.key];
+      if (f.type === 'number') {
+        return `<div class="form-item"><label>${f.label}</label><input type="number" step="${f.step || '0.0001'}" data-field="${f.key}" value="${val}" ${dis}></div>`;
+      }
+      return `<div class="form-item"><label>${f.label}</label><input type="text" data-field="${f.key}" value="${val}" ${dis} placeholder="${f.placeholder || ''}"></div>`;
+    }).join('');
+    return `<div class="repeatable-row"><div class="repeatable-row-inner form-grid">${cells}${removeBtn}</div></div>`;
+  },
+
+  renderRepeatableCustomSection(listId, rows, fieldDefs, dis, options = {}) {
+    const minRows = options.minRows ?? 0;
+    const maxRows = options.maxRows ?? 20;
+    const rowHtml = rows.map(r => this.renderRepeatableCustomRow(r, fieldDefs, dis)).join('');
+    const addBtn = dis === 'disabled' ? '' : `<button type="button" class="btn btn-sm repeatable-add-row" data-repeatable-id="${listId}">${options.addLabel || '+ 添加一行'}</button>`;
+    return `<div class="repeatable-list-wrap">
+      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}">
+        ${rowHtml}
+      </div>
+      ${addBtn}
+    </div>`;
+  },
+
+  collectRepeatableCustomList(rootEl, listId, fieldKeys) {
+    const list = qs(`.repeatable-list[data-repeatable-id="${listId}"]`, rootEl);
+    if (!list) return [];
+    return qsa('.repeatable-row', list).map(row => {
+      const item = {};
+      fieldKeys.forEach(key => {
+        const el = qs(`[data-field="${key}"]`, row);
+        if (!el) return;
+        item[key] = el.type === 'number' ? numVal(`[data-field="${key}"]`, row) : (el.value || '').trim();
+      });
+      return item;
+    }).filter(r => fieldKeys.some(k => r[k] != null && r[k] !== ''));
+  },
+
   syncLegacyPairRows(d, arrayKey, legacyPrefix) {
     const rows = d[arrayKey] || [];
     for (let i = 1; i <= 20; i++) {
@@ -358,56 +475,60 @@ window.SUPPLEMENT_FIELDS = {
       || (Array.isArray(s.projectDetails) && s.projectDetails[0])
       || {};
     const projectInfo = s.projectInfo || {};
-    const projectInfoAvailable = s.projectInfoAvailable === true ? 'yes'
-      : (s.projectInfoAvailable === false ? 'no' : '');
     const projectVal = (key, fallback = '') => this.val(projectInfo, key, projectSeed?.[key] ?? fallback);
+    const accountingLabel = typeof candidateAccountingTypeLabel === 'function'
+      ? candidateAccountingTypeLabel({ accountingType: ctx.accountingType, bizType: ctx.bizType })
+      : ctx.accountingType;
+    const avgAssetsVal = s.avgTotalAssets ?? formal?.avgTotalAssets ?? s.totalAssets ?? '';
+    const revenueVal = s.revenue ?? formal?.operatingRevenue ?? s.operatingRevenue ?? '';
+    const submitHint = `<div class="demo-tip" style="margin-bottom:12px;font-size:13px">标 <span class="req">*</span> 为提交必填；各核算方法 Tab 有什么数据填什么数据，非必填。</div>`;
     return `
+      ${submitHint}
       <div class="form-item"><label>客户名称</label><input id="f_customer_name" value="${s.customerName || ''}" ${basicDis}></div>
       <div class="form-item"><label>所属行业</label><input id="f_industry_major" value="${ctx.industryMajor}" ${basicDis}></div>
       ${ctx.gbIndustryCode ? `<div class="form-item"><label>国民经济行业（4级）</label><input value="${ctx.gbIndustryCode} ${ctx.gbIndustryName || ''}" disabled></div>` : ''}
-      <div class="form-item"><label>业务类型</label><input id="f_biz_type" value="${this.bizTypeLabel(ctx.bizType)}" ${basicDis}></div>
-      ${ctx.isProject ? `<div class="form-item"><label>是否可提供项目信息</label>
-        <select id="f_project_info_available" ${dis}>
-          <option value="" ${projectInfoAvailable === '' ? 'selected' : ''}>请选择</option>
-          <option value="yes" ${projectInfoAvailable === 'yes' ? 'selected' : ''}>是</option>
-          <option value="no" ${projectInfoAvailable === 'no' ? 'selected' : ''}>否</option>
-        </select></div>` : ''}
+      <div class="form-item"><label>业务种类</label><input value="${accountingLabel}" disabled></div>
       ${ctx.template ? `<div class="form-item"><label>采集模板</label><input value="${ctx.sheetName}（${ctx.isProject ? '项目' : '非项目'}）" disabled></div>` : ''}
-      ${ctx.isProject && formal?.projectName ? `<div class="form-item full"><label>项目名称</label><input value="${formal.projectName}" disabled></div>` : ''}
-      ${ctx.isProject ? `<div class="form-item full project-info-fields" data-project-info-fields style="${projectInfoAvailable === 'yes' ? '' : 'display:none'}">
+      ${ctx.needsProjectFinancials ? `<div class="form-item full project-info-fields" data-project-info-fields>
         <div class="form-section-title">项目信息填报</div>
         <div class="form-grid">
           <div class="form-item"><label>${this.reqLabel('项目号', false)}</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目名称')}</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目所在地区域（省）')}</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目所属行业')}</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目名称', false)}</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目所在地区域（省）', false)}</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('项目所属行业', false)}</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
           <div class="form-item"><label>${this.reqLabel('客户号', false)}</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('客户名称')}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('统一社会信用代码')}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('国民经济行业代码（4级）')}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('月均贷款余额（万元）')}</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('客户名称', false)}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('统一社会信用代码', false)}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('国民经济行业代码（4级）', false)}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
+          <div class="form-item"><label>${this.reqLabel('月均贷款余额（万元）', false)}</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
           <div class="form-item"><label>${this.reqLabel('项目收入（万元）')}</label>${this.numInput('f_prj_revenue', projectVal('projectRevenueWan', s.revenue), dis, '0.01')}</div>
           <div class="form-item"><label>${this.reqLabel('项目总投资（万元）')}</label>${this.numInput('f_prj_total_invest', projectVal('projectTotalInvestmentWan', formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
         </div>
       </div>` : ''}
-      ${!ctx.isProject ? `
-      <div class="form-item"><label>总资产(万元)</label>${this.numInput('f_total_assets', s.totalAssets, dis)}</div>
-      <div class="form-item"><label>年报营业收入(元)</label>${this.numInput('f_revenue', s.revenue, dis)}</div>
-      <div class="form-item"><label>月均贷款余额（元）</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>` : ''}`;
+      ${ctx.needsEntityFinancials ? `
+      <div class="form-item"><label>${this.reqLabel('营业收入（元）')}</label>${this.numInput('f_revenue', revenueVal, dis)}</div>
+      <div class="form-item"><label>${this.reqLabel('平均资产总额（元）')}</label>${this.numInput('f_avg_total_assets', avgAssetsVal, dis)}</div>
+      <div class="form-item"><label>${this.reqLabel('月均贷款余额（元）', false)}</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>` : ''}`;
   },
 
   renderAttachmentSection(tabId, attachments, dis, options = {}) {
     const required = !!options.required;
     const reqHtml = required ? '<span class="req">*</span>' : '';
+    const label = options.label || '报告附件';
+    const maxMb = options.maxMb ?? this.ATTACH_MAX_MB;
     const inputId = `f_${tabId}_files`;
     const listId = `f_${tabId}_attach_list`;
     const wrapAttrs = (tabId === 'report_authority' || tabId === 'report_other')
       ? ` id="f_${tabId}_attach_wrap"` : '';
+    const sizeHint = this.formatAttachMaxHint(maxMb);
+    const extraHint = tabId === 'report_authority'
+      ? '；权威数据须上传核查佐证材料'
+      : (required ? '；经政府/第三方核查时须上传佐证文件' : '');
     return `
       <div class="form-item full"${wrapAttrs}>
-        <label>${reqHtml}报告附件</label>
+        <label>${reqHtml}${label}</label>
         <input type="file" id="${inputId}" ${dis} multiple accept="${this.ATTACH_ACCEPT}" style="margin-top:6px">
-        <small style="color:#909399;display:block;margin-top:4px">支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 3 个，每个不超过 20MB${required ? '；经政府/第三方核查时须上传佐证文件' : ''}</small>
+        <small style="color:#909399;display:block;margin-top:4px">支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${sizeHint}${extraHint}</small>
         <ul class="attach-list" id="${listId}">${this.renderAttachList(attachments)}</ul>
       </div>`;
   },
@@ -416,29 +537,24 @@ window.SUPPLEMENT_FIELDS = {
     const tpl = this.resolveTemplate(s);
     const ctx = this.getContext(s);
     const tabId = panelId;
-    const fieldKey = this.reportFieldKey(tabId);
     const row = this.reportKindFieldValues(s, tabId);
-    const verified = row.verified === 'no' ? 'no' : 'yes';
     const attachments = row.attachments || [];
     const sources = kind === 'authority'
       ? this.reportAuthoritySources(ctx.isProject)
       : this.reportOtherSources(ctx.isProject);
     const defaultSource = row.source || sources[0] || '';
+    const attachOptions = this.reportAttachOptions(kind);
     if (!tpl?.methods?.report) {
       return this.renderReportKindPanelDefault(s, dis, panelCls, panelId, kind);
     }
     return `
       <div class="${panelCls}" data-panel="${panelId}">
         <div class="form-grid">
-          <div class="form-item"><label><span class="req">*</span>报告法数据来源</label>
+          <div class="form-item"><label>报告法数据来源</label>
             ${this.selectFromOptions(sources, defaultSource, dis, `f_${tabId}_source`, false)}</div>
-          <div class="form-item"><label><span class="req">*</span>该数据是否经政府/第三方核查</label>
-            <select id="f_${tabId}_verified" ${dis}>
-              <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
-              <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
-            </select></div>
-          ${this.renderReportExtendedFieldsForTab(s, dis, tabId)}
-          ${this.renderAttachmentSection(tabId, attachments, dis, { required: verified === 'yes' })}
+          ${this.renderReportVerifiedField(tabId, kind, dis, row)}
+          ${this.renderReportExtendedFieldsForTab(s, dis, tabId, kind)}
+          ${this.renderAttachmentSection(tabId, attachments, dis, attachOptions)}
         </div>
       </div>`;
   },
@@ -446,25 +562,21 @@ window.SUPPLEMENT_FIELDS = {
   renderReportKindPanelDefault(s, dis, panelCls, panelId, kind) {
     const tabId = panelId;
     const row = this.reportKindFieldValues(s, tabId);
-    const verified = row.verified === 'no' ? 'no' : 'yes';
     const attachments = row.attachments || [];
     const ctx = this.getContext(s);
     const sources = kind === 'authority'
       ? this.reportAuthoritySources(ctx.isProject)
       : (kind === 'other' ? ['ESG报告', '年报', '核查报告', GELAN_REPORT_DATA_SOURCE || '其他'] : []);
     const channel = row.source || s.disclosureChannel || sources[0] || 'ESG报告';
+    const attachOptions = this.reportAttachOptions(kind);
     return `
       <div class="${panelCls}" data-panel="${panelId}"><div class="form-grid">
-        ${this.renderReportExtendedFieldsForTab(s, dis, tabId)}
-        <div class="form-item"><label><span class="req">*</span>报告法数据来源</label>
+        ${this.renderReportExtendedFieldsForTab(s, dis, tabId, kind)}
+        <div class="form-item"><label>报告法数据来源</label>
           <select id="f_${tabId}_source" ${dis}>${sources.map(c =>
             `<option ${channel === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-        <div class="form-item"><label><span class="req">*</span>该数据是否经政府/第三方核查</label>
-          <select id="f_${tabId}_verified" ${dis}>
-            <option value="yes" ${verified === 'yes' ? 'selected' : ''}>是</option>
-            <option value="no" ${verified === 'no' ? 'selected' : ''}>否</option>
-          </select></div>
-        ${this.renderAttachmentSection(tabId, attachments, dis, { required: verified === 'yes' })}
+        ${this.renderReportVerifiedField(tabId, kind, dis, row)}
+        ${this.renderAttachmentSection(tabId, attachments, dis, attachOptions)}
       </div></div>`;
   },
 
@@ -478,31 +590,54 @@ window.SUPPLEMENT_FIELDS = {
     if (!tpl?.methods?.energy) return this.renderEnergyPanelDefault(s, dis, panelCls, panelId);
     const en = tpl.methods.energy;
     const d = { ...(this.fieldData(s).energy || {}) };
-    const fuelHtml = (en.fuelFixed || []).map(f =>
-      `<div class="form-item"><label>${f.required ? '<span class="req">*</span>' : ''}${f.label}</label>${this.numInput('f_en_' + f.key, d[f.key], dis, f.step)}</div>`
-    ).join('');
-    const otherFuelOpts = en.otherFuelOptions || [];
-    const otherFuelRows = this.normalizePairRows(d, 'otherFuels', 'otherFuel', 1);
-    const otherFuelSection = otherFuelOpts.length
-      ? this.renderRepeatablePairSection('otherFuels', otherFuelRows, {
-        typeLabel: '燃料品种',
-        amountLabel: '消耗量（吨或万立方米）',
-        typeOptions: otherFuelOpts,
-        amountStep: '0.0001',
-        minRows: 1,
-        maxRows: 20
-      }, dis)
+    let fuelBody = '';
+    if (en.fuelCategories?.length) {
+      en.fuelCategories.forEach(cat => {
+        fuelBody += `<div class="form-section-title">${cat.category}</div><div class="form-grid form-grid-3">`;
+        (cat.items || []).forEach(item => {
+          const unitHint = item.unit ? `（${item.unit}）` : '';
+          fuelBody += `<div class="form-item"><label>${item.label}${unitHint}</label>${this.numInput('f_en_' + item.key, d[item.key], dis, '0.0001')}</div>`;
+        });
+        fuelBody += '</div>';
+      });
+    } else {
+      const fuelHtml = (en.fuelFixed || []).map(f =>
+        `<div class="form-item"><label>${f.label}</label>${this.numInput('f_en_' + f.key, d[f.key], dis, f.step)}</div>`
+      ).join('');
+      const otherFuelOpts = en.otherFuelOptions || [];
+      const otherFuelRows = this.normalizePairRows(d, 'otherFuels', 'otherFuel', 1);
+      const otherFuelSection = otherFuelOpts.length
+        ? this.renderRepeatablePairSection('otherFuels', otherFuelRows, {
+          typeLabel: '燃料品种',
+          amountLabel: '消耗量（吨或万立方米）',
+          typeOptions: otherFuelOpts,
+          amountStep: '0.0001',
+          minRows: 1,
+          maxRows: 20
+        }, dis)
+        : '';
+      fuelBody = `
+        <div class="form-section-title">燃料燃烧排放</div>
+        <div class="form-grid form-grid-3">${fuelHtml}</div>
+        ${otherFuelSection ? `<div class="form-section-title">其他能源（下拉选择）</div>${otherFuelSection}` : ''}`;
+    }
+    const customFuelSection = en.allowCustomFuel !== false
+      ? `<div class="form-section-title">其他能源（手动新增）</div>${this.renderRepeatableCustomSection('customFuels', this.normalizeCustomFuelRows(d), [
+        { key: 'category', label: '能源类型', placeholder: '如固体燃料、液体燃料' },
+        { key: 'item', label: '细分项', placeholder: '如无烟煤、天然气' },
+        { key: 'amount', label: '消耗量', type: 'number', step: '0.0001' },
+        { key: 'unit', label: '单位', placeholder: 't（吨）或 104Nm3' }
+      ], dis, { minRows: 0, addLabel: '+ 添加能源' })}`
       : '';
     const gridLabel = en.gridLabel || '所属电网';
     return `
       <div class="${panelCls}" data-panel="${panelId}">
-        <div class="form-section-title">燃料燃烧排放</div>
-        <div class="form-grid form-grid-3">${fuelHtml}</div>
-        ${otherFuelSection ? `<div class="form-section-title">其他能源（下拉选择）</div>${otherFuelSection}` : ''}
+        ${fuelBody}
+        ${customFuelSection}
         <div class="form-section-title">净购入电量</div>
         <div class="form-grid">
-          <div class="form-item"><label><span class="req">*</span>${gridLabel}</label>${this.selectFromOptions(en.gridOptions || [], d.powerGrid || '全国平均', dis, 'f_en_grid', false)}</div>
-          <div class="form-item"><label><span class="req">*</span>数值（MWh）</label>${this.numInput('f_en_elec', d.purchasedElectricity, dis, '0.01')}</div>
+          <div class="form-item"><label>${gridLabel}</label>${this.selectFromOptions(en.gridOptions || [], d.powerGrid || '全国平均', dis, 'f_en_grid', false)}</div>
+          <div class="form-item"><label>数值（MWh）</label>${this.numInput('f_en_elec', d.purchasedElectricity, dis, '0.01')}</div>
         </div>
         ${en.hasPurchasedHeat ? `
         <div class="form-section-title">净购入热力</div>
@@ -510,8 +645,7 @@ window.SUPPLEMENT_FIELDS = {
           <div class="form-item"><label>数值（GJ）</label>${this.numInput('f_en_heat', d.purchasedHeat, dis, '0.01')}</div>
         </div>` : ''}
         ${this.renderProcessBlocks(en.processBlocks || [], d, dis)}
-        <div class="form-grid">${this.renderAttachmentSection('energy', d.attachments || [], dis)}</div>
-        <small style="color:#909399">E = Σ(能源消耗量×因子)+工艺排放+净购入电热×区域因子（演示原型暂不自动试算）</small>
+        <small style="color:#909399">能源品种与过程排放依据人行附2；有什么填什么，非必填。E = Σ(能源消耗量×因子)+工艺排放+净购入电热×区域因子</small>
       </div>`;
   },
 
@@ -544,6 +678,19 @@ window.SUPPLEMENT_FIELDS = {
           minRows: 1,
           maxRows: 20
         }, dis);
+      } else if (block.type === 'process') {
+        const prefix = block.keyPrefix || 'process';
+        const arrayKey = prefix + 'Rows';
+        const rows = this.normalizePairRows(d, arrayKey, prefix, 1);
+        html += `<div class="form-section-title">过程排放 — ${block.label || '生产过程'}（下拉选择）</div>`;
+        html += this.renderRepeatablePairSection(arrayKey, rows, {
+          typeLabel: `${block.label || '生产过程'} · 类型`,
+          amountLabel: `${block.label || '生产过程'} · 消耗量/产量`,
+          typeOptions: block.typeOptions || [],
+          amountStep: '0.01',
+          minRows: 1,
+          maxRows: 20
+        }, dis);
       }
     });
     if (amountBlocks.length) {
@@ -557,25 +704,22 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   renderEnergyPanelDefault(s, dis, panelCls, panelId) {
-    const attachments = this.fieldData(s).energy?.attachments || [];
     return `
       <div class="${panelCls}" data-panel="${panelId}"><div class="form-grid">
         <div class="form-item full"><label>物理活动法-能源法排放总量(tCO₂)</label>
           ${this.numInput('f_energy_total', s.energyTotalEmission, dis)}
           <small style="color:#909399">E=Σ(能耗×因子)+工艺+净购入电热</small></div>
-        ${this.renderAttachmentSection('energy', attachments, dis)}
       </div></div>`;
   },
 
   renderProductPanel(s, dis, panelCls, panelId) {
     const tpl = this.resolveTemplate(s);
     const d = this.fieldData(s).product || {};
-    const attachments = d.attachments || [];
-    const fields = tpl?.methods?.product?.fields;
-    if (!fields?.length) {
+    const productCfg = tpl?.methods?.product;
+    const fields = productCfg?.fields;
+    if (!productCfg?.supported || !fields?.length) {
       return `<div class="${panelCls}" data-panel="${panelId}">
         <p style="color:#909399;padding:12px">该行业采集模板不含产品法字段</p>
-        <div class="form-grid">${this.renderAttachmentSection('product', attachments, dis)}</div>
       </div>`;
     }
     const groups = {};
@@ -587,16 +731,24 @@ window.SUPPLEMENT_FIELDS = {
     let body = '';
     Object.keys(groups).forEach(g => {
       body += `<div class="form-section-title">${g}</div><div class="form-grid form-grid-2">`;
-      body += groups[g].map(f =>
-        `<div class="form-item"><label>${f.label}</label>${this.numInput('f_pd_' + f.key, d[f.key], dis, '0.01')}</div>`
-      ).join('');
+      body += groups[g].map(f => {
+        const unitHint = f.unit && !String(f.label).includes(String(f.unit)) ? `（${f.unit}）` : '';
+        return `<div class="form-item"><label>${f.label}${unitHint}</label>${this.numInput('f_pd_' + f.key, d[f.key], dis, '0.01')}</div>`;
+      }).join('');
       body += '</div>';
     });
+    const customSection = productCfg.allowCustomProducts !== false
+      ? `<div class="form-section-title">其他产品（手动新增）</div>${this.renderRepeatableCustomSection('customProducts', this.normalizeCustomProductRows(d), [
+        { key: 'name', label: '产品名称', placeholder: '如粗钢、聚氯乙烯' },
+        { key: 'amount', label: '产量', type: 'number', step: '0.01' },
+        { key: 'unit', label: '单位', placeholder: '吨' }
+      ], dis, { minRows: 0, addLabel: '+ 添加产品' })}`
+      : '';
     return `
       <div class="${panelCls}" data-panel="${panelId}">
         ${body}
-        <div class="form-grid">${this.renderAttachmentSection('product', attachments, dis)}</div>
-        <small style="color:#909399">E = Σ(产品产量×产品碳排放因子)（演示原型暂不自动试算）</small>
+        ${customSection}
+        <small style="color:#909399">产品品种依据人行附2；有什么填什么，非必填。E = Σ(产品产量×产品碳排放因子)</small>
       </div>`;
   },
 
@@ -610,7 +762,8 @@ window.SUPPLEMENT_FIELDS = {
     if (!bytes) return '-';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
   },
 
   isReportVerifiedYes(rootEl, tabId) {
@@ -625,80 +778,92 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   syncReportAttachmentRequired(rootEl) {
-    ['report_authority', 'report_other'].forEach(tabId => {
-      const wrap = qs(`#f_${tabId}_attach_wrap`, rootEl);
-      if (!wrap) return;
-      const required = this.isReportVerifiedYes(rootEl, tabId);
-      const label = wrap.querySelector('label');
-      const hint = wrap.querySelector('small');
-      if (label) {
-        const hasReq = label.querySelector('.req');
-        if (required && !hasReq) label.insertAdjacentHTML('afterbegin', '<span class="req">*</span>');
-        else if (!required && hasReq) hasReq.remove();
+    const authWrap = qs('#f_report_authority_attach_wrap', rootEl);
+    if (authWrap) {
+      const label = authWrap.querySelector('label');
+      const hint = authWrap.querySelector('small');
+      if (label && !label.querySelector('.req')) {
+        label.insertAdjacentHTML('afterbegin', '<span class="req">*</span>');
       }
       if (hint) {
-        const base = '支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 3 个，每个不超过 20MB';
-        hint.textContent = required ? `${base}；经政府/第三方核查时须上传佐证文件` : base;
+        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}；权威数据须上传核查佐证材料`;
       }
-    });
+    }
+    const otherWrap = qs('#f_report_other_attach_wrap', rootEl);
+    if (otherWrap) {
+      const label = otherWrap.querySelector('label');
+      const hint = otherWrap.querySelector('small');
+      if (label) {
+        const hasReq = label.querySelector('.req');
+        if (hasReq) hasReq.remove();
+      }
+      if (hint) {
+        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}`;
+      }
+    }
   },
 
   bindReportAttachmentRule(rootEl, readonly) {
     if (readonly) return;
-    const handler = () => this.syncReportAttachmentRequired(rootEl);
-    ['report_authority', 'report_other'].forEach(tabId => {
-      qs(`#f_${tabId}_verified`, rootEl)?.addEventListener('change', handler);
-    });
-    handler();
+    this.syncReportAttachmentRequired(rootEl);
   },
 
-  validateReportAttachments(rootEl, supplement) {
-    const tabs = [
-      { id: 'report_authority', label: '报告法-权威数据' },
-      { id: 'report_other', label: '报告法-其他' }
-    ];
-    for (const tab of tabs) {
-      if (!this.isReportVerifiedYes(rootEl, tab.id)) continue;
-      if (this.getReportAttachments(supplement, tab.id).length > 0) continue;
-      return {
-        ok: false,
-        tabId: tab.id,
-        message: `${tab.label}：已选择「经政府/第三方核查」，请上传报告附件佐证文件`
-      };
-    }
-    return { ok: true };
-  },
-
-  validateProjectInfo(rootEl, supplement) {
-    const ctx = this.getContext(supplement);
-    if (!ctx.isProject) return { ok: true };
-
-    const flagEl = qs('#f_project_info_available', rootEl);
-    const flag = flagEl?.value || '';
-    if (!flag) {
-      return { ok: false, message: '请选择是否可提供项目信息' };
-    }
-    if (flag !== 'yes') return { ok: true };
-
-    for (const field of this.PROJECT_INFO_REQUIRED) {
+  _validateRequiredFields(rootEl, fields) {
+    for (const field of fields) {
       const val = field.type === 'number'
         ? numVal('#' + field.id, rootEl)
         : txtVal('#' + field.id, rootEl);
       if (val == null || val === '') {
-        return { ok: false, message: `项目信息填报：请填写${field.label}` };
+        return { ok: false, message: `请填写${field.label}` };
       }
     }
     return { ok: true };
   },
 
-  validateAttachments(files, existingCount) {
+  validateReportAuthorityAttachments(rootEl, supplement) {
+    const emission = numVal('#f_report_authority_emission', rootEl);
+    const hasEmission = emission != null && emission !== '';
+    if (!hasEmission) return { ok: true };
+    if (this.getReportAttachments(supplement, 'report_authority').length > 0) return { ok: true };
+    return {
+      ok: false,
+      tabId: 'report_authority',
+      message: '报告法-权威数据需提交核查佐证材料，否则请填至报告法-其他'
+    };
+  },
+
+  validateReportAttachments() {
+    return { ok: true };
+  },
+
+  validateSupplementSubmit(rootEl, supplement) {
+    const ctx = this.getContext(supplement);
+    let check;
+    if (ctx.needsProjectFinancials) {
+      check = this._validateRequiredFields(rootEl, this.PROJECT_SUBMIT_REQUIRED);
+    } else if (ctx.needsEntityFinancials) {
+      check = this._validateRequiredFields(rootEl, this.ENTITY_SUBMIT_REQUIRED);
+    } else {
+      check = { ok: true };
+    }
+    if (!check.ok) return check;
+    return this.validateReportAuthorityAttachments(rootEl, supplement);
+  },
+
+  validateProjectInfo(rootEl, supplement) {
+    return this.validateSupplementSubmit(rootEl, supplement);
+  },
+
+  validateAttachments(files, existingCount, options = {}) {
     const allowed = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpeg', 'jpg'];
-    const maxBytes = this.ATTACH_MAX_MB * 1024 * 1024;
+    const maxMb = options.maxMb ?? this.ATTACH_MAX_MB;
+    const maxBytes = maxMb * 1024 * 1024;
+    const sizeLabel = maxMb >= 1024 ? `${Math.round(maxMb / 1024)}GB` : `${maxMb}MB`;
     const list = [];
     for (const f of files) {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       if (!allowed.includes(ext)) return { ok: false, message: `不支持的文件格式：${f.name}` };
-      if (f.size > maxBytes) return { ok: false, message: `${f.name} 超过 ${this.ATTACH_MAX_MB}MB 限制` };
+      if (f.size > maxBytes) return { ok: false, message: `${f.name} 超过 ${sizeLabel} 限制` };
       list.push({ name: f.name, size: f.size, uploadedAt: new Date().toLocaleString('zh-CN') });
     }
     if (existingCount + list.length > this.ATTACH_MAX_COUNT) {
@@ -709,7 +874,7 @@ window.SUPPLEMENT_FIELDS = {
 
   bindFileUpload(rootEl, supplementId, readonly) {
     if (readonly) return;
-    ['report_authority', 'report_other', 'energy', 'product', 'other'].forEach(tabId => {
+    ['report_authority', 'report_other', 'other'].forEach(tabId => {
       this._bindTabFileUpload(rootEl, supplementId, tabId);
     });
   },
@@ -728,7 +893,10 @@ window.SUPPLEMENT_FIELDS = {
       if (!s) return;
       const fd = this.normalizeReportFieldData(s);
       const existing = (s.fieldData?.[fieldKey]?.attachments || fd[fieldKey]?.attachments || []);
-      const check = this.validateAttachments([...input.files], existing.length);
+      const maxMb = (tabId === 'report_authority' || tabId === 'report_other')
+        ? this.ATTACH_MAX_MB_AUTHORITY
+        : this.ATTACH_MAX_MB;
+      const check = this.validateAttachments([...input.files], existing.length, { maxMb });
       if (!check.ok) { toast(check.message, 'warning'); input.value = ''; return; }
       Store.update(d => {
         const sup = d.supplements.find(x => x.id === supplementId);
@@ -751,9 +919,20 @@ window.SUPPLEMENT_FIELDS = {
   collectEnergyData(rootEl, tpl, supplement) {
     const en = tpl.methods.energy;
     const d = {};
-    (en.fuelFixed || []).forEach(f => { d[f.key] = numVal('#f_en_' + f.key, rootEl); });
-    d.otherFuels = this.collectRepeatablePairList(rootEl, 'otherFuels');
-    this.syncLegacyPairRows(d, 'otherFuels', 'otherFuel');
+    if (en.fuelCategories?.length) {
+      en.fuelCategories.forEach(cat => {
+        (cat.items || []).forEach(item => {
+          d[item.key] = numVal('#f_en_' + item.key, rootEl);
+        });
+      });
+    } else {
+      (en.fuelFixed || []).forEach(f => { d[f.key] = numVal('#f_en_' + f.key, rootEl); });
+      d.otherFuels = this.collectRepeatablePairList(rootEl, 'otherFuels');
+      this.syncLegacyPairRows(d, 'otherFuels', 'otherFuel');
+    }
+    if (en.allowCustomFuel !== false) {
+      d.customFuels = this.collectRepeatableCustomList(rootEl, 'customFuels', ['category', 'item', 'amount', 'unit']);
+    }
     d.powerGrid = qs('#f_en_grid', rootEl)?.value;
     d.purchasedElectricity = numVal('#f_en_elec', rootEl);
     if (en.hasPurchasedHeat) d.purchasedHeat = numVal('#f_en_heat', rootEl);
@@ -761,8 +940,8 @@ window.SUPPLEMENT_FIELDS = {
       if (block.type === 'desulfur') {
         d.desulfurRows = this.collectRepeatablePairList(rootEl, 'desulfurRows');
         this.syncLegacyPairRows(d, 'desulfurRows', 'desulfur');
-      } else if (block.type === 'carbonate') {
-        const prefix = block.keyPrefix || 'carbonate';
+      } else if (block.type === 'carbonate' || block.type === 'process') {
+        const prefix = block.keyPrefix || (block.type === 'carbonate' ? 'carbonate' : 'process');
         const arrayKey = prefix + 'Rows';
         d[arrayKey] = this.collectRepeatablePairList(rootEl, arrayKey);
         this.syncLegacyPairRows(d, arrayKey, prefix);
@@ -778,6 +957,9 @@ window.SUPPLEMENT_FIELDS = {
     (tpl.methods.product.fields || []).forEach(f => {
       product[f.key] = numVal('#f_pd_' + f.key, rootEl);
     });
+    if (tpl.methods.product.allowCustomProducts !== false) {
+      product.customProducts = this.collectRepeatableCustomList(rootEl, 'customProducts', ['name', 'amount', 'unit']);
+    }
     return product;
   },
 
@@ -786,36 +968,32 @@ window.SUPPLEMENT_FIELDS = {
     const payload = {
       customerName: txtVal('#f_customer_name', rootEl) || supplement.customerName,
       industryMajor: txtVal('#f_industry_major', rootEl) || supplement.industryMajor,
+      accountingType: ctx.accountingType,
       fieldData: { ...(supplement.fieldData || {}) }
     };
-    if (!ctx.isProject) {
-      payload.totalAssets = numVal('#f_total_assets', rootEl);
+    if (ctx.needsEntityFinancials) {
       payload.revenue = numVal('#f_revenue', rootEl);
+      payload.avgTotalAssets = numVal('#f_avg_total_assets', rootEl);
+      payload.totalAssets = payload.avgTotalAssets;
       payload.avgLoanBalance = numVal('#f_avg_loan', rootEl);
     }
-    const projectInfoFlagEl = qs('#f_project_info_available', rootEl);
-    if (projectInfoFlagEl) {
-      const v = projectInfoFlagEl.value;
-      payload.projectInfoAvailable = v === 'yes' ? true : (v === 'no' ? false : null);
-      if (payload.projectInfoAvailable === true) {
-        payload.projectInfo = {
-          projectNo: txtVal('#f_prj_no', rootEl),
-          projectName: txtVal('#f_prj_name', rootEl),
-          projectProvince: txtVal('#f_prj_province', rootEl),
-          projectIndustry: txtVal('#f_prj_industry', rootEl),
-          customerNo: txtVal('#f_prj_customer_no', rootEl),
-          customerName: txtVal('#f_prj_customer_name', rootEl),
-          creditCode: txtVal('#f_prj_credit_code', rootEl),
-          nationalIndustryCodeLv4: txtVal('#f_prj_industry_code_lv4', rootEl),
-          projectAvgLoanBalanceWan: numVal('#f_prj_avg_loan', rootEl),
-          projectRevenueWan: numVal('#f_prj_revenue', rootEl),
-          projectTotalInvestmentWan: numVal('#f_prj_total_invest', rootEl)
-        };
-        payload.projectDetails = [payload.projectInfo];
-      } else if (payload.projectInfoAvailable === false) {
-        payload.projectInfo = null;
-        payload.projectDetails = [];
-      }
+    if (ctx.needsProjectFinancials) {
+      payload.projectInfo = {
+        projectNo: txtVal('#f_prj_no', rootEl),
+        projectName: txtVal('#f_prj_name', rootEl),
+        projectProvince: txtVal('#f_prj_province', rootEl),
+        projectIndustry: txtVal('#f_prj_industry', rootEl),
+        customerNo: txtVal('#f_prj_customer_no', rootEl),
+        customerName: txtVal('#f_prj_customer_name', rootEl),
+        creditCode: txtVal('#f_prj_credit_code', rootEl),
+        nationalIndustryCodeLv4: txtVal('#f_prj_industry_code_lv4', rootEl),
+        projectAvgLoanBalanceWan: numVal('#f_prj_avg_loan', rootEl),
+        projectRevenueWan: numVal('#f_prj_revenue', rootEl),
+        projectTotalInvestmentWan: numVal('#f_prj_total_invest', rootEl)
+      };
+      payload.projectDetails = [payload.projectInfo];
+      payload.projectInfoAvailable = true;
+      payload.revenue = payload.projectInfo.projectRevenueWan;
     }
     return payload;
   },
@@ -830,7 +1008,7 @@ window.SUPPLEMENT_FIELDS = {
       const reportExt = this.collectReportExtendedFieldsForTab(rootEl, tabId);
       const report = {
         source: qs(`#f_${tabId}_source`, rootEl)?.value || null,
-        verified: verifiedEl.value === 'yes',
+        verified: tabId === 'report_authority' ? true : (tabId === 'report_other' ? false : verifiedEl.value === 'yes'),
         attachments: supplement.fieldData?.[fieldKey]?.attachments
           || this.normalizeReportFieldData(supplement)[fieldKey]?.attachments
           || [],
@@ -858,30 +1036,22 @@ window.SUPPLEMENT_FIELDS = {
   _mergeEnergyTab(rootEl, supplement, payload, tpl) {
     if (tpl?.methods?.energy) {
       const energy = this.collectEnergyData(rootEl, tpl, supplement);
-      energy.attachments = supplement.fieldData?.energy?.attachments || [];
       payload.fieldData.energy = energy;
       payload.energyTotalEmission = this.estimateEnergyEmission(energy, tpl);
     } else if (qs('#f_energy_total', rootEl)) {
       payload.energyTotalEmission = numVal('#f_energy_total', rootEl);
-      payload.fieldData.energy = {
-        ...(payload.fieldData.energy || {}),
-        attachments: supplement.fieldData?.energy?.attachments || []
-      };
+      payload.fieldData.energy = { ...(payload.fieldData.energy || {}) };
     }
   },
 
   _mergeProductTab(rootEl, supplement, payload, tpl) {
     if (tpl?.methods?.product?.fields?.length) {
       const product = this.collectProductData(rootEl, tpl);
-      product.attachments = supplement.fieldData?.product?.attachments || [];
       payload.fieldData.product = product;
       payload.productTotalEmission = this.estimateProductEmission(product, tpl);
     } else if (qs('#f_product_total', rootEl)) {
       payload.productTotalEmission = numVal('#f_product_total', rootEl);
-      payload.fieldData.product = {
-        ...(payload.fieldData.product || {}),
-        attachments: supplement.fieldData?.product?.attachments || []
-      };
+      payload.fieldData.product = { ...(payload.fieldData.product || {}) };
     }
   },
 
@@ -948,23 +1118,115 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   estimateEnergyEmission(energy, tpl) {
-    const nums = Object.values(energy || {}).filter(v => typeof v === 'number');
-    const has = nums.some(v => v != null && v > 0);
-    if (!has) return null;
-    const coal = energy.coal || 0;
-    const gas = energy.gas || 0;
-    const elec = energy.purchasedElectricity || 0;
-    const heat = energy.purchasedHeat || 0;
-    return Math.round(coal * 2.2 + gas * 21.6 + elec * 0.55 + heat * 0.11);
+    if (!energy || typeof energy !== 'object') return null;
+    let total = 0;
+    let has = false;
+    const bump = (v, factor) => {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) {
+        total += n * factor;
+        has = true;
+      }
+    };
+    bump(energy.purchasedElectricity, 0.55);
+    bump(energy.purchasedHeat, 0.11);
+    bump(energy.coal, 2.2);
+    bump(energy.coke, 2.86);
+    bump(energy.diesel, 3.1);
+    bump(energy.gas, 21.6);
+    const skipKeys = new Set([
+      'powerGrid', 'attachments', 'otherFuels', 'customFuels',
+      'purchasedElectricity', 'purchasedHeat', 'coal', 'coke', 'diesel', 'gas'
+    ]);
+    Object.entries(energy).forEach(([k, v]) => {
+      if (skipKeys.has(k) || k.endsWith('Rows')) return;
+      if (typeof v === 'number') bump(v, 2.5);
+    });
+    const rowKeys = Object.keys(energy).filter(k => k.endsWith('Rows'));
+    rowKeys.forEach(key => {
+      (energy[key] || []).forEach(r => bump(r?.amount, 0.44));
+    });
+    (energy.customFuels || []).forEach(r => bump(r?.amount, 2.5));
+    return has ? Math.round(total) : null;
   },
 
   estimateProductEmission(product, tpl) {
-    const vals = Object.values(product || {}).filter(v => v != null && v > 0);
-    if (!vals.length) return null;
-    const sum = vals.reduce((s, v) => s + Number(v), 0);
+    if (!product || typeof product !== 'object') return null;
+    let sum = 0;
+    let has = false;
+    Object.entries(product).forEach(([k, v]) => {
+      if (k === 'attachments' || k === 'customProducts') return;
+      if (typeof v === 'number' && v > 0) {
+        sum += v;
+        has = true;
+      }
+    });
+    (product.customProducts || []).forEach(r => {
+      if (Number(r?.amount) > 0) {
+        sum += Number(r.amount);
+        has = true;
+      }
+    });
+    if (!has) return null;
     const sheet = tpl?.sheetName;
     const factor = sheet === '水泥' ? 0.88 : sheet === '平板玻璃' ? 1.13 : 0.82;
     return Math.round(sum * factor * 0.001);
+  },
+
+  /** 分行审核选方法：预览各 Tab 能否算出主体排放量 */
+  resolveMethodTabEmissionPreview(s, tabId) {
+    const tpl = this.resolveTemplate(s || {});
+    if (tabId === 'report_authority' || tabId === 'report_other') {
+      const fd = this.normalizeReportFieldData(s || {});
+      const key = this.reportFieldKey(tabId);
+      const row = fd[key] || {};
+      const raw = row.ghgTotalEmission ?? row.emission;
+      if (raw != null && raw !== '' && Number(raw) >= 0) {
+        return { ok: true, value: Math.round(Number(raw)) };
+      }
+      return { ok: false };
+    }
+    if (tabId === 'energy') {
+      if (s?.energyTotalEmission != null && s.energyTotalEmission !== '') {
+        return { ok: true, value: Math.round(Number(s.energyTotalEmission)) };
+      }
+      const est = this.estimateEnergyEmission(s?.fieldData?.energy, tpl);
+      return est != null ? { ok: true, value: est } : { ok: false };
+    }
+    if (tabId === 'product') {
+      if (s?.productTotalEmission != null && s.productTotalEmission !== '') {
+        return { ok: true, value: Math.round(Number(s.productTotalEmission)) };
+      }
+      const est = this.estimateProductEmission(s?.fieldData?.product, tpl);
+      return est != null ? { ok: true, value: est } : { ok: false };
+    }
+    if (tabId === 'economy') {
+      const prefill = typeof getEconomyDirectPrefill === 'function' ? getEconomyDirectPrefill(s) : null;
+      if (prefill?.entityEmission != null && prefill.entityEmission !== '') {
+        return { ok: true, value: Math.round(Number(prefill.entityEmission)) };
+      }
+      if (s?.economyEntityEmission != null && s.economyEntityEmission !== '') {
+        return { ok: true, value: Math.round(Number(s.economyEntityEmission)) };
+      }
+      const formal = typeof getFormalForSupplement === 'function' ? getFormalForSupplement(s) : null;
+      const val = Number(s?.economyValue ?? s?.fieldData?.economy?.value ?? s?.revenue ?? formal?.operatingRevenue);
+      const factor = Number(s?.economyFactor ?? s?.fieldData?.economy?.factor ?? 2.35);
+      if (Number.isFinite(val) && val > 0 && Number.isFinite(factor) && factor > 0) {
+        return { ok: true, value: Math.round(val * factor) };
+      }
+      return { ok: false };
+    }
+    if (tabId === 'other') {
+      return { ok: false };
+    }
+    return { ok: false };
+  },
+
+  formatMethodEmissionPreview(preview) {
+    if (preview?.ok && preview.value != null && !Number.isNaN(preview.value)) {
+      return `${typeof formatNum === 'function' ? formatNum(preview.value) : preview.value} tCO₂e`;
+    }
+    return '缺少数据';
   }
 };
 
