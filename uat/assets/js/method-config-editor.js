@@ -233,7 +233,7 @@ window.MethodConfigEditor = {
     const param = METHOD_CONFIG.getParam(amountId);
     const libId = presetRowEl.querySelector(`[name="inline_factor_lib_${refKey}"]`)?.value?.trim() || '';
     const factorUnit = libId ? METHOD_CONFIG.getFactorUnitFromLibrary(libId) : '';
-    const assess = METHOD_CONFIG.assessUnitConversion(param?.unit, factorUnit);
+    const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = presetRowEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
     const okBar = presetRowEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
     if (!libId) {
@@ -300,7 +300,7 @@ window.MethodConfigEditor = {
                 ${this.dynamicParamRequiredHtml(blockNorm.amountParamId, pIndex, detail, { saved })}
               </label>
               ${this.dynamicParamSelectHtml('block_amountParam', blockNorm.amountParamId, 'number', { saved })}
-              ${amountP?.unit && amountP.unit !== '—' ? `<p class="text-muted structure-dynamic-enum-hint">活动数据单位：${escapeHtml(amountP.unit)}</p>` : ''}
+              ${amountP && METHOD_CONFIG.paramUnitsDisplay(amountP) !== '—' ? `<p class="text-muted structure-dynamic-enum-hint">活动数据单位：${escapeHtml(METHOD_CONFIG.paramUnitsDisplay(amountP))}</p>` : ''}
             </div>
           </div>
         </div>
@@ -396,7 +396,7 @@ window.MethodConfigEditor = {
     const factorUnit = binding?.factorSource
       ? METHOD_CONFIG.getFactorUnitFromLibrary(binding.factorSource)
       : (binding?.unitFactor || '');
-    const assess = METHOD_CONFIG.assessUnitConversion(param?.unit, factorUnit);
+    const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const hasFactor = !!(binding?.factorSource);
     const showConvert = hasFactor && assess.needsConversion;
     const showOk = hasFactor && assess.match;
@@ -444,7 +444,7 @@ window.MethodConfigEditor = {
     const param = METHOD_CONFIG.getParam(primary);
     const libId = sourceEl.querySelector(`[name="inline_factor_lib_${refKey}"]`)?.value?.trim() || '';
     const factorUnit = libId ? METHOD_CONFIG.getFactorUnitFromLibrary(libId) : '';
-    const assess = METHOD_CONFIG.assessUnitConversion(param?.unit, factorUnit);
+    const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = sourceEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
     const okBar = sourceEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
     if (!libId) {
@@ -495,7 +495,7 @@ window.MethodConfigEditor = {
     const factorUnit = METHOD_CONFIG.getFactorUnitFromLibrary(
       sourceEl.querySelector(`[name="inline_factor_lib_${refKey}"]`)?.value
     );
-    const assess = METHOD_CONFIG.assessUnitConversion(METHOD_CONFIG.getParam(primary)?.unit, factorUnit);
+    const assess = METHOD_CONFIG.assessParamUnitConversion(METHOD_CONFIG.getParam(primary), factorUnit);
     const conversionFactor = assess.needsConversion ? (cf !== '' ? Number(cf) : 1) : 1;
     hidden.value = METHOD_CONFIG.applyConversionFactorToExpr(base, primary, conversionFactor);
   },
@@ -840,7 +840,7 @@ window.MethodConfigEditor = {
     return `<div class="structure-emission-param-row" data-source-param="${escapeHtml(fid)}">
       <input type="hidden" name="source_field" data-source-id="${escapeHtml(sourceId)}" value="${escapeHtml(fid)}">
       <span class="structure-emission-param-name">${escapeHtml(p?.name || fid)}</span>
-      ${p?.unit && p.unit !== '—' ? `<span class="structure-emission-unit">${escapeHtml(p.unit)}</span>` : ''}
+      ${p && METHOD_CONFIG.paramUnitsDisplay(p) !== '—' ? `<span class="structure-emission-unit">${escapeHtml(METHOD_CONFIG.paramUnitsDisplay(p))}</span>` : ''}
       <label class="req-inline structure-emission-req"><input type="checkbox" name="field_required_${escapeHtml(fid)}" data-partition-index="${blockIndex}" ${req ? 'checked' : ''} ${saved ? 'disabled' : ''}> 必填</label>
       ${showRemove ? `<button type="button" class="btn btn-sm structure-source-param-remove" data-remove-source-param="${escapeHtml(fid)}" title="移除此参数">×</button>` : ''}
     </div>`;

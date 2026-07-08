@@ -200,7 +200,7 @@ window.IndustryConfig = {
   renderTableRow(row, startIndex, i) {
     const ops = `
       <button type="button" class="btn-link ic-edit-btn" data-id="${row.id}">编辑</button>
-      <button type="button" class="btn-link ic-del-btn" data-id="${row.id}">删除</button>`;
+      <button type="button" class="btn-link btn-link-danger ic-del-btn" data-id="${row.id}">删除</button>`;
     return `<tr>
       <td>${startIndex + i + 1}</td>
       <td>${row.level1Name || '—'}<div class="cell-sub">${row.level1Code || ''}</div></td>
@@ -208,7 +208,7 @@ window.IndustryConfig = {
       <td>${row.level3Name || '—'}<div class="cell-sub">${row.level3Code || ''}</div></td>
       <td>${row.level4Name || row.name || '—'}<div class="cell-sub">${row.code || row.cascadeCode || ''}</div></td>
       <td>${this.tagBadges(row)}</td>
-      <td class="table-actions">${ops}</td>
+      <td class="actions">${ops}</td>
     </tr>`;
   },
 

@@ -6,6 +6,19 @@ const FACTOR_METHOD_TABS = [
   { id: 'economy', label: '经济活动法' }
 ];
 const FACTOR_ENERGY_CATEGORIES = ['固体燃料', '液体燃料', '气体燃料', '购入电力', '购入热力', '脱硫试剂', '工艺排放', '其他'];
+/** 能源法 / 产品法 — 计量单位下拉（仅可选择，不可手输） */
+const FACTOR_ENERGY_UNIT_OPTIONS = [
+  { value: 'tCO2e/t', label: 'tCO2e/t' },
+  { value: 'tCO2e/MWh', label: 'tCO2e/MWh' },
+  { value: 'tCO2e/万kWh', label: 'tCO2e/万kWh' },
+  { value: 'tCO2e/万m³', label: 'tCO2e/万m³' },
+  { value: 'tCO2e/GJ', label: 'tCO2e/GJ（吉焦）' }
+];
+const FACTOR_PRODUCT_UNIT_OPTIONS = [
+  { value: 'tCO2e/t', label: 'tCO2e/t' },
+  { value: 'tCO2e/MWh', label: 'tCO2e/MWh' },
+  { value: 'tCO2e/GJ', label: 'tCO2e/GJ（吉焦）' }
+];
 const FACTORS_GUIDE_VERSION = 'guide-2026-annex2';
 
 function getFactorFilters() {
@@ -36,6 +49,19 @@ function isFactorFilterChecked(selected, value) {
 
 function factorMethodLabel(methodId) {
   return FACTOR_METHOD_TABS.find(t => t.id === methodId)?.label || methodId;
+}
+
+function renderFactorUnitSelect(name, options, selected, disabled) {
+  const dis = disabled ? ' disabled' : '';
+  const list = [...(options || [])];
+  const val = selected || list[0]?.value || '';
+  if (val && !list.some(o => o.value === val)) {
+    list.push({ value: val, label: val });
+  }
+  const opts = list.map(o =>
+    `<option value="${o.value}" ${val === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+  return `<select name="${name}"${dis}>${opts}</select>`;
 }
 
 function factorItemDetailLabel(f) {
@@ -324,14 +350,26 @@ function renderFactorTableHead(methodId) {
   return '<tr><th>行业大类</th><th>国标代码</th><th>行业名称</th><th>因子值</th><th>单位</th><th>来源</th><th>操作</th></tr>';
 }
 
+function renderFactorRowActions(f, options = {}) {
+  const id = f?.id;
+  const groupKey = options.groupKey;
+  const editHref = `#/factors/edit?id=${encodeURIComponent(id)}`;
+  const viewBtn = groupKey != null
+    ? `<button type="button" class="btn-link factor-view-btn" data-group-key="${encodeURIComponent(groupKey)}">查看</button>`
+    : `<button type="button" class="btn-link factor-view-btn" data-id="${id}">查看</button>`;
+  const delBtn = groupKey != null
+    ? `<button type="button" class="btn-link btn-link-danger factor-del-group-btn" data-group-key="${encodeURIComponent(groupKey)}">删除</button>`
+    : `<button type="button" class="btn-link btn-link-danger factor-del-btn" data-id="${id}">删除</button>`;
+  return `<td class="actions">
+    <a href="${editHref}" class="btn-link">编辑</a>
+    ${viewBtn}
+    <button type="button" class="btn-link factor-copy-btn" data-id="${id}">复制</button>
+    ${delBtn}
+  </td>`;
+}
+
 function renderFactorGroupTableRow(g) {
   const f = g.latest;
-  const ops = [
-    `<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`,
-    `<button type="button" class="btn btn-sm factor-del-group-btn" data-group-key="${encodeURIComponent(g.groupKey)}">删除</button>`,
-    `<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`,
-    `<button type="button" class="btn btn-sm factor-view-btn" data-group-key="${encodeURIComponent(g.groupKey)}">查看</button>`
-  ];
   const val = formatFactorValue(f);
   const src = g.isCustom
     ? (f.sourceNote || '自定义')
@@ -347,20 +385,15 @@ function renderFactorGroupTableRow(g) {
     <td>${f.unit || '-'}</td>
     <td>${factorCaliberLabel(f)}</td>
     <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${src}</span> ${badge}</td>
-    <td class="table-actions">${ops.join(' ')}</td>
+    ${renderFactorRowActions(f, { groupKey: g.groupKey })}
   </tr>`;
 }
 
 function renderFactorTableRow(f, options = {}) {
   const unified = options.unified;
-  const ops = [
-    `<a href="#/factors/edit?id=${encodeURIComponent(f.id)}" class="btn btn-sm">编辑</a>`,
-    `<button type="button" class="btn btn-sm factor-del-btn" data-id="${f.id}">删除</button>`,
-    `<button type="button" class="btn btn-sm factor-copy-btn" data-id="${f.id}">复制</button>`,
-    `<button type="button" class="btn btn-sm factor-view-btn" data-id="${f.id}">查看</button>`
-  ];
   const val = formatFactorValue(f);
   const src = f.isBuiltin ? formatFactorSourceLabel(f) : (f.sourceNote || '自定义');
+  const actionCell = renderFactorRowActions(f);
   if (unified) {
     return `<tr>
       <td>${factorMethodLabel(f.methodId)}</td>
@@ -370,7 +403,7 @@ function renderFactorTableRow(f, options = {}) {
       <td>${f.unit || '-'}</td>
       <td>${factorCaliberLabel(f)}</td>
       <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${src}</span> ${factorSourceBadge(f)}</td>
-      <td class="table-actions">${ops.join(' ')}</td>
+      ${actionCell}
     </tr>`;
   }
   if (f.methodId === 'energy') {
@@ -382,7 +415,7 @@ function renderFactorTableRow(f, options = {}) {
       <td>${val}</td>
       <td>${f.unit || '-'}</td>
       <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${src}</span> ${factorSourceBadge(f)}</td>
-      <td class="table-actions">${ops.join(' ')}</td>
+      ${actionCell}
     </tr>`;
   }
   if (f.methodId === 'product') {
@@ -393,7 +426,7 @@ function renderFactorTableRow(f, options = {}) {
       <td>${val}</td>
       <td>${f.unit || '-'}</td>
       <td><span title="${(f.sourceNote || '').replace(/"/g, '&quot;')}">${(f.sourceNote || '指引附2').slice(0, 24)}</span> ${factorSourceBadge(f)}</td>
-      <td class="table-actions">${ops.join(' ')}</td>
+      ${actionCell}
     </tr>`;
   }
   return `<tr>
@@ -403,7 +436,7 @@ function renderFactorTableRow(f, options = {}) {
     <td>${val}</td>
     <td>${f.unit || '-'}</td>
     <td>${src} ${factorSourceBadge(f)}</td>
-    <td class="table-actions">${ops.join(' ')}</td>
+    ${actionCell}
   </tr>`;
 }
 
@@ -579,12 +612,7 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
       <div class="form-item"><label>子行业${subIndRequired ? ' *' : ''}</label>
         <input name="subIndustry" ${subIndRequired ? 'required' : ''} value="${f.subIndustry || ''}" placeholder="建材填水泥/平板玻璃；有色填铝冶炼/铜冶炼"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>计量单位</label>
-        <select name="unit"${idDis}>
-          <option value="tCO2e/t" ${f.unit === 'tCO2e/t' ? 'selected' : ''}>tCO2e/t</option>
-          <option value="tCO2e/MWh" ${f.unit === 'tCO2e/MWh' ? 'selected' : ''}>tCO2e/MWh</option>
-          <option value="tCO2e/万m³" ${f.unit === 'tCO2e/万m³' ? 'selected' : ''}>tCO2e/万m³</option>
-          <option value="tCO2e/万kWh" ${f.unit === 'tCO2e/万kWh' ? 'selected' : ''}>tCO2e/万kWh</option>
-        </select></div>`;
+        ${renderFactorUnitSelect('unit', FACTOR_ENERGY_UNIT_OPTIONS, f.unit || 'tCO2e/t', identityReadonly)}</div>`;
   } else if (m === 'product') {
     dynamic = `
       ${gbField}
@@ -594,10 +622,7 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
       <div class="form-item"><label>主要产品 *</label><input name="productMajor" required value="${f.productMajor || ''}"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>细分项 *</label><input name="productSub" required value="${f.productSub || ''}"${idDis ? ' readonly' : ''}></div>
       <div class="form-item"><label>计量单位</label>
-        <select name="unit"${idDis}>
-          <option value="tCO2e/t" ${f.unit === 'tCO2e/t' ? 'selected' : ''}>tCO2e/t</option>
-          <option value="tCO2e/MWh" ${f.unit === 'tCO2e/MWh' ? 'selected' : ''}>tCO2e/MWh</option>
-        </select></div>`;
+        ${renderFactorUnitSelect('unit', FACTOR_PRODUCT_UNIT_OPTIONS, f.unit || 'tCO2e/t', identityReadonly)}</div>`;
   } else {
     dynamic = `
       ${renderFactorGbIndustryField(f, { disabled: identityReadonly })}
@@ -660,11 +685,7 @@ function openFactorGroupViewModal(groupKey, allFactors) {
     <button type="button" class="btn" id="factorModalCopyBtn">复制</button>`;
   qs('#factorModalCopyBtn')?.addEventListener('click', () => {
     hideModal('reviewModal');
-    const id = Store.copyFactorAsCustom(f.id);
-    if (id) {
-      toast('已复制因子', 'success');
-      location.hash = '#/factors/edit?id=' + encodeURIComponent(id);
-    }
+    location.hash = '#/factors/new?copy=' + encodeURIComponent(f.id);
   });
   qs('.factor-modal-del-btn')?.addEventListener('click', () => {
     const tip = f.isBuiltin ? '\n\n该因子为人行/指引内置，删除后不可恢复。' : '';

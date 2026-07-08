@@ -9,8 +9,8 @@ window.SUPPLEMENT_FIELDS = {
 
   /** 提交必填：项目（按项目计算） */
   PROJECT_SUBMIT_REQUIRED: [
-    { id: 'f_prj_revenue', label: '项目收入（万元）', type: 'number' },
-    { id: 'f_prj_total_invest', label: '项目总投资（万元）', type: 'number' }
+    { id: 'f_prj_revenue', label: '项目收入（元）', type: 'number' },
+    { id: 'f_prj_total_invest', label: '项目总投资（元）', type: 'number' }
   ],
   /** 提交必填：非项目 / 项目（按非项目计算） */
   ENTITY_SUBMIT_REQUIRED: [
@@ -199,7 +199,7 @@ window.SUPPLEMENT_FIELDS = {
 
   reportAttachOptions(kind) {
     if (kind === 'authority') {
-      return { required: true, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
+      return { required: false, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
     }
     if (kind === 'other') {
       return { required: false, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
@@ -251,6 +251,23 @@ window.SUPPLEMENT_FIELDS = {
   val(data, key, fallback = '') {
     const v = data?.[key];
     return v == null ? fallback : v;
+  },
+
+  projectAmountYuanInput(wanValue, yuanFallback) {
+    if (wanValue != null && wanValue !== '' && wanValue !== '-') {
+      return typeof projectWanToYuanFormValue === 'function'
+        ? projectWanToYuanFormValue(wanValue)
+        : (Number(wanValue) * 10000).toFixed(2);
+    }
+    if (yuanFallback == null || yuanFallback === '') return '';
+    const n = Number(yuanFallback);
+    return Number.isFinite(n) ? n.toFixed(2) : '';
+  },
+
+  projectYuanFieldToWan(sel, rootEl) {
+    const yuan = numVal(sel, rootEl);
+    if (yuan == null) return null;
+    return typeof projectYuanFormToWan === 'function' ? projectYuanFormToWan(yuan) : yuan;
   },
 
   numInput(id, value, dis, step) {
@@ -481,9 +498,7 @@ window.SUPPLEMENT_FIELDS = {
       : ctx.accountingType;
     const avgAssetsVal = s.avgTotalAssets ?? formal?.avgTotalAssets ?? s.totalAssets ?? '';
     const revenueVal = s.revenue ?? formal?.operatingRevenue ?? s.operatingRevenue ?? '';
-    const submitHint = `<div class="demo-tip" style="margin-bottom:12px;font-size:13px">标 <span class="req">*</span> 为提交必填；各核算方法 Tab 有什么数据填什么数据，非必填。</div>`;
     return `
-      ${submitHint}
       <div class="form-item"><label>客户名称</label><input id="f_customer_name" value="${s.customerName || ''}" ${basicDis}></div>
       <div class="form-item"><label>所属行业</label><input id="f_industry_major" value="${ctx.industryMajor}" ${basicDis}></div>
       ${ctx.gbIndustryCode ? `<div class="form-item"><label>国民经济行业（4级）</label><input value="${ctx.gbIndustryCode} ${ctx.gbIndustryName || ''}" disabled></div>` : ''}
@@ -500,9 +515,9 @@ window.SUPPLEMENT_FIELDS = {
           <div class="form-item"><label>${this.reqLabel('客户名称', false)}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
           <div class="form-item"><label>${this.reqLabel('统一社会信用代码', false)}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
           <div class="form-item"><label>${this.reqLabel('国民经济行业代码（4级）', false)}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('月均贷款余额（万元）', false)}</label>${this.numInput('f_prj_avg_loan', projectVal('projectAvgLoanBalanceWan', s.avgLoanBalance), dis, '0.01')}</div>
-          <div class="form-item"><label>${this.reqLabel('项目收入（万元）')}</label>${this.numInput('f_prj_revenue', projectVal('projectRevenueWan', s.revenue), dis, '0.01')}</div>
-          <div class="form-item"><label>${this.reqLabel('项目总投资（万元）')}</label>${this.numInput('f_prj_total_invest', projectVal('projectTotalInvestmentWan', formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目月均贷款余额（元）', false)}</label>${this.numInput('f_prj_avg_loan', this.projectAmountYuanInput(projectVal('projectAvgLoanBalanceWan', null), s.avgLoanBalance), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目收入（元）')}</label>${this.numInput('f_prj_revenue', this.projectAmountYuanInput(projectVal('projectRevenueWan', null), s.revenue), dis, '0.01')}</div>
+          <div class="form-item"><label>${this.reqLabel('项目总投资（元）')}</label>${this.numInput('f_prj_total_invest', this.projectAmountYuanInput(projectVal('projectTotalInvestmentWan', null), formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
         </div>
       </div>` : ''}
       ${ctx.needsEntityFinancials ? `
@@ -521,9 +536,7 @@ window.SUPPLEMENT_FIELDS = {
     const wrapAttrs = (tabId === 'report_authority' || tabId === 'report_other')
       ? ` id="f_${tabId}_attach_wrap"` : '';
     const sizeHint = this.formatAttachMaxHint(maxMb);
-    const extraHint = tabId === 'report_authority'
-      ? '；权威数据须上传核查佐证材料'
-      : (required ? '；经政府/第三方核查时须上传佐证文件' : '');
+    const extraHint = required ? '；经政府/第三方核查时须上传佐证文件' : '';
     return `
       <div class="form-item full"${wrapAttrs}>
         <label>${reqHtml}${label}</label>
@@ -645,7 +658,6 @@ window.SUPPLEMENT_FIELDS = {
           <div class="form-item"><label>数值（GJ）</label>${this.numInput('f_en_heat', d.purchasedHeat, dis, '0.01')}</div>
         </div>` : ''}
         ${this.renderProcessBlocks(en.processBlocks || [], d, dis)}
-        <small style="color:#909399">能源品种与过程排放依据人行附2；有什么填什么，非必填。E = Σ(能源消耗量×因子)+工艺排放+净购入电热×区域因子</small>
       </div>`;
   },
 
@@ -707,8 +719,7 @@ window.SUPPLEMENT_FIELDS = {
     return `
       <div class="${panelCls}" data-panel="${panelId}"><div class="form-grid">
         <div class="form-item full"><label>物理活动法-能源法排放总量(tCO₂)</label>
-          ${this.numInput('f_energy_total', s.energyTotalEmission, dis)}
-          <small style="color:#909399">E=Σ(能耗×因子)+工艺+净购入电热</small></div>
+          ${this.numInput('f_energy_total', s.energyTotalEmission, dis)}</div>
       </div></div>`;
   },
 
@@ -748,7 +759,6 @@ window.SUPPLEMENT_FIELDS = {
       <div class="${panelCls}" data-panel="${panelId}">
         ${body}
         ${customSection}
-        <small style="color:#909399">产品品种依据人行附2；有什么填什么，非必填。E = Σ(产品产量×产品碳排放因子)</small>
       </div>`;
   },
 
@@ -782,11 +792,9 @@ window.SUPPLEMENT_FIELDS = {
     if (authWrap) {
       const label = authWrap.querySelector('label');
       const hint = authWrap.querySelector('small');
-      if (label && !label.querySelector('.req')) {
-        label.insertAdjacentHTML('afterbegin', '<span class="req">*</span>');
-      }
+      label?.querySelector('.req')?.remove();
       if (hint) {
-        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}；权威数据须上传核查佐证材料`;
+        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}`;
       }
     }
     const otherWrap = qs('#f_report_other_attach_wrap', rootEl);
@@ -820,34 +828,19 @@ window.SUPPLEMENT_FIELDS = {
     return { ok: true };
   },
 
-  validateReportAuthorityAttachments(rootEl, supplement) {
-    const emission = numVal('#f_report_authority_emission', rootEl);
-    const hasEmission = emission != null && emission !== '';
-    if (!hasEmission) return { ok: true };
-    if (this.getReportAttachments(supplement, 'report_authority').length > 0) return { ok: true };
-    return {
-      ok: false,
-      tabId: 'report_authority',
-      message: '报告法-权威数据需提交核查佐证材料，否则请填至报告法-其他'
-    };
-  },
-
-  validateReportAttachments() {
+  validateReportAuthorityAttachments() {
     return { ok: true };
   },
 
   validateSupplementSubmit(rootEl, supplement) {
     const ctx = this.getContext(supplement);
-    let check;
     if (ctx.needsProjectFinancials) {
-      check = this._validateRequiredFields(rootEl, this.PROJECT_SUBMIT_REQUIRED);
-    } else if (ctx.needsEntityFinancials) {
-      check = this._validateRequiredFields(rootEl, this.ENTITY_SUBMIT_REQUIRED);
-    } else {
-      check = { ok: true };
+      return this._validateRequiredFields(rootEl, this.PROJECT_SUBMIT_REQUIRED);
     }
-    if (!check.ok) return check;
-    return this.validateReportAuthorityAttachments(rootEl, supplement);
+    if (ctx.needsEntityFinancials) {
+      return this._validateRequiredFields(rootEl, this.ENTITY_SUBMIT_REQUIRED);
+    }
+    return { ok: true };
   },
 
   validateProjectInfo(rootEl, supplement) {
@@ -987,9 +980,9 @@ window.SUPPLEMENT_FIELDS = {
         customerName: txtVal('#f_prj_customer_name', rootEl),
         creditCode: txtVal('#f_prj_credit_code', rootEl),
         nationalIndustryCodeLv4: txtVal('#f_prj_industry_code_lv4', rootEl),
-        projectAvgLoanBalanceWan: numVal('#f_prj_avg_loan', rootEl),
-        projectRevenueWan: numVal('#f_prj_revenue', rootEl),
-        projectTotalInvestmentWan: numVal('#f_prj_total_invest', rootEl)
+        projectAvgLoanBalanceWan: this.projectYuanFieldToWan('#f_prj_avg_loan', rootEl),
+        projectRevenueWan: this.projectYuanFieldToWan('#f_prj_revenue', rootEl),
+        projectTotalInvestmentWan: this.projectYuanFieldToWan('#f_prj_total_invest', rootEl)
       };
       payload.projectDetails = [payload.projectInfo];
       payload.projectInfoAvailable = true;

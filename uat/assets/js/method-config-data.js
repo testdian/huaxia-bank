@@ -7,6 +7,7 @@ window.METHOD_CONFIG = {
     { value: 'project_loan', label: '项目贷款核算' }
   ],
   BUILTIN_RESULT_PARAM_IDS: ['P_ghg_total'],
+  PARAM_UNIT_OPTIONS: ['t', 'kg', '万m³', 'm³', 'MWh', 'kWh', 'GJ', 'tCO₂e', 'tCO₂/t', 'tCO₂/万m³', '万元'],
   FACTOR_CATEGORIES: [
     { code: 'flat_glass_fossil', label: '平板玻璃-化石燃料' },
     { code: 'flat_glass_grid', label: '平板玻璃-区域电网' },
@@ -157,6 +158,7 @@ window.METHOD_CONFIG = {
     const format = p.format || this.formatFromParamType(p.paramType);
     const paramType = p.paramType || this.paramTypeFromFormat(format);
     const category = p.category || (p.id === 'P_ghg_total' ? '结果计算类' : '活动水平类');
+    const units = this.normalizeUnitsList(p.units ?? p.unit);
     return {
       ...p,
       format,
@@ -166,8 +168,73 @@ window.METHOD_CONFIG = {
       status: p.status || 'active',
       applyIndustry: Array.isArray(p.applyIndustry) ? p.applyIndustry : (p.applyIndustry ? [p.applyIndustry] : []),
       remark: p.remark ?? p.description ?? '',
-      validateRule: p.validateRule || { min: 0, decimalPlaces: p.decimalPlaces ?? 4 }
+      validateRule: p.validateRule || { min: 0, decimalPlaces: p.decimalPlaces ?? 4 },
+      units,
+      unit: units.length ? units[0] : (p.unit || '—')
     };
+  },
+
+  parseUnitsInput(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw.map(u => String(u).trim()).filter(Boolean);
+    return String(raw).split(/[,，、/|]/).map(s => s.trim()).filter(Boolean);
+  },
+
+  normalizeUnitsList(raw) {
+    if (raw === '无单位') return [];
+    if (raw === '—') return ['—'];
+    const list = this.parseUnitsInput(raw);
+    return [...new Set(list)];
+  },
+
+  getParamUnits(param) {
+    if (!param) return [];
+    if (Array.isArray(param.units) && param.units.length) return param.units.filter(Boolean);
+    return this.normalizeUnitsList(param.unit);
+  },
+
+  paramUnitsDisplay(param) {
+    if (!param) return '—';
+    if (param.unitType === 'none' || param.unit === '无单位') return '无单位';
+    const units = this.getParamUnits(param);
+    if (!units.length) return param.unit || '—';
+    return units.join(' / ');
+  },
+
+  paramPrimaryUnit(param) {
+    const units = this.getParamUnits(param);
+    return units[0] || param?.unit || '';
+  },
+
+  readParamUnitsFromForm(fd, unitType) {
+    if (unitType === 'none') return [];
+    const checked = fd.getAll('paramUnits').map(v => String(v).trim()).filter(Boolean);
+    const extra = this.parseUnitsInput(fd.get('paramUnitsExtra'));
+    return [...new Set([...checked, ...extra])];
+  },
+
+  applyParamUnits(payload, units, unitType) {
+    if (unitType === 'none') {
+      payload.units = [];
+      payload.unit = '无单位';
+      return;
+    }
+    const cleaned = [...new Set((units || []).map(u => String(u).trim()).filter(Boolean))];
+    payload.units = cleaned;
+    payload.unit = cleaned[0] || '—';
+  },
+
+  assessParamUnitConversion(param, factorUnitFull) {
+    const units = this.getParamUnits(param);
+    if (!units.length) return this.assessUnitConversion(param?.unit, factorUnitFull);
+    let best = null;
+    units.forEach(u => {
+      const assess = this.assessUnitConversion(u, factorUnitFull);
+      if (assess.match) best = assess;
+      else if (!best) best = assess;
+      else if (!best.match && assess.match) best = assess;
+    });
+    return best || this.assessUnitConversion(units[0], factorUnitFull);
   },
 
   generateParamCode() {
@@ -232,19 +299,19 @@ window.METHOD_CONFIG = {
       payload.unit = '—';
     } else if (format === 'number') {
       const unitType = fd.get('numberUnitType') || 'common';
-      const unitRaw = (fd.get('numberUnit') || '').toString().trim();
+      const units = this.readParamUnitsFromForm(fd, unitType);
       payload.decimalPlaces = Number(fd.get('decimalPlaces')) || 4;
       payload.unitType = unitType;
-      payload.unit = unitType === 'none' ? '无单位' : (unitRaw || 't');
+      this.applyParamUnits(payload, units, unitType);
     } else if (format === 'option') {
       const unitType = fd.get('optionUnitType') || 'common';
-      const unitRaw = (fd.get('optionUnit') || '').toString().trim();
+      const units = this.readParamUnitsFromForm(fd, unitType);
       payload.enumValues = enumValues;
       payload.enumCount = enumValues?.length;
       payload.hasDefault = fd.get('hasDefault') === '1';
       payload.defaultValue = (fd.get('defaultValue') || '').toString().trim();
       payload.unitType = unitType;
-      payload.unit = unitType === 'none' ? '无单位' : (unitRaw || '—');
+      this.applyParamUnits(payload, units, unitType);
     } else if (format === 'date') {
       payload.unit = '—';
     } else if (format === 'attachment') {
@@ -388,8 +455,11 @@ window.METHOD_CONFIG = {
     if (payload.format === 'option' && !(payload.enumValues || []).length) {
       return { ok: false, message: '选项型请填写至少一个枚举值' };
     }
-    if (payload.format === 'number' && !payload.unit) {
-      return { ok: false, message: '数值型参数默认单位必填' };
+    if (payload.format === 'number' && payload.unitType !== 'none' && !(payload.units || []).length) {
+      return { ok: false, message: '数值型参数请至少选择一个单位' };
+    }
+    if (payload.format === 'option' && payload.unitType !== 'none' && !(payload.units || []).length) {
+      return { ok: false, message: '选项型参数请至少选择一个单位' };
     }
     if (payload.format === 'attachment' && !(payload.attachAccept || '').trim()) {
       return { ok: false, message: '附件型请填写允许的文件格式' };
@@ -429,6 +499,76 @@ window.METHOD_CONFIG = {
     }
     this._writeStorage(data);
     return { ok: true, message: isNew ? '已新增参数' : '已保存参数' };
+  },
+
+  /** CSV 列：参数名称, 参数分类, 参数类型, 单位, 适用行业, 小数位数, 枚举值（选项型） */
+  importParamsFromCsv(text) {
+    let added = 0;
+    let skipped = 0;
+    const errors = [];
+    const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return { added, skipped, errors: ['未解析到可导入数据'] };
+    const parseLine = typeof parseFactorImportCsvLine === 'function'
+      ? parseFactorImportCsvLine
+      : (line) => {
+        const out = [];
+        let cur = '';
+        let quoted = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { quoted = !quoted; continue; }
+          if (ch === ',' && !quoted) { out.push(cur); cur = ''; continue; }
+          cur += ch;
+        }
+        out.push(cur);
+        return out.map(s => s.trim());
+      };
+    for (let li = 1; li < lines.length; li++) {
+      const cells = parseLine(lines[li]);
+      if (!cells.some(c => c)) continue;
+      const name = (cells[0] || '').trim();
+      if (!name) {
+        errors.push(`第 ${li + 1} 行：参数名称不能为空`);
+        continue;
+      }
+      const category = (cells[1] || '活动水平类').trim();
+      if (category === '结果计算类') {
+        errors.push(`第 ${li + 1} 行：不支持导入结果计算类参数`);
+        continue;
+      }
+      const paramType = (cells[2] || '数值型').trim();
+      const format = this.formatFromParamType(paramType);
+      const unitRaw = (cells[3] || '').trim();
+      const applyIndustry = this.parseUnitsInput(cells[4] || '');
+      const decimalPlaces = Number(cells[5]) || 4;
+      const enumValues = format === 'option' ? this.parseUnitsInput(cells[6] || '') : [];
+      const needsUnit = format === 'number' || format === 'option';
+      const unitType = !needsUnit || !unitRaw || unitRaw === '无单位' || unitRaw === '—'
+        ? (needsUnit ? 'common' : 'none')
+        : 'common';
+      const units = unitType === 'none' ? [] : (unitRaw ? [unitRaw] : (needsUnit ? ['t'] : []));
+      const payload = {
+        name,
+        category,
+        paramType,
+        format,
+        unitType,
+        decimalPlaces,
+        validateRule: { min: 0, decimalPlaces },
+        scope: 'custom',
+        showInTemplate: true,
+        status: 'active',
+        applyIndustry,
+        enumValues: format === 'option' ? enumValues : undefined,
+        attachAccept: format === 'attachment' ? '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg' : undefined
+      };
+      this.applyParamUnits(payload, units, unitType);
+      const result = this.saveParam(payload, true);
+      if (result.ok) added += 1;
+      else if ((result.message || '').includes('同名') || (result.message || '').includes('已存在')) skipped += 1;
+      else errors.push(`第 ${li + 1} 行：${result.message}`);
+    }
+    return { added, skipped, errors };
   },
 
   toggleParamStatus(paramId) {
@@ -1096,7 +1236,7 @@ window.METHOD_CONFIG = {
           if (lib) defVal = String(lib.value ?? lib.factorValue ?? defVal);
         }
         const factorUnitFull = libId ? this.getFactorUnitFromLibrary(libId) : (prev.unitFactor || '');
-        const unitAssess = this.assessUnitConversion(amountP?.unit, factorUnitFull);
+        const unitAssess = this.assessParamUnitConversion(amountP, factorUnitFull);
         const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
         const convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
         let conversionFactor = 1;
@@ -1634,7 +1774,7 @@ window.METHOD_CONFIG = {
           const lib = Store.getFactor(libId);
           if (lib) defVal = String(lib.value ?? lib.factorValue ?? defVal);
         }
-        const unitAssess = this.assessUnitConversion(p?.unit, factorUnitFull);
+        const unitAssess = this.assessParamUnitConversion(p, factorUnitFull);
         const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
         const convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
         let conversionFactor = 1;

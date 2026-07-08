@@ -12,7 +12,7 @@ window.INDUSTRY_TABLE = [
   },
   {
     "code": "D4417",
-    "name": "生物质能发电（仅含掺烧化石燃料燃烧的生物质发电企业，不含纯使用生物质发电的企业）",
+    "name": "生物质能发电",
     "major": "电力"
   },
   {
@@ -164,6 +164,16 @@ window.INDUSTRY_TABLE = [
     "code": "G5631",
     "name": "机场",
     "major": "民航"
+  },
+  {
+    "code": "G5611",
+    "name": "航空旅客运输",
+    "major": "民航"
+  },
+  {
+    "code": "G5612",
+    "name": "航空货物运输",
+    "major": "民航"
   }
 ];
 /** 人行八大高碳 — 四级行业完整代码（与 INDUSTRY_TABLE 同步） */
@@ -293,7 +303,7 @@ window.IndustryScope = {
   },
   /** 八大高碳 — 级联面板用小类码 */
   getEightCascadeCodes() {
-    return _uniqueCodes(INDUSTRY_EIGHT_CODES.map(toCascadeIndustryCode));
+    return _uniqueCodes(this.getEightCodes().map(c => toCascadeIndustryCode(c)));
   },
   /** 人行八大高碳 + 我行主要行业（带门类字母，用于筛选/台账） */
   getExtendedCodes() {

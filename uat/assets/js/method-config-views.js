@@ -30,10 +30,10 @@ SPA_VIEWS['#/method-config/params'] = function() {
       <td>${escapeHtml(p.name)}</td>
       <td>${METHOD_CONFIG.paramTypeLabel(p.paramType || METHOD_CONFIG.paramTypeFromFormat(p.format))}</td>
       <td>${escapeHtml(p.category || '—')}</td>
-      <td>${escapeHtml(p.unit || '—')}</td>
+      <td>${escapeHtml(METHOD_CONFIG.paramUnitsDisplay(p))}</td>
       <td>${(p.applyIndustry || []).length ? escapeHtml(p.applyIndustry.join('、')) : '全行业通用'}</td>
       <td>${METHOD_CONFIG.paramStatusBadge(p.status)}</td>
-      <td class="table-actions">
+      <td class="actions">
         <a href="#/method-config/params/edit?id=${encodeURIComponent(p.id)}" class="btn-link">编辑</a>
         ${p.builtin ? '' : `<button type="button" class="btn-link" data-param-toggle="${escapeHtml(p.id)}">${p.status === 'inactive' ? '启用' : '停用'}</button>`}
         ${p.builtin ? '' : `<button type="button" class="btn-link btn-link-danger" data-param-delete="${escapeHtml(p.id)}">删除</button>`}
@@ -56,7 +56,8 @@ SPA_VIEWS['#/method-config/params'] = function() {
     <h1 class="page-title">参数管理</h1>
     <div class="toolbar method-config-filter-bar">
       <a href="#/method-config/params/new" class="btn btn-primary">+ 新增参数</a>
-      <button type="button" class="btn" disabled title="演示原型：Excel 批量导入待对接后端">批量导入</button>
+      <button type="button" class="btn" id="paramBatchImportBtn">批量导入</button>
+      <input type="file" id="paramBatchImportFile" accept=".csv,text/csv" hidden>
     </div>
     <div class="card">
       <div class="card-header"><h3>查询筛选</h3></div>
@@ -80,7 +81,7 @@ SPA_VIEWS['#/method-config/params'] = function() {
       <div class="card-body table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>参数编码</th><th>参数名称</th><th>参数类型</th><th>参数分类</th><th>默认单位</th><th>适用行业</th><th>状态</th><th>操作</th>
+            <th>参数编码</th><th>参数名称</th><th>参数类型</th><th>参数分类</th><th>单位</th><th>适用行业</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>${rows || '<tr><td colspan="8" class="text-muted">暂无参数</td></tr>'}</tbody>
         </table>
@@ -120,6 +121,19 @@ function renderMethodConfigParamForm(param) {
   const industryChecks = METHOD_CONFIG.EIGHT_INDUSTRIES.map(ind => `
     <label class="checkbox-chip"><input type="checkbox" name="applyIndustry" value="${escapeHtml(ind)}" ${applySet.has(ind) ? 'checked' : ''}> ${escapeHtml(ind)}</label>
   `).join('');
+
+  const selectedUnits = new Set(METHOD_CONFIG.getParamUnits(param));
+  const extraUnits = [...selectedUnits].filter(u => !METHOD_CONFIG.PARAM_UNIT_OPTIONS.includes(u));
+  const unitOptionChecks = METHOD_CONFIG.PARAM_UNIT_OPTIONS.map(u => `
+    <label class="checkbox-chip"><input type="checkbox" name="paramUnits" value="${escapeHtml(u)}" ${selectedUnits.has(u) ? 'checked' : ''}> ${escapeHtml(u)}</label>
+  `).join('');
+  const unitMultiSelect = `
+    <div class="checkbox-row param-unit-checkbox-row">${unitOptionChecks}</div>
+    <div class="form-item param-unit-extra" style="margin-top:8px">
+      <label>其他单位</label>
+      <input name="paramUnitsExtra" value="${escapeHtml(extraUnits.join('、'))}" placeholder="可多填，逗号或顿号分隔">
+      <small class="text-muted">可多选；至少选择或填写一个单位</small>
+    </div>`;
 
   return `
     <h1 class="page-title">${isEdit ? '编辑参数' : '新增参数'}</h1>
@@ -165,10 +179,6 @@ function renderMethodConfigParamForm(param) {
         </div>
 
         <div class="form-item param-format-panel" data-format-panel="number">
-          <label>默认单位 <span class="req">*</span></label>
-          <input name="numberUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : 't')}" placeholder="t / 万m³ / MWh">
-        </div>
-        <div class="form-item param-format-panel" data-format-panel="number">
           <label>小数位数</label><input type="number" name="decimalPlaces" min="0" max="10" value="${decimalPlaces}">
         </div>
         <div class="form-item param-format-panel" data-format-panel="number">
@@ -188,8 +198,10 @@ function renderMethodConfigParamForm(param) {
         <div class="form-item full param-format-panel" data-format-panel="option">
           <label>单位类型</label>${unitTypeRadios('optionUnitType', unitType)}
         </div>
-        <div class="form-item param-format-panel" data-format-panel="option" data-unit-field="option">
-          <label>单位</label><input name="optionUnit" value="${escapeHtml(param?.unit && param.unit !== '无单位' ? param.unit : '—')}">
+
+        <div class="form-item full param-units-panel" id="paramUnitsPanel">
+          <label>单位 <span class="req">*</span></label>
+          ${unitMultiSelect}
         </div>
 
         <div class="form-item full param-format-panel" data-format-panel="date">
@@ -253,7 +265,7 @@ SPA_VIEWS['#/method-config/templates'] = function() {
       <td>${METHOD_CONFIG.templateStatusBadge(t)}</td>
       <td>${escapeHtml(t.updatedBy || '—')}</td>
       <td>${escapeHtml(t.updatedAt || '—')}</td>
-      <td class="table-actions">
+      <td class="actions">
         <a href="#/method-config/templates/edit?id=${encodeURIComponent(t.id)}&step=1" class="btn-link">编辑</a>
         <button type="button" class="btn-link" data-tpl-copy="${escapeHtml(t.id)}">复制</button>
         ${t.status === 'published' ? `<button type="button" class="btn-link" data-tpl-toggle="${escapeHtml(t.id)}">${t.enabled === false ? '启用' : '停用'}</button>` : ''}

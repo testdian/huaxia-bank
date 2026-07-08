@@ -403,12 +403,43 @@ function workflowStepState(i, ctx) {
   return 'wait';
 }
 
+function getCollectEmissionEligibleFormals(taskId, data) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!d) return [];
+  return (d.formalList || []).filter(f =>
+    f.taskId === taskId
+    && f.status === 'confirmed'
+    && typeof getEffectiveEntityEmission === 'function'
+    && getEffectiveEntityEmission(taskId, f.id) != null
+  );
+}
+
+/** 数据采集 / 排放计算清单共用归集单元列表 */
+function getDataCollectTableGroups(taskId, data) {
+  if (typeof Store === 'undefined') return [];
+  return Store.getCollectGroups(taskId);
+}
+
+function getWorkflowMaxClickStep(task, progressStep) {
+  const maxIdx = WORKFLOW_STEP_NAMES.length - 1;
+  if (progressStep >= WORKFLOW_STEP.REPORT) return maxIdx;
+  let maxClick = Math.max(0, Math.min(progressStep ?? 0, maxIdx));
+  const step = task?.workflowStep ?? WORKFLOW_STEP.CANDIDATES;
+  const hasConfirmedFormal = task?.id && typeof Store !== 'undefined'
+    ? Store.getFormalList(task.id).some(f => f.status === 'confirmed')
+    : false;
+  if (hasConfirmedFormal || step >= WORKFLOW_STEP.DATA_COLLECTION) {
+    maxClick = Math.max(maxClick, WORKFLOW_STEP.CALCULATION);
+  }
+  return maxClick;
+}
+
 function demoSteps(current, options = {}) {
-  const { taskId, clickable = false, maxStep, viewMode = isTaskViewMode(), taskProgressStep } = options;
+  const { taskId, clickable = false, maxStep, viewMode = isTaskViewMode(), taskProgressStep, task } = options;
   const maxIdx = WORKFLOW_STEP_NAMES.length - 1;
   const progressStep = maxStep != null ? maxStep : current;
-  const maxClickIdx = progressStep >= WORKFLOW_STEP.REPORT
-    ? maxIdx
+  const maxClickIdx = clickable
+    ? getWorkflowMaxClickStep(task || (taskId ? Store.getTask(taskId) : null), progressStep)
     : Math.max(0, Math.min(progressStep, maxIdx));
   const activeIdx = Math.max(0, Math.min(current, maxIdx));
   const stepCtx = { activeIdx, progressStep, viewMode, maxIdx, taskProgressStep };
@@ -453,6 +484,7 @@ function workflowStepsBar(task, stepOverride) {
     ? WORKFLOW_STEP.REPORT
     : Math.max(taskProgress, step, WORKFLOW_STEP.TASK_CREATE);
   return demoSteps(step, {
+    task,
     taskId: task?.id,
     clickable: !!task?.id,
     maxStep,
@@ -584,6 +616,114 @@ function getTaskInvestIndustryScope(task) {
   return task?.investIndustryScope || task?.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
 }
 
+/** 任务「数据行业范围」口径：投向 / 所属（决定候选清单筛选依据） */
+function getTaskDataIndustryScopeKind(task) {
+  const kind = task?.dataIndustryScopeKind;
+  return kind === 'subject' ? 'subject' : 'invest';
+}
+
+function getTaskDataIndustryScopeKey(task) {
+  normalizeTaskIndustryFields(task);
+  return getTaskDataIndustryScopeKind(task) === 'invest'
+    ? getTaskInvestIndustryScope(task)
+    : getTaskSubjectIndustryScope(task);
+}
+
+function getTaskDataIndustryCustomCodes(task) {
+  normalizeTaskIndustryFields(task);
+  return getTaskDataIndustryScopeKind(task) === 'invest'
+    ? (task.investIndustryCustomCodes || [])
+    : (task.industryCustomCodes || []);
+}
+
+function getTaskDataIndustryCodes(task) {
+  normalizeTaskIndustryFields(task);
+  const kind = getTaskDataIndustryScopeKind(task);
+  if (kind === 'invest') {
+    const scope = getTaskInvestIndustryScope(task);
+    if (task.investIndustryCodes?.length) return task.investIndustryCodes;
+    const custom = scope === '自定义' ? (task.investIndustryCustomCodes || []) : [];
+    return IndustryScope.resolveCodes(scope, custom);
+  }
+  const scope = getTaskSubjectIndustryScope(task);
+  if (task.industryCodes?.length) return task.industryCodes;
+  const custom = scope === '自定义' ? (task.industryCustomCodes || []) : [];
+  return IndustryScope.resolveCodes(scope, custom);
+}
+
+function resolveTaskDataIndustryLabels(task) {
+  const codes = getTaskDataIndustryCodes(task);
+  if (!codes.length) return [];
+  const nameMap = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
+  const table = typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE : [];
+  return codes.map(code => {
+    const s = String(code || '').trim();
+    if (!s) return '';
+    const row = table.find(i => i.code === s || i.code === s.replace(/^[A-Z]/, ''));
+    if (row) return IndustryScope.label(row);
+    const nm = nameMap[s] || nameMap[s.replace(/^[A-Z]/, '')];
+    return nm ? `${s} ${nm}` : s;
+  }).filter(Boolean);
+}
+
+function formatTaskDataIndustryScopeDisplay(task) {
+  normalizeTaskIndustryFields(task);
+  const scopeKey = getTaskDataIndustryScopeKey(task);
+  const normalized = normalizeIndustryScopeValue(scopeKey);
+  if (normalized === INDUSTRY_SCOPE_KEY_EIGHT) return INDUSTRY_SCOPE_LABEL_EIGHT;
+  if (normalized === INDUSTRY_SCOPE_KEY_EXTENDED) return INDUSTRY_SCOPE_LABEL_EXTENDED;
+  if (normalized === '自定义') return '自定义';
+  return normalized || '—';
+}
+
+function formatTaskDataIndustryScopeBrief(task) {
+  return formatTaskDataIndustryScopeDisplay(task);
+}
+
+function renderTaskDataIndustryScopeCell(task) {
+  return escapeHtml(formatTaskDataIndustryScopeDisplay(task));
+}
+
+function openTaskDataIndustryScopeModal(taskId) {
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  if (!task) return;
+  normalizeTaskIndustryFields(task);
+  const kindLabel = getTaskDataIndustryScopeKind(task) === 'invest' ? '投向行业范围' : '所属行业范围';
+  const scopeLabel = formatSingleIndustryScopeDisplay(
+    getTaskDataIndustryScopeKey(task),
+    getTaskDataIndustryCustomCodes(task)
+  );
+  const labels = resolveTaskDataIndustryLabels(task);
+  const tagsHtml = labels.length
+    ? labels.map(l => `<span class="industry-tag">${escapeHtml(l)}</span>`).join('')
+    : '<p style="color:#909399;margin:0">暂无已选行业</p>';
+
+  let modal = qs('#taskDataIndustryModal');
+  if (!modal) {
+    const root = qs('#modalRoot');
+    if (!root) return;
+    root.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="taskDataIndustryModal">
+        <div class="modal modal-md">
+          <div class="modal-header"><h4 id="taskDataIndustryModalTitle">数据行业范围</h4><button type="button" class="modal-close" id="closeTaskDataIndustryModal">&times;</button></div>
+          <div class="modal-body">
+            <p id="taskDataIndustryModalMeta" style="margin:0 0 12px;font-size:13px;color:#606266"></p>
+            <div id="taskDataIndustryModalTags" class="industry-detail-tags"></div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-primary" id="closeTaskDataIndustryModalBtn">关闭</button></div>
+        </div>
+      </div>`);
+    modal = qs('#taskDataIndustryModal');
+    const close = () => hideModal('taskDataIndustryModal');
+    qs('#closeTaskDataIndustryModal').onclick = close;
+    qs('#closeTaskDataIndustryModalBtn').onclick = close;
+  }
+  qs('#taskDataIndustryModalTitle').textContent = `数据行业范围 · ${task.name || taskId}`;
+  qs('#taskDataIndustryModalMeta').textContent = `${kindLabel} · ${scopeLabel} · 共 ${labels.length} 项`;
+  qs('#taskDataIndustryModalTags').innerHTML = tagsHtml;
+  showModal('taskDataIndustryModal');
+}
+
 function normalizeTaskIndustryFields(task) {
   if (!task) return task;
   if (!task.subjectIndustryScope) task.subjectIndustryScope = task.industryScope || INDUSTRY_SCOPE_KEY_EIGHT;
@@ -591,6 +731,7 @@ function normalizeTaskIndustryFields(task) {
   task.subjectIndustryScope = normalizeIndustryScopeValue(task.subjectIndustryScope);
   task.investIndustryScope = normalizeIndustryScopeValue(task.investIndustryScope);
   task.industryScope = task.subjectIndustryScope;
+  if (!task.dataIndustryScopeKind) task.dataIndustryScopeKind = 'invest';
   return task;
 }
 
@@ -789,6 +930,8 @@ function bindTaskDeadlineValidation(rootEl) {
   };
   collect.addEventListener('change', sync);
   branch.addEventListener('change', sync);
+  collect.addEventListener('input', sync);
+  branch.addEventListener('input', sync);
   sync();
 }
 
@@ -835,12 +978,15 @@ function renderTaskIndustryScopeFilterSelect(selectId, selected) {
 
 function filterTasks(tasks, filters) {
   const f = filters || {};
+  const dataScopeFilter = f.dataIndustryScope
+    || f.investIndustryScope
+    || f.industryScope
+    || '';
   return tasks.filter(t => {
     normalizeTaskIndustryFields(t);
     if (f.name && !(t.name || '').toLowerCase().includes(f.name.trim().toLowerCase())) return false;
     if (f.year && String(t.year) !== String(f.year)) return false;
-    if (f.investIndustryScope && getTaskInvestIndustryScope(t) !== f.investIndustryScope) return false;
-    if (f.industryScope && getTaskSubjectIndustryScope(t) !== f.industryScope) return false;
+    if (dataScopeFilter && getTaskDataIndustryScopeKey(t) !== dataScopeFilter) return false;
     if (f.progress !== '' && f.progress != null) {
       const step = Math.max(0, Math.min(t.workflowStep ?? WORKFLOW_STEP.CANDIDATES, WORKFLOW_STEP_NAMES.length - 1));
       if (String(step) !== String(f.progress)) return false;
@@ -909,6 +1055,49 @@ function taskHasLedgerData(taskId) {
   return Store.getCalculations(taskId).some(c => c.entityEmission != null || c.attributedEmission != null);
 }
 
+function filterLedgerDetailGroups(groups, filters, taskId, data) {
+  const f = filters || {};
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  return (groups || []).filter(group => {
+    if (f.branch) {
+      const b = f.branch.trim();
+      if (!(group.dispatchBranch || '').includes(b)) return false;
+    }
+    if (f.handlingBranch) {
+      const h = f.handlingBranch.trim();
+      const formals = (group.memberFormalIds || [])
+        .map(fid => d?.formalList?.find(x => x.id === fid))
+        .filter(Boolean);
+      const matched = formals.some(formal => {
+        const row = typeof formalLedgerRow === 'function' ? formalLedgerRow(formal, taskId) : formal;
+        return (row.handlingBranch || '').includes(h);
+      });
+      if (!matched) return false;
+    }
+    if (f.customer) {
+      const kw = f.customer.trim().toLowerCase();
+      if (!(group.customerName || '').toLowerCase().includes(kw)) return false;
+    }
+    return true;
+  });
+}
+
+function getLedgerDetailGroups(taskId, filters) {
+  const d = typeof Store !== 'undefined' ? Store.get() : null;
+  const groups = getDataCollectTableGroups(taskId, d);
+  return filterLedgerDetailGroups(groups, filters, taskId, d);
+}
+
+function splitLedgerDetailGroupsByBucket(groups) {
+  const nonProject = [];
+  const project = [];
+  (groups || []).forEach(g => {
+    if (g.bucket === 'project') project.push(g);
+    else nonProject.push(g);
+  });
+  return { nonProject, project };
+}
+
 function filterLedgerDetailRows(rows, filters, taskId) {
   const f = filters || {};
   return rows.filter(({ f: formal }) => {
@@ -931,11 +1120,89 @@ function filterLedgerDetailRows(rows, filters, taskId) {
 }
 
 function getLedgerDetailRows(taskId, filters) {
-  const calcs = Store.getCalculations(taskId);
-  const rows = Store.getFormalList(taskId)
-    .filter(f => f.status === 'confirmed')
-    .map(f => ({ f, calc: calcs.find(c => c.formalId === f.id) }));
-  return filterLedgerDetailRows(rows, filters, taskId);
+  return getLedgerDetailGroups(taskId, filters);
+}
+
+function ledgerGroupExportRowValues(group, taskId, data, sectionLabel) {
+  const d = data || Store.get();
+  const supp = supplementForCollectGroup(d, taskId, group.id);
+  const summary = summarizeCollectGroupCalculations(group, taskId, d);
+  const primary = summary.primary;
+  const calc = primary
+    ? (d.calculations || []).find(c => c.taskId === taskId && c.formalId === primary.id)
+    : null;
+  const emissions = primary
+    ? formatDataCollectEmissionCells(primary, supp, calc)
+    : { systemHtml: '—', manualHtml: '—', effectiveHtml: '—' };
+  const strip = (html) => String(html || '—').replace(/<[^>]+>/g, '').trim() || '—';
+  return [
+    sectionLabel,
+    group.customerName || '—',
+    group.creditCode || '—',
+    collectGroupBucketDisplay(group),
+    group.memberCount || summary.members.length || 0,
+    group.dispatchBranch || '—',
+    group.assignedManager || '—',
+    group.accountingIndustryLabel || group.accountingIndustryCode || '—',
+    strip(primary ? systemAccountingMethodBadge(primary, taskId, d) : '—'),
+    strip(emissions.systemHtml),
+    strip(primary ? manualAccountingMethodBadge(primary, taskId, d) : '—'),
+    strip(emissions.manualHtml),
+    strip(emissions.effectiveHtml),
+    summary.attributedEmission != null ? formatNum(summary.attributedEmission) : '—',
+    summary.qualityGrade || '—'
+  ];
+}
+
+const LEDGER_GROUP_EXPORT_HEADERS = [
+  '板块', '客户', '信用代码', '业务种类', '归并笔数', '下发分行', '主办客户经理', '归集核算行业',
+  '系统核算方法', '系统主体排放（tCO₂e）', '手动核算方法', '手动主体排放（tCO₂e）',
+  '排放结果（tCO₂e）', '归因排放（tCO₂e）', '质量等级'
+];
+
+function exportLedgerDetailGroupCsv(task, filters) {
+  const taskId = task?.id;
+  if (!taskId) return;
+  const d = Store.get();
+  const groups = getLedgerDetailGroups(taskId, filters);
+  const { nonProject, project } = splitLedgerDetailGroupsByBucket(groups);
+  const rows = [
+    ...nonProject.map(g => ledgerGroupExportRowValues(g, taskId, d, '非项目')),
+    ...project.map(g => ledgerGroupExportRowValues(g, taskId, d, '项目'))
+  ];
+  const name = task?.name ? `${task.name}-排放计算清单` : '排放计算清单';
+  downloadCsvFile(name, ['任务名称', '核算年度', ...LEDGER_GROUP_EXPORT_HEADERS],
+    rows.map(r => [task.name, task.year, ...r]));
+}
+
+function renderLedgerDetailGroupTableSection(title, groups, taskId, data, options = {}) {
+  const colCount = calculationGroupTableColCount();
+  const rowOptions = { showExpand: true, hideLoanAccount: true, ...options };
+  const rowsHtml = groups.length
+    ? groups.map(g => renderCalculationGroupTableRow(g, taskId, data, rowOptions)).join('')
+    : `<tr><td colspan="${colCount}" style="text-align:center;padding:32px;color:#909399">暂无数据</td></tr>`;
+  return `
+    <div class="card ledger-detail-section">
+      <div class="card-header"><h3>${escapeHtml(title)}</h3></div>
+      <div class="card-body table-wrap">
+        <table class="data-table">
+          <thead><tr>${renderCalculationGroupTableHead()}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderLedgerDetailGroupSections(taskId, filters, data) {
+  const d = data || Store.get();
+  const groups = getLedgerDetailGroups(taskId, filters);
+  const { nonProject, project } = splitLedgerDetailGroupsByBucket(groups);
+  return {
+    groups,
+    html: `
+      ${renderLedgerDetailGroupTableSection('非项目', nonProject, taskId, d)}
+      ${renderLedgerDetailGroupTableSection('项目', project, taskId, d)}`
+  };
 }
 
 function filterLedgerTasks(tasks, filters, roleKey) {
@@ -948,6 +1215,8 @@ function filterLedgerTasks(tasks, filters, roleKey) {
     if (!taskHasLedgerData(t.id)) return false;
     if (f.year && String(t.year) !== String(f.year)) return false;
     if (f.taskName && !(t.name || '').toLowerCase().includes(f.taskName.trim().toLowerCase())) return false;
+    const dataScopeFilter = f.dataIndustryScope || f.investIndustryScope || f.industryScope || '';
+    if (dataScopeFilter && getTaskDataIndustryScopeKey(t) !== dataScopeFilter) return false;
     if (f.branch) {
       const rows = getLedgerDetailRows(t.id, { branch: f.branch });
       if (!rows.length) return false;
@@ -958,7 +1227,11 @@ function filterLedgerTasks(tasks, filters, roleKey) {
 
 function ledgerCalculationRowValues(f, calc, taskId) {
   const c = typeof formalLedgerRow === 'function' ? formalLedgerRow(f, taskId) : f;
-  const emissions = resolveCalculationEmissionDisplay(f, calc, taskId);
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  const year = c?.accountingYear || task?.year;
+  const monthVals = resolveCandidateMonthEndBalancesWan(c, year).map(v =>
+    v != null ? formatLedgerAmountYuan(v) : '—'
+  );
   return [
     candidateTier1Branch(c),
     c.handlingBranch || '-',
@@ -971,25 +1244,29 @@ function ledgerCalculationRowValues(f, calc, taskId) {
     candidateBorrowerType(c),
     candidateIndustryLabel(c),
     candidateInvestIndustryLabel(c),
-    formatLedgerAmountYuan(c.avgMonthlyBalance),
+    ...monthVals,
     formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue),
-    candidateAvgTotalAssets(c),
+    formatCandidatePrevYearTotalAssets(c),
+    formatCandidateCurrentYearTotalAssets(c),
     c.manager || '-',
-    formatCalculationEmissionCell(emissions.legalEntityEmission),
-    formatCalculationEmissionCell(emissions.projectEntityEmission),
     calc?.attributedEmission != null ? formatNum(calc.attributedEmission) : '—',
     calc?.qualityGrade || '—'
   ];
 }
 
-const LEDGER_SUMMARY_EXPORT_HEADERS = ['任务名称', '核算年度', '投向行业范围', '所属行业范围', '台账笔数'];
+const LEDGER_SUMMARY_EXPORT_HEADERS = ['任务名称', '核算年度', '数据行业范围', '台账笔数'];
 const LEDGER_DETAIL_EXPORT_HEADERS = [
   '任务名称', '核算年度',
   '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '贷款账号',
   '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
-  '月均贷款余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理',
-  '法人主体排放(tCO₂e)', '项目主体排放(tCO₂e)', '归因排放(tCO₂e)', '质量等级'
+  ...Array.from({ length: 12 }, (_, i) => `${i + 1}月末余额（元）`),
+  '营业收入（元）', '上年末合并报表资产总额（元）', '本年末合并报表资产总额（元）', '主办客户经理',
+  '归因排放(tCO₂e)', '质量等级'
 ];
+
+function calculationListTableColCount() {
+  return ledgerListTableColCount({ tailExtra: 2 });
+}
 
 function csvEscapeCell(v) {
   const s = String(v ?? '');
@@ -1017,8 +1294,7 @@ function exportLedgerSummaryCsv(tasks) {
     return [
       t.name,
       t.year,
-      formatSingleIndustryScopeDisplay(getTaskInvestIndustryScope(t), t.investIndustryCustomCodes),
-      formatSingleIndustryScopeDisplay(getTaskSubjectIndustryScope(t), t.industryCustomCodes),
+      formatTaskDataIndustryScopeBrief(t),
       count
     ];
   });
@@ -1026,13 +1302,7 @@ function exportLedgerSummaryCsv(tasks) {
 }
 
 function exportLedgerDetailCsv(tasks, filters) {
-  const rows = [];
-  (tasks || []).forEach(t => {
-    getLedgerDetailRows(t.id, filters).forEach(({ f, calc }) => {
-      rows.push([t.name, t.year, ...ledgerCalculationRowValues(f, calc, t.id)]);
-    });
-  });
-  downloadCsvFile('投融资碳核算台账-排放计算清单', LEDGER_DETAIL_EXPORT_HEADERS, rows);
+  (tasks || []).forEach(t => exportLedgerDetailGroupCsv(t, filters));
 }
 
 function renderIndustryScopeKindRadios(activeKind, readonly) {
@@ -1109,7 +1379,7 @@ function renderTaskFormFields(task, options = {}) {
     </div>`
     : `
     <div class="form-item full"><label>${label('数据行业范围')}</label>
-      ${renderIndustryScopeKindRadios('invest', false)}
+      ${renderIndustryScopeKindRadios(t.dataIndustryScopeKind || 'invest', false)}
     </div>
     <div id="investIndustryScopeBlock" class="task-industry-scope-block">
       ${renderTaskIndustryScopeBlock('invest', t, { readonly, showRequired })}
@@ -1130,14 +1400,16 @@ function renderTaskFormFields(task, options = {}) {
     <div class="form-item"><label>${label('余额口径')}</label>
       <select name="balanceRule" ${readonly ? '' : 'required'} ${dis}>
         <option ${t.balanceRule === '月均余额' || !t.balanceRule ? 'selected' : ''}>月均余额</option>
-        <option ${t.balanceRule === '日均余额' ? 'selected' : ''}>日均余额</option>
+        <option ${t.balanceRule === '年末余额' ? 'selected' : ''}>年末余额</option>
       </select>
     </div>
     <div class="form-item"><label>${label('数据采集截止日期')}</label>
       <input type="date" name="deadline" ${readonly ? '' : 'required'} value="${t.deadline || ''}" ${ro}>
+      ${readonly ? '' : '<div class="field-hint">须早于分行审批截止日期</div>'}
     </div>
     <div class="form-item"><label>${label('分行审批截止日期')}</label>
       <input type="date" name="branchDeadline" ${readonly ? '' : 'required'} value="${t.branchDeadline || ''}" ${ro}>
+      ${readonly ? '' : '<div class="field-hint">须晚于数据采集截止日期</div>'}
     </div>
     ${readonly ? '' : `
     <input type="hidden" name="goal" value="${t.goal || '监管报送'}">
@@ -1160,10 +1432,14 @@ function readTaskFormPayload(form) {
   const investIndustryCustomCodes = investIndustryScope === '自定义'
     ? IndustryCascade.getSelectedCodes(qs('#investIndustryCascadeWrap'))
     : [];
+  const dataIndustryScopeKind = document.querySelector('input[name="industryScopeKind"]:checked')?.value === 'subject'
+    ? 'subject'
+    : 'invest';
   const org = readTaskOrgScopeFromForm(form);
   return {
     name: form.name.value,
     year: clampTaskYear(form.year.value),
+    dataIndustryScopeKind,
     subjectIndustryScope,
     investIndustryScope,
     industryScope: subjectIndustryScope,
@@ -1226,15 +1502,15 @@ function confirmDeleteTask(taskId, taskName) {
   if (!modal) {
     const root = qs('#modalRoot');
     if (root) {
-      root.innerHTML = `
+      root.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="deleteTaskModal">
           <div class="modal">
-            <div class="modal-header"><h4>删除确认</h4><button class="modal-close" id="closeDeleteTask">&times;</button></div>
+            <div class="modal-header"><h4>提示</h4><button class="modal-close" id="closeDeleteTask">&times;</button></div>
             <div class="modal-body"><p>是否确认删除当前核算任务？</p>
             <p style="margin-top:8px;font-size:13px;color:#909399">任务：<strong id="deleteTaskName"></strong></p></div>
-            <div class="modal-footer"><button class="btn" id="cancelDeleteTask">取消</button><button class="btn btn-primary" id="deleteTaskConfirmBtn">确认删除</button></div>
+            <div class="modal-footer"><button class="btn" id="cancelDeleteTask">取消</button><button class="btn btn-primary" id="deleteTaskConfirmBtn">确认</button></div>
           </div>
-        </div>`;
+        </div>`);
       modal = qs('#deleteTaskModal');
       qs('#closeDeleteTask').onclick = () => hideModal('deleteTaskModal');
       qs('#cancelDeleteTask').onclick = () => hideModal('deleteTaskModal');
@@ -1265,10 +1541,36 @@ function getSupplementByFormalId(formalId) {
   return Store.get().supplements.find(s => s.formalId === formalId);
 }
 
+function getSupplementForFormal(taskId, formalId, d) {
+  d = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!d) return null;
+  if (typeof supplementForFormalInTask === 'function') {
+    return supplementForFormalInTask(d, taskId, formalId);
+  }
+  if (typeof Store !== 'undefined' && Store.findSupplementForFormal) {
+    return Store.findSupplementForFormal(d, taskId, formalId);
+  }
+  return (d.supplements || []).find(s => s.formalId === formalId && s.taskId === taskId) || null;
+}
+
 function isSupplementManualVisible(supp) {
   if (!supp?.dispatchedAt) return false;
   if (supp.status === 'completed') return true;
   return ['branch_review', 'hq_review', 'approved'].includes(supp.auditStage || '');
+}
+
+function isSupplementCollectEmissionVisible(supp) {
+  if (!supp?.dispatchedAt) return false;
+  if (isSupplementManualVisible(supp)) return true;
+  if (typeof Store === 'undefined') return false;
+  const e = Store.calcEntityEmission(supp);
+  return e != null && !Number.isNaN(Number(e)) && Number(e) > 0;
+}
+
+function isSupplementCollectMethodVisible(supp) {
+  if (!supp?.dispatchedAt) return false;
+  if (isSupplementManualVisible(supp)) return true;
+  return isSupplementCollectEmissionVisible(supp);
 }
 
 function formatSystemEntityEmission(taskId, formalId) {
@@ -1313,8 +1615,8 @@ function getSystemEntityEmissionValue(taskId, formalId) {
 
 /** 手动核算主体排放数值（客户经理收集填报） */
 function getManualEntityEmissionValue(taskId, formalId) {
-  const supp = Store.get().supplements.find(s => s.formalId === formalId && s.taskId === taskId);
-  if (!isSupplementManualVisible(supp)) return null;
+  const supp = getSupplementForFormal(taskId, formalId);
+  if (!isSupplementCollectEmissionVisible(supp)) return null;
   const e = Store.calcEntityEmission(supp);
   if (e == null || Number.isNaN(Number(e))) return null;
   return Number(e);
@@ -1346,7 +1648,7 @@ function formatDataCollectEmissionCells(formal, supp, calc) {
 
   let manualVal = null;
   let manualHtml = '—';
-  if (isSupplementManualVisible(supp)) {
+  if (isSupplementCollectEmissionVisible(supp)) {
     const e = Store.calcEntityEmission(supp);
     if (e != null && !Number.isNaN(Number(e))) {
       manualVal = Number(e);
@@ -1684,13 +1986,123 @@ function applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d) {
 }
 
 function renderCalculationListCells(f, calc, taskId) {
-  const emissions = resolveCalculationEmissionDisplay(f, calc, taskId);
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
   return `
-    ${renderCandidateListCells(formalLedgerRow(f, taskId), { finalizeAccountingType: true, listKind: 'formal' })}
-    <td>${formatCalculationEmissionCell(emissions.legalEntityEmission)}</td>
-    <td>${formatCalculationEmissionCell(emissions.projectEntityEmission)}</td>
+    ${renderCandidateListCells(formalLedgerRow(f, taskId), { finalizeAccountingType: true, listKind: 'formal', task })}
     <td>${calc?.attributedEmission != null ? formatNum(calc.attributedEmission) : '—'}</td>
     <td>${calc?.qualityGrade ? qualityGradeBadge(calc.qualityGrade) : '—'}</td>`;
+}
+
+const CALCULATION_GROUP_TABLE_COL_COUNT = 14;
+
+function calculationGroupTableColCount() {
+  return CALCULATION_GROUP_TABLE_COL_COUNT;
+}
+
+function renderCalculationGroupTableHead() {
+  return `<th>客户</th><th>信用代码</th><th>业务种类</th><th>归并笔数</th><th>下发分行</th><th>主办客户经理</th><th>归集核算行业</th><th>系统核算方法</th><th>系统主体排放（tCO₂e）</th><th>手动核算方法</th><th>手动主体排放（tCO₂e）</th><th>排放结果（tCO₂e）</th><th>归因排放（tCO₂e）</th><th>质量等级</th>`;
+}
+
+function getCalculationEligibleGroups(taskId, data) {
+  return getDataCollectTableGroups(taskId, data);
+}
+
+function summarizeCollectGroupCalculations(group, taskId, data) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!d || !group) {
+    return { members: [], primary: null, memberCalcs: [], attributedEmission: null, qualityGrade: null };
+  }
+  const formals = (d.formalList || []).filter(f => f.taskId === taskId);
+  const calcsByFormal = new Map();
+  (d.calculations || []).filter(c => c.taskId === taskId).forEach(c => calcsByFormal.set(c.formalId, c));
+  const eligibleIds = new Set(getCollectEmissionEligibleFormals(taskId, d).map(f => f.id));
+  const members = (group.memberFormalIds || [])
+    .map(fid => formals.find(f => f.id === fid))
+    .filter(f => f && eligibleIds.has(f.id));
+  const memberCalcs = members.map(f => calcsByFormal.get(f.id)).filter(Boolean);
+  const withAttr = memberCalcs.filter(c => c.attributedEmission != null);
+  const attributedEmission = withAttr.reduce((s, c) => s + (Number(c.attributedEmission) || 0), 0);
+  let qualityGrade = null;
+  if (withAttr.length && attributedEmission > 0) {
+    const weighted = withAttr.reduce((s, c) =>
+      s + (Number(c.attributedEmission) || 0) * (c.qualityGrade || 5), 0) / attributedEmission;
+    qualityGrade = Math.min(5, Math.max(1, Math.round(weighted)));
+  }
+  return {
+    members,
+    primary: members[0] || null,
+    memberCalcs,
+    attributedEmission: withAttr.length ? attributedEmission : null,
+    qualityGrade
+  };
+}
+
+function renderCalculationGroupTableCells(group, taskId, data, options = {}) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const { showExpand = true } = options;
+  const supp = supplementForCollectGroup(d, taskId, group.id);
+  const summary = summarizeCollectGroupCalculations(group, taskId, d);
+  const primary = summary.primary;
+  const calc = primary
+    ? (d?.calculations || []).find(c => c.taskId === taskId && c.formalId === primary.id)
+    : null;
+  const { systemHtml, manualHtml, effectiveHtml } = primary
+    ? formatDataCollectEmissionCells(primary, supp, calc)
+    : { systemHtml: '—', manualHtml: '—', effectiveHtml: '—' };
+  const industryNote = group.accountingIndustrySource === 'customer'
+    ? '<span class="text-muted" style="font-size:12px">（多投向归客户行业）</span>'
+    : '';
+  const customerCell = showExpand
+    ? `<span class="candidate-branch-cell">
+        <button type="button" class="candidate-expand-toggle collect-group-expand" data-group-id="${group.id}" aria-expanded="false" title="展开逐笔明细"><span class="candidate-expand-icon"></span></button>
+        <span>${group.customerName || '—'}</span>
+      </span>`
+    : (group.customerName || '—');
+  return `
+    <td>${customerCell}</td>
+    <td>${group.creditCode || '—'}</td>
+    <td>${collectGroupBucketDisplay(group)}</td>
+    <td>${group.memberCount || summary.members.length || 0}</td>
+    <td>${group.dispatchBranch || '—'}</td>
+    <td>${group.assignedManager || '—'}</td>
+    <td>${group.accountingIndustryLabel || group.accountingIndustryCode || '—'}${industryNote}</td>
+    <td>${primary ? systemAccountingMethodBadge(primary, taskId, d) : '—'}</td>
+    <td>${systemHtml}</td>
+    <td>${primary ? manualAccountingMethodBadge(primary, taskId, d) : '—'}</td>
+    <td>${manualHtml}</td>
+    <td>${effectiveHtml}</td>
+    <td>${summary.attributedEmission != null ? formatNum(summary.attributedEmission) : '—'}</td>
+    <td>${summary.qualityGrade ? qualityGradeBadge(summary.qualityGrade) : '—'}</td>`;
+}
+
+function renderCalculationGroupTableRow(group, taskId, data, options = {}) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const formals = (d?.formalList || []).filter(f => f.taskId === taskId);
+  const candidatesById = new Map();
+  (d?.candidates || []).filter(c => c.taskId === taskId).forEach(c => candidatesById.set(c.id, c));
+  const viewOnly = options.viewOnly ?? isTaskViewMode();
+  const memberTable = renderCollectGroupMemberTable(group, formals, candidatesById, taskId, d, viewOnly, options);
+  return `<tr class="collect-group-row" data-group-id="${group.id}">
+    ${renderCalculationGroupTableCells(group, taskId, d, options)}
+  </tr>
+  <tr class="collect-group-detail-row" data-detail-for="${group.id}" hidden>
+    <td colspan="${calculationGroupTableColCount()}">${memberTable}</td>
+  </tr>`;
+}
+
+function bindCollectGroupExpandRows(root) {
+  const scope = root || document;
+  scope.querySelectorAll('.collect-group-expand').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gid = btn.dataset.groupId;
+      const detail = scope.querySelector(`tr.collect-group-detail-row[data-detail-for="${gid}"]`);
+      if (!detail) return;
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      btn.classList.toggle('is-expanded', !expanded);
+      detail.hidden = expanded;
+    });
+  });
 }
 
 function dispatchStatusBadge(formal, supplement) {
@@ -1702,7 +2114,7 @@ function dispatchStatusBadge(formal, supplement) {
 function fillStatusBadge(supplement) {
   if (!supplement) return '<span class="badge badge-draft">—</span>';
   const map = {
-    pending: ['待填报', 'badge-warning'],
+    pending: ['待填报', 'badge-draft'],
     in_progress: ['填报中', 'badge-running'],
     completed: ['已填报', 'badge-success'],
     returned: ['已退回', 'badge-danger']
@@ -1717,13 +2129,13 @@ function supplementTaskStatusBadge(supplement) {
   if (supplement.status === 'returned' || supplement.auditStage === 'rejected') {
     return '<span class="badge badge-danger">已退回</span>';
   }
-  if (supplement.status === 'pending') return '<span class="badge badge-warning">待填报</span>';
+  if (supplement.status === 'pending') return '<span class="badge badge-draft">待填报</span>';
   if (supplement.status === 'in_progress') return '<span class="badge badge-running">填报中</span>';
   if (supplement.status === 'completed') {
     const stage = supplement.auditStage || 'pending_fill';
     if (stage === 'approved') return '<span class="badge badge-success">已通过</span>';
     if (stage === 'branch_review' || stage === 'hq_review') {
-      return '<span class="badge badge-warning">待审核</span>';
+      return '<span class="badge badge-running">待审核</span>';
     }
     return '<span class="badge badge-warning">待提交</span>';
   }
@@ -1747,7 +2159,7 @@ function resolveCollectMode(loanType) {
 
 /** 数据采集行核算方法上下文（与碳账户 resolveAccountMethodLabel 对齐） */
 function resolveFormalAccountingMethodContext(d, formal, taskId) {
-  const supp = (d.supplements || []).find(s => s.formalId === formal.id && s.taskId === taskId);
+  const supp = getSupplementForFormal(taskId, formal.id, d);
   const calc = (d.calculations || []).find(c => c.formalId === formal.id && c.taskId === taskId);
   return {
     formal,
@@ -1773,8 +2185,8 @@ function resolveSystemAccountingMethodLabel(formal, taskId, d) {
   if (formal.economyDirectStatus === 'done' || calc?.source === 'economy_direct') {
     return CarbonAccount.resolveAccountMethodLabel(d, ctx) || CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE;
   }
-  if (calc?.source === 'credit_fallback') {
-    return CarbonAccount.METHOD_LABEL.ECONOMY_LOAN;
+  if (calc?.source === 'credit_fallback' || calc?.methodId === 'economy_fallback') {
+    return calc?.method || '其他计算法';
   }
   return '—';
 }
@@ -1784,8 +2196,8 @@ function resolveManualAccountingMethodLabel(formal, taskId, d) {
   d = d || (typeof Store !== 'undefined' ? Store.get() : null);
   if (!formal || !d || typeof CarbonAccount === 'undefined') return '—';
 
-  const supp = (d.supplements || []).find(s => s.formalId === formal.id && s.taskId === taskId);
-  if (!isSupplementManualVisible(supp)) return '—';
+  const supp = getSupplementForFormal(taskId, formal.id, d);
+  if (!isSupplementCollectMethodVisible(supp)) return '—';
 
   const methodId = supp.approvedMethodId || (typeof Store !== 'undefined' ? Store.matchMethod(supp)?.id : null);
   if (!methodId) return '—';
@@ -1905,10 +2317,33 @@ const DATA_COLLECT_AUDIT_STATUS_OPTIONS = [
   { value: 'returned', label: '已退回' }
 ];
 
+const DATA_COLLECT_AUDIT_STATUS_LABELS = {
+  none: ['未进入审核', 'badge-draft'],
+  branch_review: ['分行初审', 'badge-warning'],
+  hq_review: ['总行终审', 'badge-warning'],
+  approved: ['已完成', 'badge-success'],
+  returned: ['已退回', 'badge-danger']
+};
+
 /** @deprecated 兼容旧引用 */
 const DATA_COLLECT_STATUS_OPTIONS = DATA_COLLECT_COLLECTION_STATUS_OPTIONS.concat(
   DATA_COLLECT_AUDIT_STATUS_OPTIONS.filter(o => o.value && !['none', 'returned'].includes(o.value))
 );
+
+/** 是否已有系统侧主体排放（与列表「系统主体排放」列口径一致） */
+function formalHasSystemEntityEmission(formal, taskId, d) {
+  if (!formal || !taskId) return false;
+  if (formal.gelanEntityEmission != null && !Number.isNaN(Number(formal.gelanEntityEmission))) return true;
+  if (formal.economyDirectStatus === 'done') return true;
+  if (typeof getSystemEntityEmissionValue === 'function') {
+    return getSystemEntityEmissionValue(taskId, formal.id) != null;
+  }
+  if (typeof Store !== 'undefined') {
+    if (d && Store._formalHasEntityEmission) return Store._formalHasEntityEmission(d, taskId, formal);
+    return Store.getFormalEntityEmission?.(taskId, formal.id) != null;
+  }
+  return false;
+}
 
 /** 数据采集行统一采集状态（筛选与列表共用，不再拆分派发/直算与填报） */
 function getDataCollectRowStatus(formal, supplement, taskId, d) {
@@ -1927,18 +2362,15 @@ function getDataCollectRowStatus(formal, supplement, taskId, d) {
     }
     return 'pending_fill';
   }
+
+  if (formal.economyDirectStatus === 'done') return 'economy_done';
+  if (formalHasSystemEntityEmission(formal, taskId, d)) return 'entity_collected';
+
   const mode = formal.collectMode || resolveCollectMode(formal.loanType);
   if (mode === 'mandatory') return 'pending_dispatch';
   const row = typeof formalLedgerRow === 'function' && taskId ? formalLedgerRow(formal, taskId) : formal;
   if (resolveAccountingType(row) === 'project_as_project' || isProjectAccountingPending(row)) {
     return 'need_supplement';
-  }
-  if (formal.economyDirectStatus === 'done') return 'economy_done';
-  if (taskId && typeof Store !== 'undefined') {
-    const hasEntity = d && Store._formalHasEntityEmission
-      ? Store._formalHasEntityEmission(d, taskId, formal)
-      : Store.getFormalEntityEmission?.(taskId, formal.id) != null;
-    if (hasEntity) return 'entity_collected';
   }
   if (taskId && typeof isFormalEconomyDirectEligible === 'function' && isFormalEconomyDirectEligible(formal, taskId, d)) {
     return 'pending_economy';
@@ -1985,6 +2417,12 @@ function dataCollectStatusBadge(formal, supplement, taskId, d) {
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
+function dataCollectAuditStatusBadge(formal, supplement) {
+  const status = getDataCollectAuditStatus(formal, supplement);
+  const [text, cls] = DATA_COLLECT_AUDIT_STATUS_LABELS[status] || ['—', 'badge-draft'];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
 function getDataCollectFilters(taskId) {
   try {
     return JSON.parse(sessionStorage.getItem(`data_collect_filters_${taskId}`) || '{}');
@@ -1997,19 +2435,124 @@ function saveDataCollectFilters(taskId, filters) {
   sessionStorage.setItem(`data_collect_filters_${taskId}`, JSON.stringify(filters || {}));
 }
 
+function supplementForFormalInTask(d, taskId, formalId) {
+  if (typeof Store !== 'undefined' && Store.findSupplementForFormal) {
+    return Store.findSupplementForFormal(d, taskId, formalId);
+  }
+  const direct = (d?.supplements || []).find(s => s.taskId === taskId && s.formalId === formalId);
+  if (direct) return direct;
+  const formal = (d?.formalList || []).find(f => f.id === formalId && f.taskId === taskId);
+  if (formal?.collectGroupId) {
+    return (d?.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === formal.collectGroupId) || null;
+  }
+  return null;
+}
+
+function supplementForCollectGroup(d, taskId, groupId) {
+  if (typeof Store !== 'undefined' && Store.findSupplementForGroup) {
+    return Store.findSupplementForGroup(d, taskId, groupId);
+  }
+  return (d?.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === groupId) || null;
+}
+
+function collectGroupBucketDisplay(group) {
+  if (!group) return '—';
+  const CG = typeof CollectGroups !== 'undefined' ? CollectGroups : null;
+  return CG?.bucketLabel(group.bucket) || group.bucket || '—';
+}
+
+function collectGroupStatusBadge(group, supplement, taskId, d) {
+  if (!group) return '—';
+  const primaryId = group.memberFormalIds?.[0];
+  const primary = (d?.formalList || []).find(f => f.id === primaryId);
+  if (!primary) return '—';
+  return dataCollectStatusBadge(primary, supplement, taskId, d);
+}
+
+function collectGroupAuditBadge(group, supplement, task, d) {
+  if (!group) return '—';
+  const data = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  const primaryId = group.memberFormalIds?.[0];
+  const primary = (data?.formalList || []).find(f => f.id === primaryId);
+  return dataCollectAuditStatusBadge(primary, supplement);
+}
+
+function filterCollectGroupsList(groups, filters, taskId, data) {
+  const f = filters || {};
+  const d = data || Store.get();
+  return (groups || []).filter(group => {
+    const supp = supplementForCollectGroup(d, taskId, group.id);
+    if (f.keyword) {
+      const kw = f.keyword.trim().toLowerCase();
+      const hay = [
+        group.customerName,
+        group.creditCode,
+        group.creditRefNo || group.projectNo,
+        group.loanType,
+        group.projectName,
+        group.dispatchBranch,
+        group.assignedManager,
+        group.accountingIndustryLabel,
+        group.accountingIndustryCode
+      ].join(' ').toLowerCase();
+      if (!hay.includes(kw)) return false;
+    }
+    const collectStatus = normalizeDataCollectCollectFilter(f.collectStatus ?? f.status ?? '');
+    const auditStatus = f.auditStatus ?? '';
+    if (collectStatus) {
+      const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
+      const tier = getDataCollectCollectionTier(primary, supp, taskId, d);
+      if (tier !== collectStatus) return false;
+    }
+    if (auditStatus) {
+      const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
+      if (getDataCollectAuditStatus(primary, supp) !== auditStatus) return false;
+    }
+    return true;
+  });
+}
+
+function renderCollectGroupMemberTable(group, formals, candidatesById, taskId, d, viewOnly, options = {}) {
+  const hideLoanAccount = !!options.hideLoanAccount;
+  const members = (group?.memberFormalIds || [])
+    .map(fid => formals.find(f => f.id === fid))
+    .filter(Boolean);
+  if (!members.length) {
+    return '<div style="padding:8px 12px;color:#909399">无关联逐笔记录</div>';
+  }
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  const rows = members.map(f => {
+    const cand = candidatesById.get(f.customerId);
+    const invest = f.investIndustryCode || f.gbIndustryCode || cand?.investIndustryCode || cand?.gbIndustryCode || '—';
+    const customerInd = f.customerIndustryCode || cand?.customerIndustryCode || cand?.gbIndustryCode || '—';
+    const balanceWan = candidateBalanceAmountWan(f, task?.year, task);
+    return `<tr>
+      ${hideLoanAccount ? '' : `<td>${f.loanAccount || '—'}</td>`}
+      <td>${f.loanType || cand?.loanType || '—'}</td>
+      <td>${f.tier1Branch || f.branch || cand?.branch || '—'}</td>
+      <td>${invest}</td>
+      <td>${customerInd}</td>
+      <td>${balanceWan ? formatLedgerAmountYuan(balanceWan) : '—'}</td>
+      <td>${f.manager || cand?.manager || '—'}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="collect-group-member-wrap">
+    <table class="data-table collect-group-member-table">
+      <thead><tr>
+        ${hideLoanAccount ? '' : '<th>贷款账号</th>'}<th>信贷品种</th><th>一级分行</th><th>投向行业</th><th>客户所属行业</th><th>月均余额（元）</th><th>客户经理</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 function filterDataCollectList(list, filters, taskId, data) {
   const f = filters || {};
   const d = data || Store.get();
-  const supplementsByFormal = new Map();
-  d.supplements.filter(s => s.taskId === taskId).forEach(s => supplementsByFormal.set(s.formalId, s));
   return list.filter(formal => {
-    const supp = supplementsByFormal.get(formal.id);
+    const supp = supplementForFormalInTask(d, taskId, formal.id);
     if (f.keyword && !(formal.customerName || '').toLowerCase().includes(f.keyword.trim().toLowerCase())) return false;
-    if (f.accountingMethod) {
-      const sys = resolveSystemAccountingMethodLabel(formal, taskId, d);
-      const man = resolveManualAccountingMethodLabel(formal, taskId, d);
-      if (sys !== f.accountingMethod && man !== f.accountingMethod) return false;
-    } else if (f.collectMode) {
+    if (f.collectMode) {
       const mode = formal.collectMode || resolveCollectMode(formal.loanType);
       if (mode !== f.collectMode) return false;
     }
@@ -2140,8 +2683,6 @@ function renderManagerSupplementOp(s, opts = {}) {
   let html = `<a href="${href}" class="btn-link">${label}</a>`;
   if (showSubmit && canSubmitSupplementForReview(s)) {
     html += ` <button type="button" class="btn-link submit-review-btn" data-id="${s.id}">提交审核</button>`;
-  } else if (showSubmit && ['branch_review', 'hq_review'].includes(s.auditStage)) {
-    html += ` <span style="color:#909399;font-size:13px">审核中</span>`;
   }
   return html;
 }
@@ -2184,6 +2725,21 @@ function pickLatestSupplementApproval(approvals, level) {
   })[0];
 }
 
+function resolveSupplementRejectSource(s, approvals) {
+  if (!s?.rejectReason) return null;
+  const hq = pickLatestSupplementApproval(approvals, 'hq');
+  const branch = pickLatestSupplementApproval(approvals, 'branch');
+  const admin = pickLatestSupplementApproval(approvals, 'admin');
+  if (hq?.status === 'rejected') return 'hq';
+  if (branch?.status === 'rejected') return 'branch';
+  if (admin?.status === 'rejected') return 'admin';
+  return null;
+}
+
+function supplementBranchReviewPassed(s, branchApproval) {
+  return s?.branchReviewStatus === 'approved' || branchApproval?.status === 'approved';
+}
+
 function resolveSupplementFlowStep(step, s, task, approvals) {
   const stage = s?.auditStage || 'pending_fill';
   const round = s?.reviewRound || 1;
@@ -2193,15 +2749,16 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
   const adminApproval = pickLatestSupplementApproval(approvals, 'admin');
 
   if (step.key === 'dispatch') {
-    if (!s?.dispatchedAt) {
+    const dispatched = !!(s?.dispatchedAt || (s?.status && s.status !== 'pending'));
+    if (!dispatched) {
       return { state: 'pending', badge: '待派发', meta: [{ label: '说明', value: '任务尚未派发至客户经理' }] };
     }
     return {
       state: 'done',
-      badge: '已完成',
+      badge: '已派发',
       meta: [
         { label: '派发人', value: s.dispatchedBy || (task?.initiatorOrg === 'branch' ? '分行绿金部' : '总行绿金部') },
-        { label: '派发时间', value: s.dispatchedAt },
+        { label: '派发时间', value: s.dispatchedAt || '—' },
         { label: '截止日期', value: s.deadline || '—' }
       ]
     };
@@ -2211,15 +2768,20 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
     if (!s?.dispatchedAt) {
       return { state: 'pending', badge: '待填报', meta: [{ label: '客户经理', value: s?.manager || '—' }] };
     }
+    const rejectSource = resolveSupplementRejectSource(s, approvals);
     if (s.status === 'returned' || (stage === 'pending_fill' && s.rejectReason)) {
+      const meta = [
+        { label: '客户经理', value: s.manager || submitApproval?.submitter || '—' },
+        { label: '填报状态', value: '需重新填报' },
+        { label: '退回原因', value: s.rejectReason || adminApproval?.rejectReason || '—', reason: true }
+      ];
+      if (rejectSource === 'hq') meta.splice(2, 0, { label: '退回环节', value: '总行终审' });
+      else if (rejectSource === 'branch') meta.splice(2, 0, { label: '退回环节', value: '分行初审' });
+      else if (rejectSource === 'admin') meta.splice(2, 0, { label: '退回环节', value: '管理员退回' });
       return {
-        state: 'rejected',
+        state: 'current',
         badge: '已退回',
-        meta: [
-          { label: '客户经理', value: s.manager || submitApproval?.submitter || '—' },
-          { label: '填报状态', value: '需重新填报' },
-          { label: '退回原因', value: s.rejectReason || adminApproval?.rejectReason || '—', reason: true }
-        ]
+        meta
       };
     }
     if (s.status === 'pending') {
@@ -2279,10 +2841,14 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
       };
     }
     if (branchStatus === 'approved' || approval?.status === 'approved' || ['hq_review', 'approved'].includes(stage)) {
+      const meta = buildReviewStepMeta(approval, s, task, 'branch');
+      if (s.status === 'returned' && s.rejectReason && resolveSupplementRejectSource(s, approvals) === 'hq') {
+        meta.push({ label: '说明', value: '本轮初审已通过，后由总行终审退回客户经理' });
+      }
       return {
         state: 'done',
         badge: '已通过',
-        meta: buildReviewStepMeta(approval, s, task, 'branch')
+        meta
       };
     }
     return {
@@ -2294,15 +2860,10 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
 
   if (step.key === 'hq') {
     if (task?.initiatorOrg === 'branch') return null;
-    if (!['hq_review', 'approved'].includes(stage)) {
-      return {
-        state: 'pending',
-        badge: '待审核',
-        meta: [{ label: '审批人', value: '总行绿金部' }, { label: '说明', value: '待分行初审通过后进入' }]
-      };
-    }
     const approval = hqApproval;
     const hqStatus = s.hqReviewStatus || approval?.status;
+    const branchPassed = supplementBranchReviewPassed(s, branchApproval);
+
     if (hqStatus === 'rejected' || approval?.status === 'rejected') {
       return {
         state: 'rejected',
@@ -2310,13 +2871,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
         meta: buildReviewStepMeta(approval, s, task, 'hq', s.rejectReason)
       };
     }
-    if (stage === 'hq_review' && hqStatus === 'pending') {
-      return {
-        state: 'current',
-        badge: '审核中',
-        meta: buildReviewStepMeta(approval, s, task, 'hq')
-      };
-    }
+
     if (hqStatus === 'approved' || approval?.status === 'approved' || stage === 'approved') {
       return {
         state: 'done',
@@ -2324,10 +2879,46 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
         meta: buildReviewStepMeta(approval, s, task, 'hq')
       };
     }
+
+    if (stage === 'hq_review' && (hqStatus === 'pending' || approval?.status === 'pending')) {
+      return {
+        state: 'current',
+        badge: '审核中',
+        meta: buildReviewStepMeta(approval, s, task, 'hq')
+      };
+    }
+
+    if (branchApproval?.status === 'rejected' || s.branchReviewStatus === 'rejected') {
+      return {
+        state: 'pending',
+        badge: '未到达',
+        meta: [
+          { label: '审批人', value: '总行绿金部' },
+          { label: '说明', value: '分行初审未通过，待客户经理重新提交后再进入' }
+        ]
+      };
+    }
+
+    if (!branchPassed) {
+      return {
+        state: 'pending',
+        badge: '待审核',
+        meta: [
+          { label: '审批人', value: '总行绿金部' },
+          { label: '说明', value: '待分行初审通过后进入' }
+        ]
+      };
+    }
+
     return {
       state: 'pending',
       badge: '待审核',
-      meta: buildReviewStepMeta(approval, s, task, 'hq')
+      meta: buildReviewStepMeta(approval, s, task, 'hq').length
+        ? buildReviewStepMeta(approval, s, task, 'hq')
+        : [
+          { label: '审批人', value: '总行绿金部' },
+          { label: '说明', value: '分行初审已通过，待进入总行终审' }
+        ]
     };
   }
 
@@ -2353,6 +2944,26 @@ function buildReviewStepMeta(approval, s, task, level, fallbackReason) {
   return rows;
 }
 
+function resolveFlowStepBadgeClass(snapshot) {
+  const badge = snapshot?.badge || '';
+  const state = snapshot?.state || 'pending';
+  if (state === 'done') return 'badge-success';
+  if (state === 'rejected') return 'badge-danger';
+  if (state === 'current') {
+    if (badge === '填报中' || badge === '审核中') return 'badge-running';
+    return 'badge-warning';
+  }
+  const pendingMap = {
+    待派发: 'badge-draft',
+    待填报: 'badge-draft',
+    待审核: 'badge-running',
+    待提交审核: 'badge-warning',
+    待处理: 'badge-draft',
+    未到达: 'badge-draft'
+  };
+  return pendingMap[badge] || 'badge-draft';
+}
+
 function renderSupplementFlowTimelineNode(step, snapshot) {
   if (!snapshot) return '';
   const stateCls = {
@@ -2363,10 +2974,7 @@ function renderSupplementFlowTimelineNode(step, snapshot) {
   }[snapshot.state] || 'is-pending';
   const extraCls = step.key === 'dispatch' ? ' is-dispatch' : (step.key === 'manager_fill' ? ' is-manager-fill' : '');
   const currentTag = snapshot.state === 'current' ? '<span class="badge badge-warning approval-current-tag">当前节点</span>' : '';
-  const badgeCls = snapshot.state === 'done' ? 'badge-success'
-    : snapshot.state === 'current' ? 'badge-warning'
-    : snapshot.state === 'rejected' ? 'badge-danger'
-    : 'badge-draft';
+  const badgeCls = resolveFlowStepBadgeClass(snapshot);
   const metaHtml = (snapshot.meta || []).map(row =>
     row.reason
       ? `<div class="approval-timeline-reason"><span class="label">${row.label}</span>${escapeHtml(row.value)}</div>`
@@ -2614,9 +3222,30 @@ function getSupplementApprovals(s) {
       const ta = Date.parse(String(a.submitTime || '').replace(/-/g, '/')) || 0;
       const tb = Date.parse(String(b.submitTime || '').replace(/-/g, '/')) || 0;
       if (ta !== tb) return ta - tb;
-      const order = { submit: 0, branch: 1, hq: 2, admin: 3 };
+      const order = { submit: 0, branch: 1, branch_edit: 2, hq: 3, hq_edit: 4, admin: 5 };
       return (order[a.reviewLevel] ?? 50) - (order[b.reviewLevel] ?? 50);
     });
+}
+
+function reviewLevelTimelineTitle(level) {
+  if (level === 'branch_edit') return '分行修改数据';
+  if (level === 'hq_edit') return '总行修改数据';
+  return reviewLevelLabel(level);
+}
+
+function renderSupplementAuditEditTimelineNode(a) {
+  const title = reviewLevelTimelineTitle(a.reviewLevel);
+  return `<div class="approval-timeline-item is-done is-audit-edit">
+    <div class="approval-timeline-head">
+      <strong>${escapeHtml(title)}</strong>
+      <span class="badge badge-success">已完成</span>
+    </div>
+    <div class="approval-timeline-meta">
+      <div><span class="label">操作人</span>${escapeHtml(a.approver || a.submitter || '—')}</div>
+      <div><span class="label">操作时间</span>${escapeHtml(a.approveTime || a.submitTime || '—')}</div>
+      ${a.round ? `<div><span class="label">审核轮次</span>第 ${a.round} 轮</div>` : ''}
+    </div>
+  </div>`;
 }
 
 function supplementFillDefaultTab(s) {
@@ -2640,9 +3269,20 @@ function renderSupplementDispatchTimelineNode(s, task) {
 function renderSupplementApprovalTimeline(s, task) {
   const approvals = getSupplementApprovals(s);
   const steps = supplementApprovalFlowSteps(task);
+  const round = s?.reviewRound || 1;
+  const editNodes = approvals.filter(a =>
+    ['branch_edit', 'hq_edit'].includes(a.reviewLevel) && (a.round || 1) === round
+  );
   const items = steps.map(step => {
     const snapshot = resolveSupplementFlowStep(step, s, task, approvals);
-    return renderSupplementFlowTimelineNode(step, snapshot);
+    let html = renderSupplementFlowTimelineNode(step, snapshot);
+    if (step.key === 'branch') {
+      html += editNodes.filter(a => a.reviewLevel === 'branch_edit').map(renderSupplementAuditEditTimelineNode).join('');
+    }
+    if (step.key === 'hq') {
+      html += editNodes.filter(a => a.reviewLevel === 'hq_edit').map(renderSupplementAuditEditTimelineNode).join('');
+    }
+    return html;
   }).join('');
 
   const adminNodes = approvals.filter(a => a.reviewLevel === 'admin').map(a => {
@@ -2684,9 +3324,21 @@ function renderSupplementPageWithTabs(s, task, options = {}) {
     <div class="supplement-page-panel ${fillActive ? 'active' : ''}" data-page-panel="fill">
       ${renderSupplementFillBody(s, options)}
     </div>
-    <div class="supplement-page-panel ${approvalActive ? 'active' : ''}" data-page-panel="approval">
+    <div class="supplement-page-panel ${approvalActive ? 'active' : ''}" data-page-panel="approval" data-supplement-id="${s.id}">
       ${renderSupplementApprovalTimeline(s, task)}
     </div>`;
+}
+
+function refreshSupplementApprovalTimeline(rootEl, supplementId) {
+  const root = rootEl || document;
+  const panel = qs('.supplement-page-panel[data-page-panel="approval"]', root);
+  if (!panel) return;
+  const sid = supplementId || panel.dataset.supplementId;
+  const s = Store.get().supplements.find(x => x.id === sid);
+  if (!s) return;
+  const task = Store.getTask(s.taskId);
+  panel.innerHTML = renderSupplementApprovalTimeline(s, task);
+  panel.dataset.supplementId = sid;
 }
 
 function bindSupplementPageTabs(rootEl) {
@@ -2697,6 +3349,9 @@ function bindSupplementPageTabs(rootEl) {
       qsa('.supplement-page-panel', root).forEach(x => x.classList.remove('active'));
       tab.classList.add('active');
       qs(`.supplement-page-panel[data-page-panel="${tab.dataset.pageTab}"]`, root)?.classList.add('active');
+      if (tab.dataset.pageTab === 'approval') {
+        refreshSupplementApprovalTimeline(root);
+      }
     };
   });
 }
@@ -2761,6 +3416,7 @@ function renderSupplementFillBody(s, options = {}) {
     <div class="tabs method-tabs-bar" id="methodTabs">
       ${methodTabs.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
     </div>
+    <p class="method-tabs-hint">如选择报告法-权威数据，则必须上传核查佐证材料。</p>
     <div class="card-body">
       ${SUPPLEMENT_FIELDS.renderReportKindPanel(s, dis, panelCls('report_authority'), 'report_authority', 'authority')}
       ${SUPPLEMENT_FIELDS.renderReportKindPanel(s, dis, panelCls('report_other'), 'report_other', 'other')}
@@ -2781,7 +3437,6 @@ function renderSupplementFillBody(s, options = {}) {
         ${otherCalcTip}
         <div class="form-grid">
         <div class="form-item"><label>行业排放因子</label><input id="f_fallback_factor" type="number" step="0.01" value="${fallbackFactor}" ${otherDis}></div>
-        <div class="form-item full"><small style="color:#909399">${GUIDE.FORMULAS.attribution_fallback}（无法获取主体排放数据时使用）</small></div>
         ${SUPPLEMENT_FIELDS.renderAttachmentSection('other', s.fieldData?.other?.attachments || [], otherDis)}
       </div></div>
     </div></div>`;
@@ -2830,7 +3485,7 @@ function approvalNextApproverLabel(approval, task) {
 
 function filterApprovalsForRole(approvals, roleKey, role, taskId) {
   let list = approvals.filter(a => !taskId || a.taskId === taskId);
-  list = list.filter(a => a.reviewLevel !== 'submit');
+  list = list.filter(a => !['submit', 'branch_edit', 'hq_edit'].includes(a.reviewLevel));
   const d = Store.get();
   if (roleKey === 'manager') {
     return list.filter(a => {
@@ -2902,8 +3557,8 @@ function filterApprovalList(list, filters) {
     if (kw) out = out.filter(a => String(approvalTaskName(a)).toLowerCase().includes(kw));
   }
   if (f.year) {
-    const kw = f.year.trim();
-    if (kw) out = out.filter(a => String(approvalTaskYear(a)).includes(kw));
+    const y = String(f.year).trim();
+    if (y) out = out.filter(a => String(approvalTaskYear(a)) === y);
   }
   if (f.submitter) {
     const kw = f.submitter.trim().toLowerCase();
@@ -2929,7 +3584,7 @@ function renderApprovalFilterPanel(filters) {
         <div class="form-item"><label>任务名称</label>
           <input id="apf_taskName" type="search" value="${escapeHtml(f.taskName || '')}" placeholder="模糊搜索"></div>
         <div class="form-item"><label>核算年度</label>
-          <input id="apf_year" type="search" value="${escapeHtml(f.year || '')}" placeholder="如 2025"></div>
+          ${renderTaskYearFilterField(f.year, 'apf_year')}</div>
         <div class="form-item"><label>客户名称</label>
           <input id="apf_customerName" type="search" value="${escapeHtml(customerName)}" placeholder="模糊搜索"></div>
         <div class="form-item"><label>提交人</label>
@@ -3310,42 +3965,100 @@ function bindApprovalAuditAdjustPanel(rootEl, supplementId) {
   });
 }
 
-/** 审核页底部操作栏（审核模式） */
-function renderApprovalReviewActions(canReview, approval, task) {
-  if (!canReview) {
+/** 审核页底部操作栏（审核模式 / 审核人修改模式） */
+function renderApprovalReviewActions(canReview, approval, task, options = {}) {
+  const auditEditing = !!options.auditEditing;
+  if (!canReview && !auditEditing) {
     return `<div style="padding:12px 20px;border-top:1px solid #eee;text-align:right">
       <button class="btn" onclick="location.hash='#/approvals'">返回列表</button>
     </div>`;
   }
+  if (auditEditing) {
+    return `<div style="padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;background:#fff;margin-top:16px">
+      <button type="button" class="btn" id="auditEditSaveBtn">暂存</button>
+      <button type="button" class="btn btn-primary" id="auditEditSubmitBtn">提交数据</button>
+      <button type="button" class="btn" id="auditEditCancelBtn">取消修改</button>
+    </div>`;
+  }
   return `<div style="padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px;background:#fff;margin-top:16px">
     <button type="button" class="btn btn-success" id="approvalApproveBtn">审核通过</button>
-    <button type="button" class="btn btn-danger" id="approvalRejectBtn">退回至客户经理</button>
-    <button type="button" class="btn btn-primary" id="approvalSaveBtn">保存</button>
-    <button type="button" class="btn" id="approvalLocalFixBtn">修改</button>
+    <button type="button" class="btn btn-danger" id="approvalRejectBtn">审核不通过</button>
+    <button type="button" class="btn" id="approvalModifyBtn">修改</button>
     <button type="button" class="btn" id="approvalCancelBtn">取消</button>
   </div>`;
 }
 
-/** 退回对象候选（任务相关角色与人员） */
-function buildApprovalRejectTargets(approval, supplement) {
-  const list = [];
-  const seen = new Set();
-  const push = (value, label) => {
-    if (!value || seen.has(value)) return;
-    seen.add(value);
-    list.push({ value, label });
-  };
-  const mgr = supplement?.manager;
-  if (mgr) push(`manager:${mgr}`, `${mgr} · 客户经理`);
-  if (approval?.submitter) push(`user:${approval.submitter}`, `${approval.submitter} · 提交人`);
-  Object.entries(ROLES || {}).forEach(([key, r]) => {
-    const branchSuffix = r.branch ? `（${r.branch}）` : '';
-    push(`role:${key}`, `${r.user} · ${r.label}${branchSuffix}`);
+/** 退回对象候选：任务下全部客户经理姓名 */
+function listApprovalRejectManagers(approval, supplement) {
+  const taskId = approval?.taskId || supplement?.taskId;
+  const names = new Set();
+  if (typeof CandidateSync !== 'undefined' && CandidateSync.MANAGERS) {
+    CandidateSync.MANAGERS.forEach(n => names.add(n));
+  }
+  if (taskId) {
+    Store.getSupplements(taskId).forEach(s => { if (s.manager) names.add(s.manager); });
+    (Store.getCandidates(taskId) || []).forEach(c => { if (c.manager) names.add(c.manager); });
+  }
+  if (supplement?.manager) names.add(supplement.manager);
+  return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(name => ({
+    value: `manager:${name}`,
+    label: name
+  }));
+}
+
+/** 审核不通过 — 退回路径选项 */
+function listApprovalRejectRouteOptions(approval) {
+  const isBranch = approval?.reviewLevel === 'branch';
+  if (isBranch) {
+    return [
+      { value: 'original_manager', label: '退回至原客户经理' },
+      { value: 'other_manager', label: '退回至其他客户经理' }
+    ];
+  }
+  return [
+    { value: 'original_manager', label: '退回至原客户经理' },
+    { value: 'original_branch_manager', label: '退回至原分行客户经理' },
+    { value: 'other_manager', label: '退回至其他客户经理' }
+  ];
+}
+
+function resolveApprovalRejectRouteExtra(route, supplement, task, otherManagerName) {
+  const mgr = supplement?.manager || ROLES.manager?.user || '王磊';
+  const branchRole = ROLES.branch || {};
+  const branchLabel = `${branchRole.user || '王丽'} · ${branchRole.label || '分行绿金负责人'}${branchRole.branch ? `（${branchRole.branch}）` : ''}`;
+  if (route === 'original_manager') {
+    return { rejectTarget: 'manager', rejectAssignee: `manager:${mgr}`, rejectAssigneeLabel: mgr, rejectRoute: route, rejectRouteLabel: '退回' };
+  }
+  if (route === 'original_branch_manager') {
+    return { rejectTarget: 'branch', rejectAssignee: 'role:branch', rejectAssigneeLabel: branchLabel, rejectRoute: route, rejectRouteLabel: '退回' };
+  }
+  if (route === 'other_manager') {
+    const name = (otherManagerName || '').trim();
+    return { rejectTarget: 'manager', rejectAssignee: `manager:${name}`, rejectAssigneeLabel: name, rejectRoute: route, rejectRouteLabel: '退回' };
+  }
+  return { rejectTarget: 'manager', rejectAssignee: `manager:${mgr}`, rejectAssigneeLabel: mgr, rejectRoute: 'original_manager', rejectRouteLabel: '退回' };
+}
+
+function hideApprovalRejectModalFields() {
+  ['approvalConfirmRejectTypeWrap', 'approvalConfirmReasonWrap', 'approvalConfirmIndustryWrap',
+    'approvalConfirmRejectRouteWrap', 'approvalConfirmOtherManagerWrap'].forEach(id => {
+    const el = qs('#' + id);
+    if (el) el.style.display = 'none';
   });
-  return list;
+}
+
+function approvalConfirmModalIsComplete(modal) {
+  if (!modal) return false;
+  return [
+    '#approvalConfirmRejectRoute',
+    '#approvalConfirmMethodWrap',
+    '#approvalConfirmRejectTypeWrap'
+  ].every(sel => qs(sel, modal));
 }
 
 function ensureApprovalConfirmModal() {
+  const stale = qs('#approvalConfirmModal');
+  if (stale && !approvalConfirmModalIsComplete(stale)) stale.remove();
   if (qs('#approvalConfirmModal')) return qs('#approvalConfirmModal');
   const root = qs('#modalRoot');
   if (!root) return null;
@@ -3356,16 +4069,32 @@ function ensureApprovalConfirmModal() {
           <button type="button" class="modal-close" id="closeApprovalConfirm">&times;</button></div>
         <div class="modal-body">
           <p id="approvalConfirmMessage"></p>
+          <div class="form-item" id="approvalConfirmRejectTypeWrap" style="margin-top:12px;display:none">
+            <label>审核不通过原因</label>
+            <div class="method-select-list" id="approvalConfirmRejectTypeList">
+              <label class="method-select-option"><input type="radio" name="approvalRejectReasonType" value="data_error" checked> 数据有误</label>
+              <label class="method-select-option"><input type="radio" name="approvalRejectReasonType" value="industry_error"> 行业有误</label>
+            </div>
+          </div>
           <div class="form-item" id="approvalConfirmReasonWrap" style="margin-top:12px;display:none">
             <label>审核原因</label>
-            <textarea id="approvalConfirmReason" rows="3" placeholder="请填写退回原因" style="width:100%"></textarea>
+            <textarea id="approvalConfirmReason" rows="3" placeholder="请填写审核原因" style="width:100%"></textarea>
+          </div>
+          <div class="form-item" id="approvalConfirmIndustryWrap" style="margin-top:12px;display:none">
+            <label>行业应为</label>
+            <div id="approvalConfirmIndustryPickerHost"></div>
+            <p class="approval-reject-industry-hint">请注意，修改行业后，由于行业收资表变更，所有数据需重新填写，请谨慎退回。</p>
+          </div>
+          <div class="form-item" id="approvalConfirmRejectRouteWrap" style="margin-top:12px;display:none">
+            <label>退回至</label>
+            <select id="approvalConfirmRejectRoute" style="width:100%"></select>
+          </div>
+          <div class="form-item" id="approvalConfirmOtherManagerWrap" style="margin-top:12px;display:none">
+            <label>客户经理</label>
+            <select id="approvalConfirmOtherManager" style="width:100%"></select>
           </div>
           <div id="approvalConfirmMethodWrap" style="margin-top:12px;display:none">
             <div id="approvalConfirmMethodList" class="method-select-list"></div>
-          </div>
-          <div class="form-item" id="approvalConfirmRejectTargetWrap" style="margin-top:12px;display:none">
-            <label>退回至</label>
-            <div id="approvalConfirmRejectTargetList" class="method-select-list"></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -3382,25 +4111,22 @@ function ensureApprovalConfirmModal() {
 function openApprovalActionConfirm(type, onConfirm, options = {}) {
   if (!ensureApprovalConfirmModal()) return;
   const isApprove = type === 'approve';
-  qs('#approvalConfirmTitle').textContent = options.title || (isApprove ? '审核通过' : '退回至客户经理');
-  qs('#approvalConfirmMessage').textContent = options.message || (isApprove ? '是否确认审核通过？' : '是否确认退回至客户经理？');
-  const reasonWrap = qs('#approvalConfirmReasonWrap');
+  qs('#approvalConfirmTitle').textContent = options.title || (isApprove ? '审核通过' : '审核不通过');
+  qs('#approvalConfirmMessage').textContent = options.message || (isApprove ? '是否确认审核通过？' : '是否确认审核不通过？');
+  hideApprovalRejectModalFields();
   const methodWrap = qs('#approvalConfirmMethodWrap');
-  const reasonInput = qs('#approvalConfirmReason');
-  reasonWrap.style.display = isApprove ? 'none' : 'block';
   if (methodWrap) methodWrap.style.display = 'none';
-  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
-  if (targetWrap) targetWrap.style.display = 'none';
-  reasonInput.value = '';
+  const reasonInput = qs('#approvalConfirmReason');
+  if (reasonInput) reasonInput.value = '';
   const okBtn = qs('#approvalConfirmOkBtn');
   okBtn.className = isApprove ? 'btn btn-success' : 'btn btn-danger';
   okBtn.textContent = '确认';
   okBtn.onclick = () => {
     if (!isApprove) {
-      const reason = (reasonInput.value || '').trim();
+      const reason = (reasonInput?.value || '').trim();
       if (!reason) {
-        toast('请填写退回原因', 'warning');
-        reasonInput.focus();
+        toast('请填写审核原因', 'warning');
+        reasonInput?.focus();
         return;
       }
       hideModal('approvalConfirmModal');
@@ -3411,60 +4137,135 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
     onConfirm(true);
   };
   showModal('approvalConfirmModal');
-  if (!isApprove) setTimeout(() => reasonInput.focus(), 100);
+  if (!isApprove) setTimeout(() => reasonInput?.focus(), 100);
 }
 
-function openApprovalRejectConfirm(approval, supplement, onConfirm) {
+function syncApprovalRejectModalFields() {
+  const reasonType = qs('input[name="approvalRejectReasonType"]:checked')?.value || 'data_error';
+  const route = qs('#approvalConfirmRejectRoute')?.value || 'original_manager';
+  const reasonWrap = qs('#approvalConfirmReasonWrap');
+  const industryWrap = qs('#approvalConfirmIndustryWrap');
+  const routeWrap = qs('#approvalConfirmRejectRouteWrap');
+  const otherWrap = qs('#approvalConfirmOtherManagerWrap');
+  if (reasonWrap) reasonWrap.style.display = reasonType === 'data_error' ? 'block' : 'none';
+  if (industryWrap) industryWrap.style.display = reasonType === 'industry_error' ? 'block' : 'none';
+  if (routeWrap) routeWrap.style.display = 'block';
+  if (otherWrap) otherWrap.style.display = route === 'other_manager' ? 'block' : 'none';
+}
+
+function openApprovalRejectConfirm(approval, supplement, onConfirm, task) {
   if (!ensureApprovalConfirmModal()) return;
-  const targets = buildApprovalRejectTargets(approval, supplement);
-  qs('#approvalConfirmTitle').textContent = '退回至客户经理';
-  qs('#approvalConfirmMessage').textContent = '请选择退回对象并填写退回原因：';
-  qs('#approvalConfirmReasonWrap').style.display = 'block';
+  const managers = listApprovalRejectManagers(approval, supplement);
+  const routes = listApprovalRejectRouteOptions(approval);
+  const ctx = typeof getSupplementIndustryContext === 'function'
+    ? getSupplementIndustryContext(supplement)
+    : { gbIndustryCode: supplement?.gbIndustryCode, gbIndustryName: supplement?.gbIndustryName };
+  const currentLabel = ctx.gbIndustryCode
+    ? formatGbIndustryFilterLabel(ctx.gbIndustryCode, ctx.gbIndustryName)
+    : (supplement?.industryLabel || '');
+
+  qs('#approvalConfirmTitle').textContent = '审核不通过';
+  qs('#approvalConfirmMessage').textContent = '请选择审核不通过原因：';
+  hideApprovalRejectModalFields();
+  qs('#approvalConfirmRejectTypeWrap').style.display = 'block';
   qs('#approvalConfirmMethodWrap').style.display = 'none';
-  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
-  const targetList = qs('#approvalConfirmRejectTargetList');
-  targetWrap.style.display = 'block';
-  targetList.innerHTML = targets.map((t, i) =>
-    `<label class="method-select-option"><input type="radio" name="approvalRejectTarget" value="${escapeHtml(t.value)}"${i === 0 ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`
+
+  qsa('input[name="approvalRejectReasonType"]').forEach(r => {
+    r.checked = r.value === 'data_error';
+  });
+
+  const industryHost = qs('#approvalConfirmIndustryPickerHost');
+  if (industryHost) {
+    industryHost.innerHTML = renderFormalIndustryPicker('approval-reject', 'correct', ctx.gbIndustryCode, currentLabel);
+    qsa('.formal-industry-input', industryHost).forEach(input => { input.dataset.bound = ''; });
+  }
+
+  const routeSelect = qs('#approvalConfirmRejectRoute');
+  routeSelect.innerHTML = routes.map(r =>
+    `<option value="${escapeHtml(r.value)}">${escapeHtml(r.label)}</option>`
   ).join('');
+
+  const otherSelect = qs('#approvalConfirmOtherManager');
+  otherSelect.innerHTML = managers.map(m =>
+    `<option value="${escapeHtml(m.label)}">${escapeHtml(m.label)}</option>`
+  ).join('');
+
   const reasonInput = qs('#approvalConfirmReason');
   reasonInput.value = '';
+
+  qsa('input[name="approvalRejectReasonType"]').forEach(r => {
+    r.onchange = syncApprovalRejectModalFields;
+  });
+  routeSelect.onchange = syncApprovalRejectModalFields;
+  syncApprovalRejectModalFields();
+  bindFormalIndustryPickers(qs('#approvalConfirmModal'));
+
   const okBtn = qs('#approvalConfirmOkBtn');
   okBtn.className = 'btn btn-danger';
-  okBtn.textContent = '确认退回';
+  okBtn.textContent = '确认';
   okBtn.onclick = () => {
-    const reason = (reasonInput.value || '').trim();
-    if (!reason) {
-      toast('请填写退回原因', 'warning');
-      reasonInput.focus();
+    const reasonType = qs('input[name="approvalRejectReasonType"]:checked')?.value || 'data_error';
+    const route = routeSelect?.value || 'original_manager';
+    const otherManager = otherSelect?.value || '';
+    let reason = '';
+    const extra = resolveApprovalRejectRouteExtra(route, supplement, task, otherManager);
+    extra.rejectReasonType = reasonType;
+
+    if (reasonType === 'data_error') {
+      reason = (reasonInput.value || '').trim();
+      if (!reason) {
+        toast('请填写审核原因', 'warning');
+        reasonInput.focus();
+        return;
+      }
+    } else {
+      const industryInput = qs('#approvalConfirmIndustryPickerHost .formal-industry-input');
+      const parsed = parseFormalIndustryInput(industryInput);
+      if (!parsed.code) {
+        toast('请选择正确的行业', 'warning');
+        industryInput?.focus();
+        return;
+      }
+      extra.correctedIndustryCode = parsed.code;
+      extra.correctedIndustryName = parsed.name;
+      extra.correctedIndustryLabel = parsed.label;
+      extra.correctedIndustryMajor = typeof inferIndustryMajor === 'function'
+        ? (inferIndustryMajor(parsed.code) || '')
+        : '';
+      reason = `行业有误，应为：${parsed.label}`;
+    }
+
+    if (route === 'other_manager' && !otherManager) {
+      toast('请选择客户经理', 'warning');
       return;
     }
-    const targetVal = qs('input[name="approvalRejectTarget"]:checked')?.value;
-    if (!targetVal) {
-      toast('请选择退回对象', 'warning');
-      return;
-    }
-    const targetLabel = targets.find(t => t.value === targetVal)?.label || targetVal;
+
     hideModal('approvalConfirmModal');
-    onConfirm(false, reason, { rejectTarget: 'manager', rejectAssignee: targetVal, rejectAssigneeLabel: targetLabel });
+    onConfirm(false, reason, extra);
   };
   showModal('approvalConfirmModal');
-  setTimeout(() => reasonInput.focus(), 100);
+  setTimeout(() => reasonInput?.focus(), 100);
 }
 
 /** 分行审核收集单据通过：须单选核算方法 */
 function openSupplementMethodApprovalConfirm(approval, onConfirm) {
-  if (!ensureApprovalConfirmModal()) return;
+  if (!ensureApprovalConfirmModal()) {
+    toast('审核弹窗加载失败，请刷新页面后重试', 'warning');
+    return;
+  }
   const supplement = getSupplementForApproval(approval);
   const tabs = getSupplementMethodTabs(supplement || {});
   const defaultTabId = supplement?.activeMethodTab || supplementActiveTab(supplement || {});
   qs('#approvalConfirmTitle').textContent = '审核通过';
   qs('#approvalConfirmMessage').textContent = '请选择要使用的核算方法（括号内为主体排放预览，供审核参考）：';
   qs('#approvalConfirmReasonWrap').style.display = 'none';
-  const targetWrap = qs('#approvalConfirmRejectTargetWrap');
-  if (targetWrap) targetWrap.style.display = 'none';
+  hideApprovalRejectModalFields();
   const methodWrap = qs('#approvalConfirmMethodWrap');
   const methodList = qs('#approvalConfirmMethodList');
+  if (!methodWrap || !methodList) {
+    toast('核算方法选择弹窗异常，请硬刷新页面（Cmd+Shift+R）后重试', 'warning');
+    return;
+  }
   methodWrap.style.display = 'block';
   methodList.innerHTML = tabs.map(t => {
     const checked = defaultTabId === t.id ? ' checked' : '';
@@ -3518,14 +4319,36 @@ function candidateBorrowerType(c) {
   return candidateLoanSubjectType(c);
 }
 
+const LOAN_SUBJECT_TYPE_LEGACY_MAP = {
+  股份有限公司: '股份制有限公司（非上市）',
+  国有企业: '企贷',
+  集体企业: '联营、合作企业',
+  外商投资企业: '其他',
+  私营企业: '有限责任公司',
+  事业单位: '其他',
+  个体工商户: '个贷',
+  农户: '个贷',
+  个人独资企业: '合伙企业',
+  小微企业: '小微客户',
+  境外主体: '其他'
+};
+
+function normalizeLoanSubjectType(value) {
+  const v = String(value || '').trim();
+  if (!v) return v;
+  const labels = GUIDE.CANDIDATE_BORROWER_TYPES || [];
+  if (labels.includes(v)) return v;
+  return LOAN_SUBJECT_TYPE_LEGACY_MAP[v] || v;
+}
+
 /** 贷款主体类型：优先信贷大表「公司类型 / 公司性质」 */
 function candidateLoanSubjectType(c) {
-  if (c?.companyType) return c.companyType;
-  if (c?.companyNature) return c.companyNature;
-  if (c.borrowerType) return c.borrowerType;
-  if (c.isIndividual) return '个体工商户';
-  if (c.isOverseas) return '境外主体';
-  if (c.isSme) return '有限责任公司';
+  if (c?.companyType) return normalizeLoanSubjectType(c.companyType);
+  if (c?.companyNature) return normalizeLoanSubjectType(c.companyNature);
+  if (c.borrowerType) return normalizeLoanSubjectType(c.borrowerType);
+  if (c.isIndividual) return '个贷';
+  if (c.isOverseas) return '其他';
+  if (c.isSme) return '小微客户';
   return '有限责任公司';
 }
 
@@ -3534,9 +4357,39 @@ function candidateProductType(c) {
   return c.productType || c.loanType || '-';
 }
 
+function isGbIndustryNameOnlyDisplay(code) {
+  const cascade = toCascadeIndustryCode(code);
+  return cascade === '4411' || cascade === '4417';
+}
+
+/** D4411/D4417 等：UI 仅展示简短中文行业名 */
+function resolveGbIndustryShortName(code, name) {
+  const scoped = normalizeIndustryFilterCode(code);
+  const cascade = toCascadeIndustryCode(scoped || code);
+  const map = GUIDE.GB_INDUSTRY_SHORT_DISPLAY || {};
+  if (scoped && map[scoped]) return map[scoped];
+  if (cascade === '4411') return '火力发电';
+  if (cascade === '4417') return '生物质能发电';
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  if (cascade === '4411' || /^D4411\b/.test(raw)) return '火力发电';
+  if (cascade === '4417' || /^D4417\b/.test(raw)) return '生物质能发电';
+  return raw.replace(/\s+不包括.+$/u, '').replace(/\s*[（(][^）)]*[）)]\s*$/u, '').trim() || raw;
+}
+
+function formatGbIndustryFilterLabel(code, name) {
+  const scoped = normalizeIndustryFilterCode(code) || String(code || '').trim();
+  const shortName = resolveGbIndustryShortName(scoped, name);
+  return scoped && shortName ? `${scoped} ${shortName}` : (shortName || scoped || '-');
+}
+
 function candidateIndustryLabel(c) {
+  const code = c?.gbIndustryCode;
+  if (isGbIndustryNameOnlyDisplay(code)) {
+    return resolveGbIndustryShortName(code, c?.gbIndustryName || c?.industryLabel);
+  }
   if (c.industryLabel) return c.industryLabel;
-  if (c.gbIndustryCode && c.gbIndustryName) return `${c.gbIndustryCode} ${c.gbIndustryName}`;
+  if (code && c.gbIndustryName) return formatGbIndustryFilterLabel(code, c.gbIndustryName);
   return c.industryMajor || '-';
 }
 
@@ -3557,6 +4410,9 @@ function candidateInvestIndustryLabel(c) {
     const p = details[0];
     const code = p.nationalIndustryCodeLv4 || c.gbIndustryCode;
     const name = p.projectIndustry || c.gbIndustryName || c.industryMajor;
+    if (isGbIndustryNameOnlyDisplay(code)) {
+      return resolveGbIndustryShortName(code, name);
+    }
     if (code && name) return `${code} ${name}`;
     return p.projectIndustry || candidateIndustryLabel(c);
   }
@@ -3707,8 +4563,8 @@ function renderCaProjectDetailRow(acc, colspan = 10) {
         <div class="table-wrap">
           <table class="data-table project-detail-table">
             <thead><tr>
-              <th>序号</th><th>项目号</th><th>项目名称</th><th>客户名称</th><th>统一社会信用代码</th>
-              <th>项目所属行业</th><th>项目月均贷款余额（万元）</th><th>项目收入（万元）</th>
+              <th>序号</th><th>授信编号</th><th>项目名称</th><th>客户名称</th><th>统一社会信用代码</th>
+              <th>项目所属行业</th><th>项目月均贷款余额（元）</th><th>项目收入（元）</th>
             </tr></thead>
             <tbody>${details.map((p, i) => `<tr>
               <td>${i + 1}</td>
@@ -3717,8 +4573,8 @@ function renderCaProjectDetailRow(acc, colspan = 10) {
               <td>${p.customerName || '-'}</td>
               <td>${p.creditCode || '-'}</td>
               <td>${p.projectIndustry || '-'}</td>
-              <td>${p.projectAvgLoanBalanceWan ?? '-'}</td>
-              <td>${p.projectRevenueWan ?? '-'}</td>
+              <td>${formatProjectWanAsYuan(p.projectAvgLoanBalanceWan)}</td>
+              <td>${formatProjectWanAsYuan(p.projectRevenueWan)}</td>
             </tr>`).join('')}</tbody>
           </table>
         </div>
@@ -3747,13 +4603,16 @@ function resolveCarbonAccountProfileRow(d, acc, year, subProjectNo) {
     const sub = (acc.projectSubAccounts || []).find(x => String(x.projectNo) === String(subProjectNo));
     const project = (acc.projectDetails || []).find(p => String(p.projectNo) === String(subProjectNo));
     const subProfile = sub?.annualProfiles?.[yearStr] || {};
+    const projMetrics = typeof CarbonAccount !== 'undefined'
+      ? CarbonAccount.resolveProjectYearMetrics(d, acc, subProjectNo, yearStr)
+      : {};
     metrics = {
       ...metrics,
       customerNo: project?.customerNo || sub?.customerNo || metrics.customerNo,
       customerName: project?.customerName || project?.projectName || acc.customerName,
       creditCode: project?.creditCode || acc.creditCode,
-      entityEmission: subProfile.entityEmission ?? metrics.entityEmission,
-      method: subProfile.methodLabel || subProfile.method || metrics.methodLabel || metrics.method,
+      entityEmission: projMetrics.entityEmission ?? subProfile.entityEmission ?? null,
+      method: projMetrics.method || subProfile.methodLabel || subProfile.method || metrics.methodLabel || metrics.method,
       methodId: subProfile.methodId || metrics.methodId
     };
   }
@@ -3873,7 +4732,7 @@ function renderCarbonAccountProfilePanel(d, acc, year, subProjectNo, options = {
   const carbonDataYear = yearProfile?.reportDetail?.carbonDataYear || year || '';
   const entityVal = profile.entityEmission != null ? profile.entityEmission : '';
   const subHint = subProjectNo
-    ? `<div class="demo-tip" style="margin-bottom:12px">当前为项目子账户 · 项目号 ${subProjectNo}</div>`
+    ? `<div class="demo-tip" style="margin-bottom:12px">当前为项目子账户 · 授信编号 ${subProjectNo}</div>`
     : '';
   const profileFields = editable
     ? `<form id="caProfileForm" class="form-grid" data-account-id="${acc.id}" data-year="${year || ''}" data-sub="${subProjectNo || ''}">
@@ -3916,9 +4775,9 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
         <div class="table-wrap">
           <table class="data-table project-detail-table">
             <thead><tr>
-              <th>序号</th><th>项目号</th><th>项目名称</th><th>项目所在地区域（省）</th><th>项目所属行业</th>
+              <th>序号</th><th>授信编号</th><th>项目名称</th><th>项目所在地区域（省）</th><th>项目所属行业</th>
               <th>客户号</th><th>客户名称</th><th>统一社会信用代码</th><th>国民经济行业代码（4级）</th>
-              <th>项目月均贷款余额（万元）</th><th>项目收入（万元）</th><th>项目总投资（万元）</th>
+              <th>项目月均贷款余额（元）</th><th>项目收入（元）</th><th>项目总投资（元）</th>
             </tr></thead>
             <tbody>${details.map((p, i) => `<tr>
               <td>${i + 1}</td>
@@ -3930,9 +4789,9 @@ function renderCandidateProjectDetailRow(c, colspan = 16) {
               <td>${p.customerName || '-'}</td>
               <td>${p.creditCode || '-'}</td>
               <td>${p.nationalIndustryCodeLv4 || '-'}</td>
-              <td>${p.projectAvgLoanBalanceWan ?? '-'}</td>
-              <td>${p.projectRevenueWan ?? '-'}</td>
-              <td>${p.projectTotalInvestmentWan ?? '-'}</td>
+              <td>${formatProjectWanAsYuan(p.projectAvgLoanBalanceWan)}</td>
+              <td>${formatProjectWanAsYuan(p.projectRevenueWan)}</td>
+              <td>${formatProjectWanAsYuan(p.projectTotalInvestmentWan)}</td>
             </tr>`).join('')}</tbody>
           </table>
         </div>
@@ -3958,6 +4817,7 @@ function getDefaultCandidateFilterRules(task) {
     borrowerTypes: (GUIDE.SCOPE_DEFAULT_BORROWER_TYPES || []).slice(),
     customerScales: (GUIDE.SCOPE_DEFAULT_CUSTOMER_SCALES || GUIDE.CUSTOMER_SCALES || []).slice(),
     industries,
+    regionScope: GUIDE.SCOPE_DEFAULT_REGION_SCOPE || 'domestic',
     balanceMin: String(GUIDE.BALANCE_THRESHOLD_WAN || 500),
     balanceMax: '',
     customized: false
@@ -3969,7 +4829,7 @@ function normalizeCandidateFilterRules(rules, task) {
     const legacy = rules || {};
     const defaults = getDefaultCandidateFilterRules(task);
     if (legacy.productType) defaults.productTypes = [legacy.productType];
-    if (legacy.borrowerType) defaults.borrowerTypes = [legacy.borrowerType];
+    if (legacy.borrowerType) defaults.borrowerTypes = [normalizeLoanSubjectType(legacy.borrowerType)];
     if (legacy.customerScale) defaults.customerScales = [legacy.customerScale];
     if (legacy.industry) {
       const code = String(legacy.industry).trim().split(/\s+/)[0];
@@ -3980,24 +4840,29 @@ function normalizeCandidateFilterRules(rules, task) {
     defaults.customized = !!(legacy.productType || legacy.borrowerType || legacy.customerScale || legacy.industry || legacy.tier1Branch || legacy.manager);
     return defaults;
   }
+  const validBorrowerTypes = new Set(GUIDE.CANDIDATE_BORROWER_TYPES || []);
+  const borrowerTypes = (rules.borrowerTypes || [])
+    .map(normalizeLoanSubjectType)
+    .filter(t => validBorrowerTypes.has(t));
   return {
     productTypes: rules.productTypes || [],
-    borrowerTypes: rules.borrowerTypes || [],
+    borrowerTypes,
     customerScales: rules.customerScales || [],
     industries: rules.industries || [],
+    regionScope: rules.regionScope || GUIDE.SCOPE_DEFAULT_REGION_SCOPE || 'domestic',
     balanceMin: rules.balanceMin ?? '',
     balanceMax: rules.balanceMax ?? '',
     customized: rules.customized === true
   };
 }
 
-function isCandidateInGuideAccountingScope(c) {
+function isCandidateInGuideAccountingScope(c, task) {
   const minBal = Number(GUIDE.BALANCE_THRESHOLD_WAN || 500);
-  const bal = computeCandidateAvgMonthlyBalance(c, c?.accountingYear);
+  const bal = candidateBalanceAmountWan(c, c?.accountingYear, task);
   if (bal < minBal) return false;
   if (c.isSme || c.isIndividual || c.isOverseas) return false;
   const bt = candidateBorrowerType(c);
-  if (['个体工商户', '农户', '境外主体', '小微企业'].includes(bt)) return false;
+  if (['个贷', '小微客户', '境外主体'].includes(bt)) return false;
   const code = c.gbIndustryCode;
   if (!code || !IndustryScope.getEightCodes().some(ec => industryFilterCodesMatch(ec, code))) return false;
   const pt = candidateProductType(c);
@@ -4029,7 +4894,12 @@ function lookupCandidateIndustryFilterRow(code) {
   if (!scoped) return null;
   const cascade = toCascadeIndustryCode(scoped);
   const tableRow = INDUSTRY_TABLE.find(r => r.code === scoped || toCascadeIndustryCode(r.code) === cascade);
-  if (tableRow) return tableRow;
+  if (tableRow) {
+    return {
+      ...tableRow,
+      name: resolveGbIndustryShortName(tableRow.code, tableRow.name)
+    };
+  }
   const nameMap = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
   const name = nameMap[cascade] || nameMap[scoped] || '';
   return { code: scoped, name: name || scoped, major: inferIndustryMajor(scoped) || '' };
@@ -4060,6 +4930,33 @@ function getCandidateInvestIndustryFilterOptions(task) {
   return INDUSTRY_TABLE.slice();
 }
 
+function isCandidateOverseas(c) {
+  return !!c?.isOverseas;
+}
+
+function candidateMatchesRegionScope(c, regionScope) {
+  const scope = regionScope || 'domestic';
+  if (scope === 'all') return true;
+  if (scope === 'overseas') return isCandidateOverseas(c);
+  return !isCandidateOverseas(c);
+}
+
+function renderCandidateRegionScopeRadios(selected, readonly) {
+  const dis = readonly ? ' disabled' : '';
+  const value = selected || GUIDE.SCOPE_DEFAULT_REGION_SCOPE || 'domestic';
+  const options = GUIDE.CANDIDATE_REGION_SCOPE_OPTIONS || [
+    { value: 'domestic', label: '仅境内' },
+    { value: 'overseas', label: '仅境外' },
+    { value: 'all', label: '全部' }
+  ];
+  return `<div class="industry-scope-radios">${options.map(o =>
+    `<label class="industry-scope-radio">
+      <input type="radio" name="f_region_scope" value="${o.value}" ${value === o.value ? 'checked' : ''}${dis}>
+      <span>${o.label}</span>
+    </label>`
+  ).join('')}</div>`;
+}
+
 function renderCandidateFilterCheckboxes(name, options, selected, labelFn) {
   const selectedSet = new Set(selected || []);
   return `<div class="filter-checkbox-group">${options.map(opt => {
@@ -4067,6 +4964,44 @@ function renderCandidateFilterCheckboxes(name, options, selected, labelFn) {
     const text = labelFn ? labelFn(opt) : (typeof opt === 'string' ? opt : opt.label);
     return `<label class="filter-check"><input type="checkbox" name="${name}" value="${value}" ${selectedSet.has(value) ? 'checked' : ''}> ${text}</label>`;
   }).join('')}</div>`;
+}
+
+/** 任务余额口径（默认月均余额） */
+function resolveTaskBalanceRule(task) {
+  return task?.balanceRule === '年末余额' ? '年末余额' : '月均余额';
+}
+
+function isYearEndBalanceRule(task) {
+  return resolveTaskBalanceRule(task) === '年末余额';
+}
+
+/** 筛选区标签，如「月均贷款余额(元) 起」 */
+function balanceScopeFilterLabel(task, suffix) {
+  const base = isYearEndBalanceRule(task) ? '年末余额' : '月均贷款余额';
+  return `${base}(元) ${suffix}`;
+}
+
+/** 表格列标题，如「月均贷款余额（元）」 */
+function balanceScopeColumnLabel(task) {
+  return isYearEndBalanceRule(task) ? '年末余额（元）' : '月均贷款余额（元）';
+}
+
+/** 年末余额（万元）：演示口径取核算年度末时点余额 */
+function computeCandidateYearEndBalance(c, accountingYear) {
+  normalizeCandidateLedgerFields(c, accountingYear);
+  return Number(c?.avgMonthlyBalance) || 0;
+}
+
+/** 按任务余额口径取金额（万元） */
+function candidateBalanceAmountWan(c, accountingYear, task) {
+  if (isYearEndBalanceRule(task)) {
+    return computeCandidateYearEndBalance(c, accountingYear);
+  }
+  return computeCandidateAvgMonthlyBalance(c, accountingYear);
+}
+
+function formatCandidateBalanceByRule(c, accountingYear, task) {
+  return formatLedgerAmountYuan(candidateBalanceAmountWan(c, accountingYear, task));
 }
 
 function renderCandidateFilterPanel(rules, task, options = {}) {
@@ -4077,12 +5012,16 @@ function renderCandidateFilterPanel(rules, task, options = {}) {
   const customerScaleOptions = (GUIDE.CUSTOMER_SCALES || []).map(v => ({ value: v, label: v }));
   const industryOptions = getCandidateInvestIndustryFilterOptions(task).map(i => ({
     value: i.code,
-    label: `${i.code} ${i.name}`
+    label: formatGbIndustryFilterLabel(i.code, i.name)
   }));
   return `
     <fieldset class="view-mode-fieldset"${viewOnly ? ' disabled' : ''}>
     <div class="filter-panel">
       <div class="filter-extra candidate-filter-grid">
+        <div class="form-item full">
+          <label>境内外业务</label>
+          ${renderCandidateRegionScopeRadios(rules.regionScope, viewOnly)}
+        </div>
         <div class="form-item full">
           <label>信贷品种</label>
           ${renderCandidateFilterCheckboxes('f_product', productOptions, rules.productTypes)}
@@ -4100,10 +5039,10 @@ function renderCandidateFilterPanel(rules, task, options = {}) {
           ${renderCandidateFilterCheckboxes('f_industry', industryOptions, rules.industries)}
         </div>
         <div class="candidate-filter-row-2">
-          <div class="form-item"><label>月均贷款余额(元) 起</label>
+          <div class="form-item"><label>${balanceScopeFilterLabel(task, '起')}</label>
             <input id="f_bal_min" type="number" placeholder="最小值" value="${balanceWanToYuanInput(rules.balanceMin)}"${dis}>
           </div>
-          <div class="form-item"><label>月均贷款余额(元) 止</label>
+          <div class="form-item"><label>${balanceScopeFilterLabel(task, '止')}</label>
             <input id="f_bal_max" type="number" placeholder="最大值" value="${balanceWanToYuanInput(rules.balanceMax)}"${dis}>
           </div>
         </div>
@@ -4125,6 +5064,7 @@ function getEmptyCandidateFilterRules() {
     borrowerTypes: [],
     customerScales: [],
     industries: [],
+    regionScope: 'all',
     balanceMin: '',
     balanceMax: '',
     customized: true
@@ -4138,6 +5078,9 @@ function readCandidateFilterRulesFromDom() {
     borrowerTypes: checked('f_borrower'),
     customerScales: checked('f_customer_scale'),
     industries: checked('f_industry'),
+    regionScope: document.querySelector('input[name="f_region_scope"]:checked')?.value
+      || GUIDE.SCOPE_DEFAULT_REGION_SCOPE
+      || 'domestic',
     balanceMin: balanceYuanToWan(qs('#f_bal_min')?.value ?? ''),
     balanceMax: balanceYuanToWan(qs('#f_bal_max')?.value ?? ''),
     customized: true
@@ -4150,6 +5093,103 @@ function formatLedgerAmountYuan(wanValue) {
   const n = Number(wanValue);
   if (Number.isNaN(n)) return String(wanValue);
   return (n * 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** 项目明细金额（内部万元）→ 展示元，保留两位小数 */
+function formatProjectWanAsYuan(wanValue) {
+  if (wanValue == null || wanValue === '' || wanValue === '-') return '—';
+  const formatted = formatLedgerAmountYuan(wanValue);
+  return formatted === '-' ? '—' : formatted;
+}
+
+/** 项目明细表单：内部万元 → 输入框元值（两位小数） */
+function projectWanToYuanFormValue(wanValue) {
+  if (wanValue === '' || wanValue == null || wanValue === '-') return '';
+  const n = Number(wanValue);
+  if (Number.isNaN(n)) return '';
+  return (n * 10000).toFixed(2);
+}
+
+/** 项目明细表单：输入框元值 → 内部万元 */
+function projectYuanFormToWan(yuan) {
+  if (yuan == null || yuan === '') return null;
+  const wan = balanceYuanToWan(yuan);
+  return wan === '' ? null : wan;
+}
+
+const LEDGER_MONTH_BALANCE_COL_COUNT = 12;
+
+/** 台账列表基础列数：11 个业务字段 + 余额列 + 营收/资产/经理 */
+function ledgerListTableColCount(options = {}) {
+  const { headCheckbox = false, tailExtra = 0, summaryLedger = false } = options;
+  const balanceCols = summaryLedger ? 1 : LEDGER_MONTH_BALANCE_COL_COUNT;
+  const assetCols = summaryLedger ? 1 : 2;
+  return (headCheckbox ? 1 : 0) + 11 + balanceCols + 1 + assetCols + 1 + tailExtra;
+}
+
+function renderConsolidatedAssetsTableHead() {
+  return `<th>上年末合并报表资产总额（元）</th><th>本年末合并报表资产总额（元）</th>`;
+}
+
+function formatCandidatePrevYearTotalAssets(c) {
+  normalizeCandidateLedgerFields(c, c?.accountingYear);
+  const prev = c?.prevYearTotalAssets;
+  if (prev == null || prev === '') return '—';
+  return formatLedgerAmountYuan(prev);
+}
+
+function formatCandidateCurrentYearTotalAssets(c) {
+  normalizeCandidateLedgerFields(c, c?.accountingYear);
+  const cur = c?.totalAssets;
+  if (cur == null || cur === '') return '—';
+  return formatLedgerAmountYuan(cur);
+}
+
+function renderConsolidatedAssetsCells(c) {
+  return `<td>${formatCandidatePrevYearTotalAssets(c)}</td><td>${formatCandidateCurrentYearTotalAssets(c)}</td>`;
+}
+
+function renderMonthEndBalanceTableHead() {
+  return Array.from({ length: LEDGER_MONTH_BALANCE_COL_COUNT }, (_, i) =>
+    `<th class="month-balance-col">${i + 1}月末余额（元）</th>`
+  ).join('');
+}
+
+function resolveCandidateMonthEndBalanceStartMonth(c, accountingYear) {
+  const year = Number(accountingYear || c?.accountingYear) || new Date().getFullYear();
+  const disb = c?.disbursementDate;
+  if (!disb) return 1;
+  const m = String(disb).match(/^(\d{4})-(\d{1,2})/);
+  if (!m) return 1;
+  const dy = parseInt(m[1], 10);
+  const dm = parseInt(m[2], 10);
+  if (dy > year) return 13;
+  if (dy < year) return 1;
+  return dm;
+}
+
+/** 返回 12 个月末余额（万元）；无存续月份为 null */
+function resolveCandidateMonthEndBalancesWan(c, accountingYear) {
+  normalizeCandidateLedgerFields(c, accountingYear);
+  if (Array.isArray(c?.monthEndBalances) && c.monthEndBalances.length >= LEDGER_MONTH_BALANCE_COL_COUNT) {
+    return c.monthEndBalances.slice(0, LEDGER_MONTH_BALANCE_COL_COUNT).map(v =>
+      (v == null || v === '') ? null : Number(v)
+    );
+  }
+  const startMonth = resolveCandidateMonthEndBalanceStartMonth(c, accountingYear);
+  const avg = Number(c?.avgMonthlyBalance) || 0;
+  return Array.from({ length: LEDGER_MONTH_BALANCE_COL_COUNT }, (_, i) => {
+    const month = i + 1;
+    if (month < startMonth) return null;
+    return avg;
+  });
+}
+
+function renderMonthEndBalanceCells(c, accountingYear, task) {
+  const year = accountingYear || c?.accountingYear || task?.year;
+  return resolveCandidateMonthEndBalancesWan(c, year).map(v =>
+    `<td class="month-balance-col">${v != null ? formatLedgerAmountYuan(v) : '—'}</td>`
+  ).join('');
 }
 
 /** 核算年度内该笔贷款在华夏银行的存续月份 */
@@ -4193,6 +5233,309 @@ function computeCandidateAvgTotalAssets(c) {
   const prev = Number(c?.prevYearTotalAssets);
   if (!cur && !prev) return null;
   return prev ? (cur + prev) / 2 : cur;
+}
+
+/** 月末余额均值（万元）= 1–12 月有余额月份的算术平均 */
+function computeCandidateMonthEndBalanceMean(c, accountingYear, task) {
+  normalizeCandidateLedgerFields(c, accountingYear);
+  const year = accountingYear || c?.accountingYear || task?.year;
+  const balances = resolveCandidateMonthEndBalancesWan(c, year);
+  const valid = balances.filter(v => v != null && !Number.isNaN(Number(v)));
+  if (valid.length) {
+    return valid.reduce((s, v) => s + Number(v), 0) / valid.length;
+  }
+  const fallback = Number(c?.avgMonthlyBalance);
+  return Number.isFinite(fallback) && fallback ? fallback : null;
+}
+
+function formatCandidateMonthEndBalanceMeanYuan(c, accountingYear, task) {
+  const mean = computeCandidateMonthEndBalanceMean(c, accountingYear, task);
+  return mean != null ? formatLedgerAmountYuan(mean) : '—';
+}
+
+function formatCandidateAvgTotalAssetsYuan(c) {
+  const avg = computeCandidateAvgTotalAssets(c);
+  return avg != null ? formatLedgerAmountYuan(avg) : '—';
+}
+
+function renderFormalSummaryBalanceHead() {
+  return '<th>月末余额（元）</th>';
+}
+
+function renderFormalSummaryAssetsHead() {
+  return '<th>平均资产总额（元）</th>';
+}
+
+function renderFormalSummaryBalanceCell(c, accountingYear, task) {
+  return `<td>${formatCandidateMonthEndBalanceMeanYuan(c, accountingYear, task)}</td>`;
+}
+
+function renderFormalSummaryAssetsCell(c) {
+  return `<td>${formatCandidateAvgTotalAssetsYuan(c)}</td>`;
+}
+
+const FORMAL_LIST_EXPORT_HEADERS = [
+  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '贷款账号',
+  '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
+  '月末余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理', '状态'
+];
+
+function formalListExportRowValues(f, taskId, task) {
+  const c = formalLedgerRow(f, taskId);
+  const year = c?.accountingYear || task?.year;
+  return [
+    candidateTier1Branch(c),
+    c.handlingBranch || '-',
+    c.customerName || '-',
+    candidateEnterpriseScale(c),
+    candidateProductType(c),
+    candidateAccountingTypeLabel(c, { finalizeAccountingType: true, listKind: 'formal', task }),
+    c.loanAccount || '-',
+    c.disbursementDate || '-',
+    candidateLoanSubjectType(c),
+    candidateIndustryLabel(c),
+    candidateInvestIndustryLabel(c),
+    formatCandidateMonthEndBalanceMeanYuan(c, year, task),
+    formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue),
+    formatCandidateAvgTotalAssetsYuan(c),
+    c.manager || '-',
+    f.status === 'confirmed' ? '已锁定' : '待锁定'
+  ];
+}
+
+function exportFormalListCsv(taskId) {
+  const task = Store.getTask(taskId);
+  const list = Store.getFormalList(taskId);
+  const rows = list.map(f => formalListExportRowValues(f, taskId, task));
+  const name = task?.name ? `${task.name}-正式清单` : '正式清单';
+  downloadCsvFile(name, FORMAL_LIST_EXPORT_HEADERS, rows);
+}
+
+function scopedIndustryCode(code) {
+  const raw = String(code || '').trim();
+  if (!raw) return '';
+  const cascade = toCascadeIndustryCode(raw);
+  if (/^[A-Z]\d/.test(raw)) return raw;
+  if (typeof toScopedIndustryCode === 'function') {
+    const scoped = toScopedIndustryCode(cascade || raw);
+    if (scoped) return scoped;
+  }
+  return normalizeIndustryFilterCode(raw) || cascade || raw;
+}
+
+function formatIndustryPickerLabel(code) {
+  const cascade = toCascadeIndustryCode(code);
+  const scoped = scopedIndustryCode(code);
+  if (typeof IndustryCascade === 'undefined') return scoped || code || '';
+  const map = IndustryCascade.nameMap();
+  const name = map[cascade] || map[scoped] || map[code] || '';
+  const shortName = resolveGbIndustryShortName(scoped, name);
+  return scoped && shortName ? `${scoped} ${shortName}` : (scoped || IndustryCascade.label(cascade));
+}
+
+function industryPickerOptionFromCode(cascadeCode) {
+  const scoped = scopedIndustryCode(cascadeCode);
+  return {
+    code: scoped,
+    label: formatIndustryPickerLabel(cascadeCode)
+  };
+}
+
+function resolveIndustryPickerCode(code, label) {
+  const fromCode = normalizeIndustryFilterCode(code);
+  if (fromCode && typeof IndustryCascade !== 'undefined') {
+    const cascade = toCascadeIndustryCode(fromCode);
+    const hit = IndustryCascade.allLeafCodes().find(c =>
+      c === fromCode || c === cascade || scopedIndustryCode(c) === fromCode || toCascadeIndustryCode(c) === cascade
+    );
+    if (hit) return scopedIndustryCode(hit);
+    return scopedIndustryCode(fromCode);
+  }
+  const text = String(label || '').trim();
+  const matched = text.match(/^([A-Za-z]\d+)\b/);
+  if (matched) return scopedIndustryCode(matched[1]);
+  const numeric = text.match(/^(\d{3,5})\b/);
+  if (numeric) return scopedIndustryCode(numeric[1]);
+  return fromCode ? scopedIndustryCode(fromCode) : '';
+}
+
+function industryCascadeLabelForCode(code) {
+  return formatIndustryPickerLabel(code);
+}
+
+function searchFormalIndustryOptions(keyword, limit = 50) {
+  if (typeof IndustryCascade === 'undefined') return [];
+  const map = IndustryCascade.nameMap();
+  const codes = IndustryCascade.allLeafCodes();
+  const raw = String(keyword || '').trim();
+  if (!raw) {
+    return codes.slice(0, limit).map(code => industryPickerOptionFromCode(code));
+  }
+  const codeToken = (raw.match(/([A-Za-z]?\d{3,5})/) || [])[1] || '';
+  const scopedToken = codeToken ? scopedIndustryCode(codeToken) : '';
+  const cascadeToken = scopedToken ? toCascadeIndustryCode(scopedToken) : '';
+  const terms = raw.toLowerCase().split(/\s+/).filter(Boolean);
+  return codes
+    .filter(code => {
+      const scoped = scopedIndustryCode(code);
+      const cascade = toCascadeIndustryCode(scoped) || code;
+      const name = (map[code] || map[cascade] || '').toLowerCase();
+      const label = formatIndustryPickerLabel(code).toLowerCase();
+      if (cascadeToken && (cascade === cascadeToken || scoped === scopedToken || code === cascadeToken)) {
+        return true;
+      }
+      return terms.every(term =>
+        code.toLowerCase().includes(term) ||
+        cascade.toLowerCase().includes(term) ||
+        scoped.toLowerCase().includes(term) ||
+        name.includes(term) ||
+        label.includes(term)
+      );
+    })
+    .slice(0, limit)
+    .map(code => industryPickerOptionFromCode(code));
+}
+
+function parseFormalIndustryInput(inputEl) {
+  if (!inputEl) return { code: '', name: '', label: '' };
+  const code = String(inputEl.dataset.code || '').trim();
+  const text = String(inputEl.value || '').trim();
+  if (code) {
+    const scoped = scopedIndustryCode(code);
+    const map = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
+    const cascade = toCascadeIndustryCode(scoped);
+    const name = map[cascade] || map[scoped] || map[code] || '';
+    const shortName = resolveGbIndustryShortName(scoped, name);
+    const label = scoped && shortName ? `${scoped} ${shortName}` : (text || scoped);
+    return { code: scoped, name: name || shortName, label };
+  }
+  const matched = text.match(/^([A-Za-z]\d+)\s*(.*)$/);
+  if (matched) {
+    const parsedCode = scopedIndustryCode(matched[1]);
+    const rest = matched[2] || '';
+    const map = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
+    const cascade = toCascadeIndustryCode(parsedCode);
+    const name = rest || map[cascade] || map[parsedCode] || '';
+    const shortName = resolveGbIndustryShortName(parsedCode, name);
+    return {
+      code: parsedCode,
+      name: name || shortName,
+      label: shortName ? `${parsedCode} ${shortName}` : text
+    };
+  }
+  return { code: '', name: text, label: text };
+}
+
+function renderFormalIndustryDisplay(label, edited) {
+  const cls = edited ? 'formal-industry-edited' : '';
+  return `<span class="${cls}">${escapeHtml(label || '-')}</span>`;
+}
+
+function renderFormalIndustryPicker(formalId, field, currentCode, currentLabel) {
+  const code = resolveIndustryPickerCode(currentCode, currentLabel);
+  const display = code ? formatIndustryPickerLabel(code) : (currentLabel || '');
+  return `<div class="formal-industry-picker" data-formal-id="${escapeHtml(formalId)}" data-field="${field}">
+    <input type="text" class="formal-industry-input" value="${escapeHtml(display)}" data-code="${escapeHtml(code)}" data-initial-code="${escapeHtml(code)}" autocomplete="off" placeholder="搜索行业代码或名称">
+    <div class="formal-industry-dropdown" hidden></div>
+  </div>`;
+}
+
+function renderFormalIndustryDropdownItems(items) {
+  if (!items.length) {
+    return '<p class="formal-industry-dropdown-empty">无匹配行业</p>';
+  }
+  return items.map(item =>
+    `<button type="button" class="formal-industry-option" data-code="${escapeHtml(item.code)}" data-label="${escapeHtml(item.label)}">${escapeHtml(item.label)}</button>`
+  ).join('');
+}
+
+function bindFormalIndustryPickers(rootEl) {
+  const root = rootEl || document;
+  qsa('.formal-industry-picker', root).forEach(picker => {
+    const input = qs('.formal-industry-input', picker);
+    const dropdown = qs('.formal-industry-dropdown', picker);
+    if (!input || !dropdown || input.dataset.bound === '1') return;
+    input.dataset.bound = '1';
+
+    const positionDropdown = () => {
+      const rect = input.getBoundingClientRect();
+      dropdown.style.position = 'fixed';
+      dropdown.style.left = `${rect.left}px`;
+      dropdown.style.top = `${rect.bottom + 4}px`;
+      dropdown.style.width = `${Math.max(rect.width, 240)}px`;
+      dropdown.style.zIndex = '3000';
+    };
+
+    const showDropdown = () => {
+      const items = searchFormalIndustryOptions(input.value, 50);
+      dropdown.innerHTML = renderFormalIndustryDropdownItems(items);
+      if (!items.length) {
+        dropdown.hidden = true;
+        return;
+      }
+      positionDropdown();
+      dropdown.hidden = false;
+    };
+
+    const hideDropdown = () => {
+      setTimeout(() => { dropdown.hidden = true; }, 150);
+    };
+
+    const onScrollOrResize = () => {
+      if (!dropdown.hidden) positionDropdown();
+    };
+
+    input.addEventListener('focus', () => {
+      showDropdown();
+      window.addEventListener('scroll', onScrollOrResize, true);
+      window.addEventListener('resize', onScrollOrResize);
+    });
+    input.addEventListener('input', () => {
+      input.dataset.code = '';
+      showDropdown();
+    });
+    input.addEventListener('blur', () => {
+      hideDropdown();
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    });
+    dropdown.addEventListener('mousedown', e => {
+      const btn = e.target.closest('.formal-industry-option');
+      if (!btn) return;
+      e.preventDefault();
+      input.value = btn.dataset.label || '';
+      input.dataset.code = btn.dataset.code || '';
+      dropdown.hidden = true;
+    });
+  });
+}
+
+function collectFormalIndustryEdits() {
+  const byFormal = new Map();
+  qsa('.formal-industry-picker').forEach(picker => {
+    const formalId = picker.dataset.formalId;
+    const field = picker.dataset.field;
+    const input = qs('.formal-industry-input', picker);
+    const parsed = parseFormalIndustryInput(input);
+    const initialCode = input?.dataset.initialCode || '';
+    if (!formalId || !parsed.code || parsed.code === initialCode) return;
+    if (!byFormal.has(formalId)) byFormal.set(formalId, { formalId });
+    const edit = byFormal.get(formalId);
+    if (field === 'subject') {
+      edit.subjectIndustryEdited = true;
+      edit.gbIndustryCode = parsed.code;
+      edit.gbIndustryName = parsed.name;
+      edit.industryLabel = parsed.label;
+      edit.industryMajor = typeof inferIndustryMajor === 'function'
+        ? (inferIndustryMajor(parsed.code) || '')
+        : '';
+    } else if (field === 'invest') {
+      edit.investIndustryEdited = true;
+      edit.investIndustryCode = parsed.code;
+      edit.investIndustryName = parsed.name;
+    }
+  });
+  return [...byFormal.values()].filter(e => e.subjectIndustryEdited || e.investIndustryEdited);
 }
 
 /** 同步/展示前归一化候选台账金额字段 */
@@ -4273,9 +5616,31 @@ function candidateEnterpriseScale(c) {
   return '微型企业';
 }
 
+function renderFormalIndustryCells(c, options = {}) {
+  const subjectLabel = candidateIndustryLabel(c);
+  const investLabel = candidateInvestIndustryLabel(c);
+  const formalId = options.formalId;
+  const isFormal = options.listKind === 'formal';
+  const industryEditMode = !!options.industryEditMode && formalId;
+  if (industryEditMode) {
+    return `
+    <td>${renderFormalIndustryPicker(formalId, 'subject', c.gbIndustryCode, subjectLabel)}</td>
+    <td>${renderFormalIndustryPicker(formalId, 'invest', candidateInvestIndustryCode(c), investLabel)}</td>`;
+  }
+  if (isFormal) {
+    return `
+    <td>${renderFormalIndustryDisplay(subjectLabel, c.subjectIndustryEdited)}</td>
+    <td>${renderFormalIndustryDisplay(investLabel, c.investIndustryEdited)}</td>`;
+  }
+  return `
+    <td>${subjectLabel}</td>
+    <td>${investLabel}</td>`;
+}
+
 /** 候选清单表格数据列（含核算类型、客户规模） */
 function renderCandidateListCells(c, options = {}) {
   const listKind = options.listKind === 'formal' ? 'formal' : 'candidate';
+  const task = options.task || null;
   normalizeCandidateLedgerFields(c, c?.accountingYear);
   const hasProjectDetails = !!options.showProjectToggle && getCandidateProjectDetails(c).length > 0;
   const toggle = hasProjectDetails
@@ -4294,29 +5659,49 @@ function renderCandidateListCells(c, options = {}) {
     <td>${c.loanAccount || '-'}</td>
     <td>${c.disbursementDate || '-'}</td>
     <td>${candidateLoanSubjectType(c)}</td>
-    <td>${candidateIndustryLabel(c)}</td>
-    <td>${candidateInvestIndustryLabel(c)}</td>
-    <td>${listKind === 'formal'
-      ? formatLedgerAmountYuan(computeCandidateAvgMonthlyBalance(c, c.accountingYear))
-      : formatCandidateMonthEndBalance(c, c.accountingYear)}</td>
+    ${renderFormalIndustryCells(c, options)}
+    ${listKind === 'formal'
+      ? renderFormalSummaryBalanceCell(c, c.accountingYear, task)
+      : renderMonthEndBalanceCells(c, c.accountingYear, task)}
     <td>${formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue)}</td>
-    <td>${formatFormalAvgTotalAssets(c)}</td>
+    ${listKind === 'formal'
+      ? renderFormalSummaryAssetsCell(c)
+      : renderConsolidatedAssetsCells(c)}
     <td>${c.manager || '-'}</td>`;
 }
 
 const CANDIDATE_LIST_TABLE_HEAD = `
   <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
   <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  <th>月末余额（元）</th><th>营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
+  ${renderMonthEndBalanceTableHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderConsolidatedAssetsTableHead()}<th>主办客户经理</th>`;
+
+function renderCandidateListTableHead(task) {
+  return `
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
+  ${renderMonthEndBalanceTableHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderConsolidatedAssetsTableHead()}<th>主办客户经理</th>`;
+}
 
 const FORMAL_LIST_TABLE_HEAD = `
   <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
   <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  <th>月均贷款余额（元）</th><th>营业收入（元）</th><th>平均资产总额（元）</th><th>主办客户经理</th>`;
+  ${renderFormalSummaryBalanceHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
+
+function renderFormalListTableHead(task) {
+  return `
+  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
+  ${renderFormalSummaryBalanceHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
+}
+
+function renderCalculationListTableHead(task) {
+  return `${renderCandidateListTableHead(task)}
+  <th>归因排放(tCO₂e)</th><th>质量等级</th>`;
+}
 
 const CALCULATION_LIST_TABLE_HEAD = `
   ${FORMAL_LIST_TABLE_HEAD}
-  <th>法人主体排放(tCO₂e)</th><th>项目主体排放(tCO₂e)</th><th>归因排放(tCO₂e)</th><th>质量等级</th>`;
+  <th>归因排放(tCO₂e)</th><th>质量等级</th>`;
 
 /** 碳账户排放明细 → 候选清单同款行（复用台账列） */
 function caRecordAsCandidateRow(r) {
@@ -4376,8 +5761,11 @@ function calcMethodLabel(item) {
   return '待选择';
 }
 
-function computeIndustryStatsFromCalcs(taskId) {
-  const calcs = Store.getCalculations(taskId).filter(c => c.attributedEmission != null);
+function computeIndustryStatsFromCalcs(taskId, calcsOverride) {
+  const eligibleIds = new Set(getCollectEmissionEligibleFormals(taskId).map(f => f.id));
+  const calcs = (calcsOverride || Store.getCalculations(taskId)).filter(c =>
+    c.attributedEmission != null && eligibleIds.has(c.formalId)
+  );
   const formal = Store.getFormalList(taskId);
   const map = {};
   calcs.forEach(c => {
@@ -4398,16 +5786,115 @@ function computeIndustryStatsFromCalcs(taskId) {
     }));
 }
 
+/** 投融资碳排放强度：tCO₂e / 万元余额（余额为万元） */
+function calcFinancingCarbonIntensity(emissionTon, balanceWan) {
+  const em = Number(emissionTon);
+  const bal = Number(balanceWan);
+  if (!Number.isFinite(em) || !bal || bal <= 0) return null;
+  return +((em / bal) * 10000).toFixed(4);
+}
+
+function formatFinancingCarbonIntensity(n) {
+  if (typeof CarbonAccount !== 'undefined' && CarbonAccount.formatIntensity) {
+    return CarbonAccount.formatIntensity(n);
+  }
+  if (n == null || Number.isNaN(n)) return '—';
+  return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+}
+
+/** 全行及人行八大行业大类 — 投融资碳排放强度（碳排放计算页） */
+function computePboEightFinancingIntensityStats(taskId, calcsOverride) {
+  const task = Store.getTask(taskId);
+  const eligibleIds = new Set(getCollectEmissionEligibleFormals(taskId).map(f => f.id));
+  const calcs = (calcsOverride || Store.getCalculations(taskId)).filter(c =>
+    c.attributedEmission != null && eligibleIds.has(c.formalId)
+  );
+  const formals = Store.getFormalList(taskId);
+  const eightMajors = (GUIDE.INDUSTRIES || []).map(i => i.major);
+  const majorMap = Object.fromEntries(eightMajors.map(m => [m, { industry: m, count: 0, emission: 0, balance: 0 }]));
+  let totalEmission = 0;
+  let totalBalance = 0;
+  let totalCount = 0;
+
+  calcs.forEach(c => {
+    const f = formals.find(x => x.id === c.formalId);
+    const row = f ? formalLedgerRow(f, taskId) : null;
+    const emission = Number(c.attributedEmission) || 0;
+    const balance = row ? candidateBalanceAmountWan(row, task?.year, task) : 0;
+    totalEmission += emission;
+    totalBalance += balance;
+    totalCount += 1;
+    const major = f?.industryMajor || c.industryMajor || '';
+    if (major && majorMap[major]) {
+      majorMap[major].count += 1;
+      majorMap[major].emission += emission;
+      majorMap[major].balance += balance;
+    }
+  });
+
+  const industries = eightMajors.map(major => {
+    const item = majorMap[major];
+    return {
+      industry: major,
+      count: item.count,
+      emission: item.emission,
+      balance: item.balance,
+      intensity: calcFinancingCarbonIntensity(item.emission, item.balance),
+      share: totalEmission ? +(100 * item.emission / totalEmission).toFixed(1) : 0
+    };
+  });
+
+  return {
+    totalEmission,
+    totalBalance,
+    totalCount,
+    bankIntensity: calcFinancingCarbonIntensity(totalEmission, totalBalance),
+    industries
+  };
+}
+
+function renderCalculationIntensitySection(task, intensityStats) {
+  const stats = intensityStats || { bankIntensity: null, totalCount: 0, totalBalance: 0, industries: [] };
+  const balanceLabel = balanceScopeColumnLabel(task);
+  const rowsHtml = (stats.industries || []).map(i => `<tr>
+      <td>${escapeHtml(i.industry)}</td>
+      <td>${i.count || 0}</td>
+      <td>${i.balance ? formatNum(i.balance) : '—'}</td>
+      <td>${formatNum(i.emission)}</td>
+      <td>${formatFinancingCarbonIntensity(i.intensity)}</td>
+      <td>${i.share}%</td>
+    </tr>`).join('');
+  return `
+    <div class="card calculation-intensity-card">
+      <div class="card-header">
+        <h3>投融资碳排放强度</h3>
+      </div>
+      <div class="card-body">
+        <div class="intensity-bank-highlight">
+          <div class="intensity-bank-label">全行投融资碳排放强度</div>
+          <div class="intensity-bank-value">${formatFinancingCarbonIntensity(stats.bankIntensity)}</div>
+          <div class="intensity-bank-sub">tCO₂e / 元 · ${stats.totalCount || 0} 笔 · 余额合计 ${stats.totalBalance ? formatNum(stats.totalBalance) : '—'} 万元</div>
+        </div>
+        <h4 class="intensity-section-subtitle">分行业（人行八大行业大类）</h4>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr>
+            <th>行业大类</th><th>笔数</th><th>${balanceLabel}</th><th>归因排放（tCO₂e）</th><th>碳排放强度（tCO₂e/元）</th><th>排放占比</th>
+          </tr></thead>
+          <tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#909399">暂无强度数据</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+}
+
 function formalLedgerRow(f, taskId) {
   const c = Store.getCandidates(taskId).find(x => x.id === f.customerId);
-  if (c) return c;
-  return {
+  const base = c ? { ...c } : {
     id: f.customerId || f.id,
     customerName: f.customerName,
-    customerScale: f.customerScale ?? c?.customerScale,
-    enterpriseScale: f.enterpriseScale ?? f.customerScale ?? c?.enterpriseScale,
-    companyNature: f.companyNature ?? c?.companyNature,
-    companyType: f.companyType ?? c?.companyType,
+    customerScale: f.customerScale,
+    enterpriseScale: f.enterpriseScale ?? f.customerScale,
+    companyNature: f.companyNature,
+    companyType: f.companyType,
     tier1Branch: f.tier1Branch || f.branch,
     handlingBranch: f.handlingBranch,
     productType: f.productType || f.loanType,
@@ -4433,6 +5920,28 @@ function formalLedgerRow(f, taskId) {
     projectDetails: f.projectDetails,
     projectInfoAvailable: f.projectInfoAvailable
   };
+  const row = { ...base, formalId: f.id };
+  if (f.subjectIndustryEdited || f.gbIndustryCode) {
+    row.gbIndustryCode = f.gbIndustryCode ?? base.gbIndustryCode;
+    row.gbIndustryName = f.gbIndustryName ?? base.gbIndustryName;
+    row.industryLabel = f.industryLabel ?? base.industryLabel;
+    row.industryMajor = f.industryMajor ?? base.industryMajor;
+    row.subjectIndustryEdited = !!f.subjectIndustryEdited;
+  }
+  if (f.investIndustryEdited || f.investIndustryCode) {
+    const details = Array.isArray(f.projectDetails)
+      ? f.projectDetails.map(p => ({ ...p }))
+      : (Array.isArray(base.projectDetails) ? base.projectDetails.map(p => ({ ...p })) : []);
+    if (!details.length) details.push({});
+    details[0] = {
+      ...details[0],
+      nationalIndustryCodeLv4: f.investIndustryCode ?? details[0].nationalIndustryCodeLv4,
+      projectIndustry: f.investIndustryName ?? details[0].projectIndustry
+    };
+    row.projectDetails = details;
+    row.investIndustryEdited = !!f.investIndustryEdited;
+  }
+  return row;
 }
 
 function excludeLabel(code) {
@@ -4660,6 +6169,129 @@ function resolveDqrGrade(dqr) {
   if (dqr == null || dqr === '' || Number.isNaN(v)) return null;
   const bands = GUIDE.DQR_GRADE_BANDS || [];
   return bands.find(b => v <= b.max)?.grade || 'C';
+}
+
+function formatDqrBandRange(bands, index) {
+  const band = bands[index];
+  if (!band) return '—';
+  if (index === 0) return `DQR ≤ ${band.max}`;
+  if (band.max === Infinity) return `DQR > ${bands[index - 1].max}`;
+  return `${bands[index - 1].max} < DQR ≤ ${band.max}`;
+}
+
+function qualityGradeText(grade) {
+  const labels = ['', '一级(优)', '二级', '三级', '四级', '五级(兜底)'];
+  const n = Number(grade);
+  if (!n) return '—';
+  return `等级${n} ${labels[n] || ''}`.trim();
+}
+
+function renderDqrQualityStatCards(dqr, dqrGrade) {
+  const dqrValue = dqr ? dqr.dqr : '—';
+  const gradeValue = dqrGrade || '—';
+  const subGrade = dqr ? '表3划分标准 · 点击查看对照' : '待计算 · 点击查看对照';
+  const helpBtn = '<button type="button" class="stat-card-help" aria-label="查看数据质量评分与对应等次对照">?</button>';
+  const cardAttrs = 'class="stat-card stat-card--interactive" role="button" tabindex="0" title="点击查看数据质量评分与对应等次对照"';
+  return `
+    <div ${cardAttrs} id="dqrScoreStatCard">
+      <div class="stat-card-head"><div class="label">数据质量评级</div>${helpBtn}</div>
+      <div class="value">${dqrValue}</div>
+      <div class="sub">DQR（加权平均）</div>
+    </div>
+    <div ${cardAttrs} id="dqrGradeStatCard">
+      <div class="stat-card-head"><div class="label">对应等次</div>${helpBtn}</div>
+      <div class="value">${gradeValue}</div>
+      <div class="sub">${subGrade}</div>
+    </div>`;
+}
+
+function buildDqrGradeGuideHtml(dqr) {
+  const bands = GUIDE.DQR_GRADE_BANDS || [];
+  const levels = GUIDE.QUALITY_LEVELS || [];
+  const current = dqr?.dqr != null && dqr.dqr !== '' ? Number(dqr.dqr) : null;
+  const currentGrade = dqr?.grade || (current != null && !Number.isNaN(current) ? resolveDqrGrade(current) : null);
+  const bandRows = bands.map((band, i) => {
+    const isCurrent = currentGrade === band.grade;
+    return `<tr class="${isCurrent ? 'is-current' : ''}">
+      <td>${formatDqrBandRange(bands, i)}</td>
+      <td><strong>${band.grade}</strong></td>
+      <td>${levels[i]?.label || '—'}</td>
+    </tr>`;
+  }).join('');
+  const methodRows = (GUIDE.METHODS || []).filter(m => m.qualityGrade != null).map(m => `<tr>
+      <td>${m.qualityGrade}</td>
+      <td>${escapeHtml(m.name)}</td>
+      <td>${escapeHtml(qualityGradeText(m.qualityGrade))}</td>
+    </tr>`).join('');
+  const currentHtml = current != null && !Number.isNaN(current)
+    ? `<p class="dqr-guide-current">当前任务 DQR = <strong>${dqr.dqr}</strong>，对应等次 <strong>${currentGrade || '—'}</strong></p>`
+    : '';
+  return `
+    <p class="candidate-filter-hint">DQR 为各笔业务质量得分的归因排放量加权平均；单笔质量得分由所采用的核算方法确定（见下表）。</p>
+    <p class="dqr-guide-formula"><strong>计算公式：</strong>${escapeHtml(GUIDE.FORMULAS?.dqr || '—')}</p>
+    ${currentHtml}
+    <h5 class="dqr-guide-section-title">表3 数据质量评级结果划分标准</h5>
+    <div class="table-wrap"><table class="data-table dqr-guide-table">
+      <thead><tr><th>DQR 区间</th><th>对应等次</th><th>评级描述</th></tr></thead>
+      <tbody>${bandRows}</tbody>
+    </table></div>
+    <h5 class="dqr-guide-section-title">单笔业务质量得分（核算方法）</h5>
+    <div class="table-wrap"><table class="data-table dqr-guide-table">
+      <thead><tr><th>质量得分</th><th>核算方法</th><th>等级说明</th></tr></thead>
+      <tbody>${methodRows}</tbody>
+    </table></div>`;
+}
+
+function openDqrGradeGuideModal(dqr) {
+  let modal = qs('#dqrGradeGuideModal');
+  if (!modal) {
+    const root = qs('#modalRoot');
+    if (!root) return;
+    root.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="dqrGradeGuideModal">
+        <div class="modal modal-md">
+          <div class="modal-header">
+            <h4>数据质量评分与对应等次</h4>
+            <button type="button" class="modal-close" id="closeDqrGradeGuideModal" aria-label="关闭">&times;</button>
+          </div>
+          <div class="modal-body" id="dqrGradeGuideModalBody"></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" id="closeDqrGradeGuideModalBtn">关闭</button>
+          </div>
+        </div>
+      </div>`);
+    modal = qs('#dqrGradeGuideModal');
+    const close = () => hideModal('dqrGradeGuideModal');
+    qs('#closeDqrGradeGuideModal').onclick = close;
+    qs('#closeDqrGradeGuideModalBtn').onclick = close;
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  }
+  qs('#dqrGradeGuideModalBody').innerHTML = buildDqrGradeGuideHtml(dqr);
+  showModal('dqrGradeGuideModal');
+}
+
+function bindDqrGradeGuideStatCards(taskId) {
+  const open = () => {
+    const task = Store.getTask(taskId);
+    const dqr = Store.calcDQR(taskId) || task?.dqr || null;
+    openDqrGradeGuideModal(dqr);
+  };
+  ['#dqrScoreStatCard', '#dqrGradeStatCard'].forEach(sel => {
+    const el = qs(sel);
+    if (!el || el.dataset.bound === '1') return;
+    el.dataset.bound = '1';
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+    el.querySelector('.stat-card-help')?.addEventListener('click', e => {
+      e.stopPropagation();
+      open();
+    });
+  });
 }
 
 function qualityGradeBadge(grade) {
