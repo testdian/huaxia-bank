@@ -22,7 +22,7 @@ window.GUIDE = {
     { major: '石化', codes: ['C2511'], names: ['原油加工及石油制品制造'] },
     { major: '化工', codes: ['C2611', 'C2612', 'C2614', 'C2621', 'C2651'], names: ['无机酸制造', '无机碱制造', '有机化学原料制造', '氮肥制造', '合成树脂制造'] },
     { major: '造纸', codes: ['C2211', 'C2221'], names: ['木竹浆制造', '机制纸及纸板制造'] },
-    { major: '民航', codes: ['G5631'], names: ['机场'] }
+    { major: '民航', codes: ['G5631', 'G5611', 'G5612'], names: ['机场', '航空旅客运输', '航空货物运输'] }
   ],
   LOAN_TYPES_IN_SCOPE: ['项目贷款', '固定资产贷款', '流动资金贷款', '票据贴现', '贸易融资项下贴现', '保理'],
   /** 贴现、保理必须发放收数任务 */
@@ -48,30 +48,45 @@ window.GUIDE = {
   ],
   /** 信贷大表 — 公司性质 */
   COMPANY_NATURES: ['国有', '民营', '外资', '集体', '混合所有制'],
-  /** 信贷大表 — 公司类型 */
+  /** 贷款主体类型（信贷 src_fld_en=CORPORGTYPE / cust_class_cd） */
+  LOAN_SUBJECT_TYPES: [
+    { code: 'IST0_00', label: '有限责任公司' },
+    { code: 'IST0_05', label: '其他' },
+    { code: 'IST0_03', label: '合伙企业' },
+    { code: 'CMS0_CP', label: '企贷' },
+    { code: 'IST0_02', label: '股份制有限公司（非上市）' },
+    { code: 'IST0_04', label: '联营、合作企业' },
+    { code: 'IST0_01', label: '上市公司' },
+    { code: 'CMS0_CS', label: '个贷' },
+    { code: 'CMS0_SME', label: '小微客户' }
+  ],
+  /** 信贷大表 — 公司类型（与贷款主体类型一致） */
   COMPANY_TYPES: [
     '有限责任公司',
-    '股份有限公司',
-    '国有企业',
-    '集体企业',
-    '外商投资企业',
-    '私营企业',
-    '事业单位',
-    '个体工商户'
+    '其他',
+    '合伙企业',
+    '企贷',
+    '股份制有限公司（非上市）',
+    '联营、合作企业',
+    '上市公司',
+    '个贷',
+    '小微客户'
   ],
   /** 候选/正式清单 — 贷款主体类型（兼容旧字段 borrowerType） */
   CANDIDATE_BORROWER_TYPES: [
     '有限责任公司',
-    '股份有限公司',
-    '国有企业',
-    '个人独资企业',
-    '事业单位',
-    '个体工商户',
-    '农户'
+    '其他',
+    '合伙企业',
+    '企贷',
+    '股份制有限公司（非上市）',
+    '联营、合作企业',
+    '上市公司',
+    '个贷',
+    '小微客户'
   ],
   /** 候选/正式清单 — 所属行业（国标代码+名称） */
   CANDIDATE_INDUSTRY_OPTIONS: [
-    { code: 'D4411', label: '火力发电', note: '不包括既发电又提供热力的活动' },
+    { code: 'D4411', label: '火力发电' },
     { code: 'D4412', label: '热电联产' },
     { code: 'D4413', label: '水力发电' },
     { code: 'D4414', label: '核力发电' },
@@ -82,6 +97,11 @@ window.GUIDE = {
     { code: 'C2614', label: '有机化学原料制造' },
     { code: 'C3211', label: '铜冶炼' }
   ],
+  /** D4411/D4417 列表与筛选仅展示简短中文行业名（监管口径说明见指引，不在 UI 重复展示） */
+  GB_INDUSTRY_SHORT_DISPLAY: {
+    D4411: '火力发电',
+    D4417: '生物质能发电'
+  },
   EXCLUSIONS: [
     { code: 'LOW_BALANCE', label: '报告期内月均融资额少于500万元' },
     { code: 'SME', label: '小型、微型企业' },
@@ -100,19 +120,28 @@ window.GUIDE = {
     '保理融资',
     '保理融资（大连、济南分行专用）'
   ],
-  /** 指引核算范畴 — 默认纳入的贷款主体类型（不含个人/个体/农户） */
+  /** 指引核算范畴 — 默认纳入的贷款主体类型（不含个贷/小微客户） */
   SCOPE_DEFAULT_BORROWER_TYPES: [
     '有限责任公司',
-    '股份有限公司',
-    '国有企业',
-    '个人独资企业',
-    '事业单位'
+    '其他',
+    '合伙企业',
+    '企贷',
+    '股份制有限公司（非上市）',
+    '联营、合作企业',
+    '上市公司'
   ],
   /** 信贷大表 — 企业规模（小型与微型分开） */
   CUSTOMER_SCALES: ['大型企业', '中型企业', '小型企业', '微型企业'],
   ENTERPRISE_SCALES: ['大型企业', '中型企业', '小型企业', '微型企业'],
   /** 默认筛选：与指引核算范畴一致，不含小型/微型企业 */
   SCOPE_DEFAULT_CUSTOMER_SCALES: ['大型企业', '中型企业'],
+  /** 候选清单筛选 — 境内外业务（默认仅境内，符合人行《操作指引》） */
+  CANDIDATE_REGION_SCOPE_OPTIONS: [
+    { value: 'domestic', label: '仅境内' },
+    { value: 'overseas', label: '仅境外' },
+    { value: 'all', label: '全部' }
+  ],
+  SCOPE_DEFAULT_REGION_SCOPE: 'domestic',
   QUALITY_LEVELS: [
     { max: 1.5, label: '优秀' },
     { max: 2.0, label: '良好' },
@@ -143,6 +172,7 @@ window.GUIDE = {
     attribution_non_project: 'E业务 = E主体 × (投融资日均余额 / 融资主体总资产)',
     attribution_project: 'E业务 = E项目 × (项目融资日均余额 / 项目总投资额)',
     attribution_fallback: 'E业务 = 投融资日均余额 × 行业排放因子',
-    dqr: 'DQR = Σ(单笔排放量 × 质量得分) / Σ(单笔排放量)'
+    dqr: 'DQR = Σ(单笔排放量 × 质量得分) / Σ(单笔排放量)',
+    financing_intensity: '投融资碳排放强度 = 归因排放量 ÷ 投融资余额 × 10000（tCO₂e/万元余额）'
   }
 };

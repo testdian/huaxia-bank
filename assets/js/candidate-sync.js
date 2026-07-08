@@ -22,7 +22,7 @@ const CandidateSync = {
     石化: ['C2511'],
     化工: ['C2614', 'C2621', 'C2651'],
     造纸: ['C2211', 'C2221'],
-    民航: ['G5631']
+    民航: ['G5631', 'G5611', 'G5612']
   },
 
   /** 该笔贷款在核算年度内于华夏银行的存续月份（非固定 12） */
@@ -65,8 +65,11 @@ const CandidateSync = {
       const handlingBranch = tier1Branch.replace('分行', '') + this.HANDLING_SUFFIX[idx % this.HANDLING_SUFFIX.length];
       let industryMajor = major;
       const industryOpt = (GUIDE.CANDIDATE_INDUSTRY_OPTIONS || [])[idx % (GUIDE.CANDIDATE_INDUSTRY_OPTIONS.length || 1)] || { code, label: major };
-      const industryLabel = industryOpt.note
-        ? `${industryOpt.code} ${industryOpt.label} ${industryOpt.note}`
+      const industryLabel = (typeof isGbIndustryNameOnlyDisplay === 'function'
+        && isGbIndustryNameOnlyDisplay(industryOpt.code))
+        ? (typeof resolveGbIndustryShortName === 'function'
+          ? resolveGbIndustryShortName(industryOpt.code, industryOpt.label)
+          : industryOpt.label)
         : `${industryOpt.code} ${industryOpt.label}`;
 
       let excludeReason = null;
@@ -79,9 +82,9 @@ const CandidateSync = {
 
       const bucket = idx % 20;
       if (bucket === 0) { avgMonthlyBalance = 80 + (idx % 400); excludeReason = 'LOW_BALANCE'; }
-      else if (bucket === 1) { isSme = true; excludeReason = 'SME'; avgMonthlyBalance = 600; borrowerType = '有限责任公司'; }
-      else if (bucket === 2) { isIndividual = true; excludeReason = 'INDIVIDUAL'; avgMonthlyBalance = 300; borrowerType = '个体工商户'; }
-      else if (bucket === 3) { isOverseas = true; excludeReason = 'OVERSEAS'; avgMonthlyBalance = 2000; borrowerType = '股份有限公司'; }
+      else if (bucket === 1) { isSme = true; excludeReason = 'SME'; avgMonthlyBalance = 600; borrowerType = '小微客户'; }
+      else if (bucket === 2) { isIndividual = true; excludeReason = 'INDIVIDUAL'; avgMonthlyBalance = 300; borrowerType = '个贷'; }
+      else if (bucket === 3) { isOverseas = true; excludeReason = 'OVERSEAS'; avgMonthlyBalance = 2000; borrowerType = '上市公司'; }
       else if (bucket === 4) { industryMajor = null; excludeReason = 'NON_HIGH_CARBON'; }
 
       let customerScale = '大型企业';
@@ -96,7 +99,7 @@ const CandidateSync = {
       const companyNatures = GUIDE.COMPANY_NATURES || ['国有', '民营'];
       const companyTypes = GUIDE.COMPANY_TYPES || GUIDE.CANDIDATE_BORROWER_TYPES || ['有限责任公司'];
       const companyNature = companyNatures[idx % companyNatures.length];
-      const companyType = isIndividual ? '个体工商户' : companyTypes[idx % companyTypes.length];
+      const companyType = isIndividual ? '个贷' : (isSme ? '小微客户' : companyTypes[idx % companyTypes.length]);
 
       const excluded = !!excludeReason;
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
@@ -138,7 +141,11 @@ const CandidateSync = {
         companyType,
         creditCode: this._creditCodeForGelan(idx, loanType, bizType),
         gbIndustryCode: industryMajor ? (industryOpt.code || code) : 'C4190',
-        gbIndustryName: industryMajor ? (industryOpt.label || GUIDE.INDUSTRIES.find(x => x.major === major)?.names[0]) : '其他',
+        gbIndustryName: industryMajor
+          ? (typeof resolveGbIndustryShortName === 'function'
+            ? resolveGbIndustryShortName(industryOpt.code, industryOpt.label)
+            : (industryOpt.label || GUIDE.INDUSTRIES.find(x => x.major === major)?.names[0]))
+          : '其他',
         industryMajor: industryMajor || '-',
         industryLabel: industryMajor ? industryLabel : 'C4190 其他',
         borrowerType,

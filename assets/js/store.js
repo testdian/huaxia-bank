@@ -182,6 +182,8 @@ const Store = {
     this._migrateFinalizedAccountingTypes();
     this._migrateCalculationEmissionSplit();
     this._ensureDataCollectDemoTask();
+    this._ensureCollectGroupDemo();
+    this._ensureCollectGroupsStructure();
     this._migrateTaskIndustryScopes();
     this._migrateCandidateCustomerScale();
     this._migrateCarbonAccountProvision();
@@ -193,6 +195,7 @@ const Store = {
     this._migrateFactorDedupe();
     this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
+    this._fixTaskBranchDeadlineOrder();
     this._ensureIndustryConfig();
     this._ensureMenuPermissions();
     this._ensureTasksArray();
@@ -359,11 +362,40 @@ const Store = {
           changed = true;
         }
         if (!t.branchDeadline && t.deadline) {
-          t.branchDeadline = t.deadline;
+          t.branchDeadline = typeof addCalendarDays === 'function'
+            ? addCalendarDays(t.deadline, 15)
+            : t.deadline;
+          changed = true;
+        } else if (t.branchDeadline && t.deadline && t.deadline >= t.branchDeadline) {
+          t.branchDeadline = typeof addCalendarDays === 'function'
+            ? addCalendarDays(t.deadline, 15)
+            : t.branchDeadline;
           changed = true;
         }
       });
       d._taskBranchDeadlineMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 修正数据采集截止不早于分行审批截止的历史任务 */
+  _fixTaskBranchDeadlineOrder() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._taskBranchDeadlineOrderFixed) return;
+      let changed = false;
+      (d.tasks || []).forEach(t => {
+        if (!t.deadline) return;
+        if (!t.branchDeadline || t.deadline >= t.branchDeadline) {
+          t.branchDeadline = typeof addCalendarDays === 'function'
+            ? addCalendarDays(t.deadline, 15)
+            : t.deadline;
+          changed = true;
+        }
+      });
+      d._taskBranchDeadlineOrderFixed = true;
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -428,7 +460,75 @@ const Store = {
       if (typeof CarbonAccount !== 'undefined') {
         CarbonAccount.provisionFromFormalLock(d, slice.task.id, slice.formalList);
       }
+      if (typeof CollectGroups !== 'undefined') {
+        this._rebuildCollectGroupsInPlace(d, slice.task.id);
+      }
       localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 注入万华化学归集示范数据（已有 localStorage 时补全） */
+  _ensureCollectGroupDemo() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || !DemoSeed.patchCollectGroupDemo) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._collectGroupDemoPatchedV2) return;
+      const demoFormalIds = new Set(['FCG01', 'FCG02', 'FCG03', 'FCG04', 'FCG05', 'FCG06']);
+      const demoCandIds = new Set(['CGC01', 'CGC02', 'CGC03', 'CGC04', 'CGC05', 'CGC06']);
+      if (d._collectGroupDemoPatched) {
+        d.formalList = (d.formalList || []).filter(f => !demoFormalIds.has(f.id));
+        d.candidates = (d.candidates || []).filter(c => !demoCandIds.has(c.id));
+        d.collectGroups = (d.collectGroups || []).filter(g =>
+          !(g.memberFormalIds || []).some(fid => demoFormalIds.has(fid))
+        );
+      }
+      const before = (d.formalList || []).length;
+      DemoSeed.patchCollectGroupDemo(d.candidates, d.formalList, 'T2025001');
+      if ((d.formalList || []).length === before) {
+        d._collectGroupDemoPatchedV2 = true;
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+        return;
+      }
+      d.collectGroups = d.collectGroups || [];
+      if (typeof CarbonAccount !== 'undefined') {
+        const added = d.formalList.filter(f => f.taskId === 'T2025001' && demoFormalIds.has(f.id));
+        CarbonAccount.provisionFromFormalLock(d, 'T2025001', added);
+      }
+      if (typeof CollectGroups !== 'undefined') {
+        this._rebuildCollectGroupsInPlace(d, 'T2025001');
+      }
+      const task = (d.tasks || []).find(t => t.id === 'T2025001');
+      if (task) {
+        task.formalCount = d.formalList.filter(f => f.taskId === 'T2025001').length;
+        task.candidateCount = d.candidates.filter(c => c.taskId === 'T2025001').length;
+      }
+      d._collectGroupDemoPatched = true;
+      d._collectGroupDemoPatchedV2 = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 为已锁定任务补建 collectGroups */
+  _ensureCollectGroupsStructure() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof CollectGroups === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      let changed = false;
+      d.collectGroups = d.collectGroups || [];
+      (d.tasks || []).forEach(t => {
+        const confirmed = (d.formalList || []).filter(f => f.taskId === t.id && f.status === 'confirmed');
+        if (!confirmed.length) return;
+        const hasGroups = d.collectGroups.some(g => g.taskId === t.id);
+        if (hasGroups) return;
+        this._rebuildCollectGroupsInPlace(d, t.id);
+        changed = true;
+      });
+      if (changed) {
+        d._collectGroupsStructureMigrated = true;
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+      }
     } catch { /* ignore */ }
   },
 
@@ -493,13 +593,15 @@ const Store = {
         const before = JSON.stringify({
           subjectIndustryScope: t.subjectIndustryScope,
           investIndustryScope: t.investIndustryScope,
-          industryScope: t.industryScope
+          industryScope: t.industryScope,
+          dataIndustryScopeKind: t.dataIndustryScopeKind
         });
         normalizeTaskIndustryFields(t);
         if (JSON.stringify({
           subjectIndustryScope: t.subjectIndustryScope,
           investIndustryScope: t.investIndustryScope,
-          industryScope: t.industryScope
+          industryScope: t.industryScope,
+          dataIndustryScopeKind: t.dataIndustryScopeKind
         }) !== before) changed = true;
       });
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
@@ -749,6 +851,59 @@ const Store = {
       .some(f => !this._formalHasEntityEmission(d, taskId, f));
   },
 
+  hasMissingSystemAccountingMethod(taskId, data) {
+    const d = data || this.get();
+    if (typeof resolveSystemAccountingMethodLabel !== 'function') return false;
+    return d.formalList
+      .filter(f => f.taskId === taskId && f.status === 'confirmed')
+      .some(f => resolveSystemAccountingMethodLabel(f, taskId, d) === '—');
+  },
+
+  syncCalculationsFromDataCollect(taskId) {
+    this.update(d => {
+      const formals = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
+      formals.forEach(f => {
+        const supp = this.findSupplementForFormal(d, taskId, f.id);
+        const calc = d.calculations.find(c => c.formalId === f.id && c.taskId === taskId);
+        const hasEmission = typeof getEffectiveEntityEmission === 'function'
+          && getEffectiveEntityEmission(taskId, f.id) != null;
+        const hasCollectData = !!supp?.dispatchedAt;
+        if (!hasEmission && !hasCollectData && !calc) return;
+        this._finalizeFormalAccountingType(d, f, taskId);
+        this._upsertCalculationFromFormal(d, f, taskId);
+      });
+      const t = d.tasks.find(x => x.id === taskId);
+      if (t) t.dqr = Store.calcDQR(taskId);
+    });
+  },
+
+  applyCreditFallbackForMissingSystemMethod(taskId) {
+    let count = 0;
+    this.update(d => {
+      d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed').forEach(f => {
+        if (typeof resolveSystemAccountingMethodLabel === 'function') {
+          if (resolveSystemAccountingMethodLabel(f, taskId, d) !== '—') return;
+        }
+        const c = d.candidates.find(x => x.id === f.customerId);
+        const avgBalance = Number(c?.avgMonthlyBalance) || Number(f.avgMonthlyBalance) || 0;
+        const task = d.tasks.find(x => x.id === taskId);
+        const factor = this._getIndustryFactor(d, f.industryMajor, f.gbIndustryCode || c?.gbIndustryCode, task?.year);
+        const entityEmission = Math.round(avgBalance * factor);
+        this._upsertCalculationFromFormal(d, f, taskId, {
+          entityEmission,
+          attributedEmission: entityEmission,
+          method: '其他计算法',
+          methodId: 'economy_fallback',
+          qualityGrade: 5,
+          source: 'credit_fallback'
+        });
+        count++;
+      });
+      if (count > 0) this.syncTaskWorkflow(d, taskId);
+    });
+    return count;
+  },
+
   getFormalEntityEmission(taskId, formalId) {
     if (typeof getEffectiveEntityEmission === 'function') {
       return getEffectiveEntityEmission(taskId, formalId);
@@ -797,7 +952,7 @@ const Store = {
   },
 
   _upsertCalculationFromFormal(d, f, taskId, overrides = {}) {
-    const s = d.supplements.find(x => x.formalId === f.id && x.taskId === taskId);
+    const s = this.findSupplementForFormal(d, taskId, f.id);
     const cand = d.candidates.find(x => x.id === f.customerId);
     let calc = d.calculations.find(x => x.formalId === f.id && x.taskId === taskId);
     const manualEmission = typeof getManualEntityEmissionValue === 'function'
@@ -967,7 +1122,7 @@ const Store = {
     const r = normalizeCandidateFilterRules(rules, task);
 
     if (task?.subjectIndustryScope === '八大高碳行业' || (!task?.subjectIndustryScope && task?.industryScope === '八大高碳行业')) {
-      list = list.filter(c => isCandidateInGuideAccountingScope(c));
+      list = list.filter(c => isCandidateInGuideAccountingScope(c, task));
     }
     if (r.productTypes?.length) {
       list = list.filter(c => r.productTypes.includes(candidateProductType(c)));
@@ -984,13 +1139,20 @@ const Store = {
         return r.industries.some(sel => industryFilterCodesMatch(sel, ic));
       });
     }
+    if (r.regionScope && r.regionScope !== 'all') {
+      list = list.filter(c => candidateMatchesRegionScope(c, r.regionScope));
+    }
     if (r.balanceMin !== '' && r.balanceMin != null) {
       const min = Number(r.balanceMin);
-      if (!Number.isNaN(min)) list = list.filter(c => Number(c.avgMonthlyBalance) >= min);
+      if (!Number.isNaN(min)) {
+        list = list.filter(c => candidateBalanceAmountWan(c, task?.year, task) >= min);
+      }
     }
     if (r.balanceMax !== '' && r.balanceMax != null) {
       const max = Number(r.balanceMax);
-      if (!Number.isNaN(max)) list = list.filter(c => Number(c.avgMonthlyBalance) <= max);
+      if (!Number.isNaN(max)) {
+        list = list.filter(c => candidateBalanceAmountWan(c, task?.year, task) <= max);
+      }
     }
     return list;
   },
@@ -1150,13 +1312,19 @@ const Store = {
           loanType: c.loanType || c.productType,
           productType: c.productType || c.loanType,
           accountingType: c.accountingType || resolveAccountingType(c),
-          collectMode: resolveCollectMode(c.loanType || c.productType),
+      collectMode: resolveCollectMode(c.loanType || c.productType),
           bizType: isProject ? 'project' : 'non_project',
           objectType: isProject ? '项目' : '融资主体',
           boundary: '范围一+范围二',
           scope1: true, scope2: true, period: '自然年度',
           status: 'draft',
           economyDirectStatus: null,
+          creditCode: c.creditCode || '',
+          investIndustryCode: c.investIndustryCode || c.gbIndustryCode || '',
+          customerIndustryCode: c.customerIndustryCode || c.gbIndustryCode || '',
+          customerIndustryLabel: c.customerIndustryLabel || c.industryLabel || '',
+          groupLeadBranch: c.groupLeadBranch || '',
+          projectLeadBranch: c.projectLeadBranch || '',
           gbIndustryCode: c.gbIndustryCode, industryMajor: c.industryMajor,
           industryLabel: c.industryLabel,
           tier1Branch: c.tier1Branch || c.branch,
@@ -1250,7 +1418,13 @@ const Store = {
   },
 
   calcDQR(taskId) {
-    const calcs = this.getCalculations(taskId).filter(c => c.attributedEmission > 0);
+    const eligibleIds = new Set(
+      (typeof getCollectEmissionEligibleFormals === 'function' ? getCollectEmissionEligibleFormals(taskId) : [])
+        .map(f => f.id)
+    );
+    const calcs = this.getCalculations(taskId).filter(c =>
+      c.attributedEmission > 0 && (eligibleIds.size === 0 || eligibleIds.has(c.formalId))
+    );
     if (!calcs.length) return null;
     const sum = calcs.reduce((s, c) => s + c.attributedEmission, 0);
     const dqr = calcs.reduce((s, c) => s + c.attributedEmission * (c.qualityGrade || 5), 0) / sum;
@@ -1367,6 +1541,72 @@ const Store = {
       a.docType === 'supplement' && a.docId === supplementId &&
       ['branch', 'hq'].includes(a.reviewLevel) && a.status === 'approved'
     ).forEach(a => { a.status = 'voided'; });
+  },
+
+  _recordAuditEditApproval(d, s, level, operator, round) {
+    d.approvals = d.approvals || [];
+    d.approvals.unshift({
+      id: 'APR' + Date.now() + Math.floor(Math.random() * 10000),
+      taskId: s.taskId,
+      docType: 'supplement',
+      docId: s.id,
+      docName: '数据采集-' + s.customerName,
+      reviewLevel: level === 'branch' ? 'branch_edit' : 'hq_edit',
+      round: round ?? s.reviewRound ?? 1,
+      submitter: operator,
+      submitTime: new Date().toLocaleString('zh-CN'),
+      status: 'approved',
+      approver: operator,
+      approveTime: new Date().toLocaleString('zh-CN')
+    });
+  },
+
+  submitSupplementAfterAuditEdit(approvalId, options = {}) {
+    let ok = false;
+    this.update(d => {
+      const a = (d.approvals || []).find(x => x.id === approvalId);
+      if (!a || a.status !== 'pending' || a.docType !== 'supplement') return;
+      if (!['branch', 'hq'].includes(a.reviewLevel)) return;
+      const item = d.supplements.find(x => x.id === a.docId);
+      if (!item) return;
+      const task = d.tasks.find(t => t.id === a.taskId);
+      const now = new Date().toLocaleString('zh-CN');
+      const operator = d.currentUser;
+
+      this._recordAuditEditApproval(d, item, a.reviewLevel, operator, a.round || item.reviewRound);
+
+      a.status = 'approved';
+      a.approver = operator;
+      a.approveTime = now;
+
+      delete item.rejectReason;
+      delete item.rejectRoute;
+      delete item.rejectAssignee;
+      delete item.rejectAssigneeLabel;
+      delete item.localAuditFix;
+      delete item.needsRefill;
+
+      if (a.reviewLevel === 'branch') {
+        const methodId = options.selectedMethodId || Store.matchMethod(item).id;
+        Store.applySupplementApprovedMethod(item, methodId, options.activeMethodTab);
+        item.branchReviewStatus = 'approved';
+        if (task?.initiatorOrg === 'branch') {
+          item.auditStage = 'approved';
+          item.approvalStatus = 'approved';
+        } else {
+          item.auditStage = 'hq_review';
+          item.hqReviewStatus = 'pending';
+          this._createSupplementApproval(d, item, task, 'hq', a.round || item.reviewRound);
+        }
+      } else {
+        item.hqReviewStatus = 'approved';
+        item.auditStage = 'approved';
+        item.approvalStatus = 'approved';
+      }
+      if (a.taskId) this.syncTaskWorkflowAfterApprovals(d, a.taskId);
+      ok = true;
+    });
+    return ok;
   },
 
   submitSupplementForReview(supplementId) {
@@ -1556,6 +1796,7 @@ const Store = {
         localStorage.setItem(this.KEY, JSON.stringify(d));
       }
       this._migrateIndustryConfigTags(d);
+      this._migrateIndustryConfigAutoTagsV2(d);
     } catch { /* ignore */ }
   },
 
@@ -1582,6 +1823,29 @@ const Store = {
     });
     d._industryConfigTagsMigrated = true;
     localStorage.setItem(this.KEY, JSON.stringify(d));
+  },
+
+  /** 行业配置：按最新 INDUSTRY_TABLE 重新同步八大高碳/我行主要行业标识（如补全 G5611/G5612） */
+  _migrateIndustryConfigAutoTagsV2(d) {
+    if (!d?.industryConfig?.rows?.length || typeof IndustryConfig === 'undefined') return;
+    if (d._industryConfigAutoTagsV2) return;
+    let changed = false;
+    d.industryConfig.rows.forEach(r => {
+      const autoTags = IndustryConfig.resolveAutoTags(r.code, r.cascadeCode);
+      if (r.custom) {
+        const current = IndustryConfig.normalizeRowTags(r);
+        const merged = [...new Set([...current, ...autoTags])];
+        if (JSON.stringify([...current].sort()) !== JSON.stringify([...merged].sort())) {
+          r.tags = merged;
+          changed = true;
+        }
+      } else if (JSON.stringify(IndustryConfig.normalizeRowTags(r).sort()) !== JSON.stringify([...autoTags].sort())) {
+        r.tags = autoTags;
+        changed = true;
+      }
+    });
+    d._industryConfigAutoTagsV2 = true;
+    if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
   },
 
   importIndustryConfigFromGb4754() {
@@ -2008,6 +2272,39 @@ const Store = {
     return count;
   },
 
+  _applySupplementIndustryCorrection(d, supplement, opts) {
+    if (!supplement || !opts?.correctedIndustryCode) return;
+    supplement.gbIndustryCode = opts.correctedIndustryCode;
+    supplement.gbIndustryName = opts.correctedIndustryName || '';
+    supplement.industryLabel = opts.correctedIndustryLabel || opts.correctedIndustryCode;
+    supplement.industryMajor = opts.correctedIndustryMajor || supplement.industryMajor;
+    supplement.subjectIndustryEdited = true;
+    supplement.status = 'returned';
+    supplement.auditStage = 'pending_fill';
+    supplement.approvalStatus = 'none';
+    supplement.fieldsDone = 0;
+    supplement.complete = false;
+    if (supplement.formalId) {
+      const f = (d.formalList || []).find(x => x.id === supplement.formalId);
+      if (f) {
+        f.gbIndustryCode = opts.correctedIndustryCode;
+        f.gbIndustryName = opts.correctedIndustryName || '';
+        f.industryLabel = opts.correctedIndustryLabel || opts.correctedIndustryCode;
+        f.industryMajor = opts.correctedIndustryMajor || f.industryMajor;
+        f.customerIndustryCode = opts.correctedIndustryCode;
+        f.customerIndustryLabel = opts.correctedIndustryLabel || opts.correctedIndustryCode;
+        f.subjectIndustryEdited = true;
+      }
+      const c = (d.candidates || []).find(x => x.id === f?.customerId);
+      if (c) {
+        c.gbIndustryCode = opts.correctedIndustryCode;
+        c.gbIndustryName = opts.correctedIndustryName || '';
+        c.industryLabel = opts.correctedIndustryLabel || opts.correctedIndustryCode;
+        c.industryMajor = opts.correctedIndustryMajor || c.industryMajor;
+      }
+    }
+  },
+
   resolveApproval(approvalId, approved, rejectReason, options) {
     const opts = options || {};
     return this.update(d => {
@@ -2056,6 +2353,9 @@ const Store = {
       const task = d.tasks.find(t => t.id === approval.taskId);
       if (!approved) {
         const rejectTarget = opts.rejectTarget || 'manager';
+        if (opts.rejectReasonType === 'industry_error' && opts.correctedIndustryCode) {
+          this._applySupplementIndustryCorrection(d, item, opts);
+        }
         if (approval.reviewLevel === 'hq' && rejectTarget === 'branch') {
           item.approvalStatus = 'pending';
           item.auditStage = 'branch_review';
@@ -2071,6 +2371,12 @@ const Store = {
         item.rejectReason = (rejectReason || '').trim();
         item.rejectAssignee = opts.rejectAssignee || null;
         item.rejectAssigneeLabel = opts.rejectAssigneeLabel || null;
+        item.rejectRoute = opts.rejectRoute || null;
+        item.rejectReasonType = opts.rejectReasonType || null;
+        item.needsRefill = opts.rejectReasonType === 'industry_error';
+        if (opts.rejectRoute === 'other_manager' && opts.rejectAssigneeLabel) {
+          item.manager = opts.rejectAssigneeLabel;
+        }
         delete item.approvedMethodId;
         if (approval.reviewLevel === 'branch') item.branchReviewStatus = 'rejected';
         if (approval.reviewLevel === 'hq') item.hqReviewStatus = 'rejected';
@@ -2275,6 +2581,13 @@ const Store = {
         if (formal && s.projectInfoAvailable != null) formal.projectInfoAvailable = s.projectInfoAvailable;
         if (candidate && s.projectInfoAvailable != null) candidate.projectInfoAvailable = s.projectInfoAvailable;
       }
+      const formalForSync = d.formalList.find(f => f.id === s.formalId);
+      if (formalForSync) {
+        this._finalizeFormalAccountingType(d, formalForSync, s.taskId);
+        this._upsertCalculationFromFormal(d, formalForSync, s.taskId);
+        const t = d.tasks.find(x => x.id === s.taskId);
+        if (t) t.dqr = Store.calcDQR(s.taskId);
+      }
     });
   },
 
@@ -2414,9 +2727,147 @@ const Store = {
         );
         provisioned = CarbonAccount.provisionFromFormalLock(d, taskId, targets);
       }
+      if (typeof CollectGroups !== 'undefined') {
+        this._rebuildCollectGroupsInPlace(d, taskId);
+      }
       this.syncTaskWorkflow(d, taskId);
     });
     return { locked, provisioned };
+  },
+
+  _sameMemberSet(a, b) {
+    const sa = new Set(a || []);
+    const sb = new Set(b || []);
+    if (sa.size !== sb.size) return false;
+    for (const x of sa) if (!sb.has(x)) return false;
+    return true;
+  },
+
+  _rebuildCollectGroupsInPlace(d, taskId) {
+    if (typeof CollectGroups === 'undefined') return;
+    d.collectGroups = d.collectGroups || [];
+    const formals = d.formalList.filter(f => f.taskId === taskId);
+    const candidates = d.candidates.filter(c => c.taskId === taskId);
+    const next = CollectGroups.buildGroups(taskId, formals, candidates);
+    const old = d.collectGroups.filter(g => g.taskId === taskId);
+    next.forEach(g => {
+      const match = old.find(o =>
+        o.bucket === g.bucket
+        && (o.creditRefNo || o.projectNo || '') === (g.creditRefNo || '')
+        && (o.creditCode || o.customerName) === (g.creditCode || g.customerName)
+        && this._sameMemberSet(o.memberFormalIds, g.memberFormalIds)
+      );
+      if (match) {
+        g.assignedManager = match.assignedManager || g.assignedManager;
+        g.assignedManagerSource = match.assignedManagerSource || g.assignedManagerSource;
+        if (match.supplementId) g.supplementId = match.supplementId;
+      }
+    });
+    CollectGroups.syncGroupSupplementState(next, d.supplements);
+    CollectGroups.applyGroupsToFormals(next, formals);
+    d.collectGroups = d.collectGroups.filter(g => g.taskId !== taskId).concat(next);
+  },
+
+  rebuildCollectGroups(taskId) {
+    this.update(d => this._rebuildCollectGroupsInPlace(d, taskId));
+    return this.getCollectGroups(taskId).length;
+  },
+
+  getCollectGroups(taskId) {
+    return (this.get().collectGroups || []).filter(g => g.taskId === taskId);
+  },
+
+  findSupplementForFormal(d, taskId, formalId) {
+    const direct = (d.supplements || []).find(s => s.taskId === taskId && s.formalId === formalId);
+    if (direct) return direct;
+    const formal = (d.formalList || []).find(f => f.id === formalId && f.taskId === taskId);
+    if (!formal?.collectGroupId) return null;
+    return (d.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === formal.collectGroupId) || null;
+  },
+
+  findSupplementForGroup(d, taskId, groupId) {
+    return (d.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === groupId) || null;
+  },
+
+  reassignCollectGroupManager(taskId, groupId, manager) {
+    const name = (manager || '').trim();
+    if (!name) return { ok: false, message: '请填写客户经理姓名' };
+    let updated = false;
+    this.update(d => {
+      const g = (d.collectGroups || []).find(x => x.id === groupId && x.taskId === taskId);
+      if (!g) return;
+      g.assignedManager = name;
+      g.assignedManagerSource = 'branch_override';
+      const sup = this.findSupplementForGroup(d, taskId, groupId);
+      if (sup) sup.manager = name;
+      updated = true;
+    });
+    return updated ? { ok: true, message: '已更新收集人' } : { ok: false, message: '归集单元不存在' };
+  },
+
+  dispatchCollectGroups(taskId, groupIds) {
+    if (!groupIds?.length) return 0;
+    let count = 0;
+    this.update(d => {
+      groupIds.forEach(gid => {
+        const g = (d.collectGroups || []).find(x => x.id === gid && x.taskId === taskId);
+        if (!g || g.supplementId) return;
+        const members = d.formalList.filter(f => g.memberFormalIds.includes(f.id) && f.status === 'confirmed');
+        if (!members.length) return;
+        if (d.supplements.some(s => s.collectGroupId === gid)) return;
+        const primary = members[0];
+        const cand = d.candidates.find(c => c.id === primary.customerId);
+        const sup = {
+          id: 'S' + Date.now() + Math.floor(Math.random() * 10000),
+          taskId,
+          collectGroupId: g.id,
+          memberFormalIds: g.memberFormalIds.slice(),
+          formalId: primary.id,
+          customerId: primary.customerId,
+          customerName: g.customerName || primary.customerName,
+          loanType: members.length > 1 ? `归集${members.length}笔` : (primary.loanType || cand?.loanType),
+          bizType: g.bucket === 'project' ? 'project' : 'non_project',
+          industryMajor: primary.industryMajor || cand?.industryMajor,
+          accountingType: g.bucket === 'project'
+            ? (resolveAccountingType(primary) || 'project_as_project')
+            : 'non_project',
+          accountingIndustryCode: g.accountingIndustryCode,
+          accountingIndustryLabel: g.accountingIndustryLabel,
+          accountingIndustrySource: g.accountingIndustrySource,
+          projectInfoAvailable: g.bucket === 'project' ? true : primary.projectInfoAvailable,
+          projectDetails: g.projectDetails || primary.projectDetails || [],
+          creditRefNo: g.creditRefNo || g.projectNo || '',
+          projectNo: g.creditRefNo || g.projectNo || '',
+          projectName: g.projectName || '',
+          branch: g.dispatchBranch,
+          dispatchBranch: g.dispatchBranch,
+          dispatchRule: g.dispatchRule,
+          manager: g.assignedManager || primary.manager || cand?.manager || '王磊',
+          status: 'pending',
+          method: '待选择',
+          fieldsTotal: 12,
+          fieldsDone: 0,
+          deadline: d.tasks.find(t => t.id === taskId)?.deadline || '2025-09-30',
+          approvalStatus: 'none',
+          branchReviewStatus: 'none',
+          hqReviewStatus: 'none',
+          auditStage: 'pending_fill',
+          reviewRound: 0,
+          dispatchedAt: new Date().toLocaleString('zh-CN'),
+          dispatchedBy: d.currentUser
+        };
+        if (typeof applyInterfacePrefillToSupplement === 'function') {
+          applyInterfacePrefillToSupplement(sup, primary, taskId);
+        }
+        d.supplements.push(sup);
+        g.supplementId = sup.id;
+        g.status = 'dispatched';
+        members.forEach(f => { f.collectGroupId = g.id; });
+        count++;
+      });
+      this.syncTaskWorkflow(d, taskId);
+    });
+    return count;
   },
 
   dispatchSupplements(taskId, formalIds) {
@@ -2466,6 +2917,60 @@ const Store = {
     });
   },
 
+  updateFormalIndustries(taskId, edits) {
+    if (!taskId || !Array.isArray(edits) || !edits.length) return 0;
+    let count = 0;
+    this.update(d => {
+      edits.forEach(edit => {
+        const f = d.formalList.find(x => x.id === edit.formalId && x.taskId === taskId);
+        if (!f) return;
+        const c = d.candidates.find(x => x.id === f.customerId);
+        if (edit.subjectIndustryEdited) {
+          f.gbIndustryCode = edit.gbIndustryCode;
+          f.gbIndustryName = edit.gbIndustryName;
+          f.industryLabel = edit.industryLabel;
+          f.industryMajor = edit.industryMajor;
+          f.customerIndustryCode = edit.gbIndustryCode;
+          f.customerIndustryLabel = edit.industryLabel;
+          f.subjectIndustryEdited = true;
+          if (c) {
+            c.gbIndustryCode = edit.gbIndustryCode;
+            c.gbIndustryName = edit.gbIndustryName;
+            c.industryLabel = edit.industryLabel;
+            c.industryMajor = edit.industryMajor;
+          }
+        }
+        if (edit.investIndustryEdited) {
+          f.investIndustryCode = edit.investIndustryCode;
+          f.investIndustryName = edit.investIndustryName;
+          f.investIndustryEdited = true;
+          const details = Array.isArray(f.projectDetails)
+            ? f.projectDetails.map(p => ({ ...p }))
+            : (Array.isArray(c?.projectDetails) ? c.projectDetails.map(p => ({ ...p })) : []);
+          if (!details.length) details.push({});
+          details[0] = {
+            ...details[0],
+            nationalIndustryCodeLv4: edit.investIndustryCode,
+            projectIndustry: edit.investIndustryName || edit.investIndustryCode
+          };
+          f.projectDetails = details;
+          if (c) {
+            const cDetails = Array.isArray(c.projectDetails) ? c.projectDetails.map(p => ({ ...p })) : [];
+            if (!cDetails.length) cDetails.push({});
+            cDetails[0] = {
+              ...cDetails[0],
+              nationalIndustryCodeLv4: edit.investIndustryCode,
+              projectIndustry: edit.investIndustryName || edit.investIndustryCode
+            };
+            c.projectDetails = cDetails;
+          }
+        }
+        count += 1;
+      });
+    });
+    return count;
+  },
+
   generateReport(taskId, scope, template, format) {
     return this.update(d => {
       d.reports = d.reports || [];
@@ -2490,13 +2995,13 @@ const Store = {
   },
 
   confirmCalculationResults(taskId) {
-    const formal = this.getFormalList(taskId).filter(f => f.status === 'confirmed');
-    if (!formal.length) {
-      return { ok: false, message: '暂无已锁定的正式清单记录' };
+    const eligible = typeof getCollectEmissionEligibleFormals === 'function'
+      ? getCollectEmissionEligibleFormals(taskId)
+      : [];
+    if (!eligible.length) {
+      return { ok: false, message: '暂无排放结果可提交的记录，请先在数据采集页完成排放结果' };
     }
-    if (!this.isDataCollectionComplete(taskId)) {
-      return { ok: false, message: '请先完成数据采集并提交' };
-    }
+    this.syncCalculationsFromDataCollect(taskId);
     this.update(d => {
       const t = d.tasks.find(x => x.id === taskId);
       if (t) {

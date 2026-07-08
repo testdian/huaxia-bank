@@ -103,7 +103,7 @@ const DemoSeed = {
         customerScale: i % 3 === 0 ? '中型企业' : '大型企业',
         enterpriseScale: i % 3 === 0 ? '中型企业' : '大型企业',
         companyNature: (GUIDE.COMPANY_NATURES || ['国有'])[i % 5],
-        companyType: (GUIDE.COMPANY_TYPES || ['有限责任公司'])[i % 6],
+        companyType: (GUIDE.COMPANY_TYPES || ['有限责任公司'])[i % 9],
         creditCode,
         gbIndustryCode: code,
         gbIndustryName: major,
@@ -311,6 +311,7 @@ const DemoSeed = {
 
     const tasks = this.buildTasks(mainTask, completedTask);
     this.patchDataCollectGelanEcoDemo(candidates, formalList, tasks);
+    this.patchCollectGroupDemo(candidates, formalList, taskId);
 
     return {
       tasks,
@@ -322,6 +323,7 @@ const DemoSeed = {
       approvals,
       carbonAccounts: [],
       carbonAccountRecords: [],
+      collectGroups: [],
       methods: GUIDE.METHODS,
       factors: this.buildFactors(),
       mappings: this.buildMappings(),
@@ -786,7 +788,7 @@ const DemoSeed = {
 
   patchPowerIndustryCandidates(candidates, taskId) {
     const rows = [
-      { id: 'C2025001006', customerName: '华能发电有限公司', gbIndustryCode: 'D4411', gbIndustryName: '火力发电', industryLabel: 'D4411 火力发电 不包括既发电又提供热力的活动', tier1Branch: '北京分行', manager: '王磊' },
+      { id: 'C2025001006', customerName: '华能发电有限公司', gbIndustryCode: 'D4411', gbIndustryName: '火力发电', industryLabel: '火力发电', tier1Branch: '北京分行', manager: '王磊' },
       { id: 'C2025001010', customerName: '国电发电有限公司', gbIndustryCode: 'D4411', gbIndustryName: '火力发电', industryLabel: 'D4411 火力发电', tier1Branch: '上海分行', manager: '陈静' },
       { id: 'C2025001033', customerName: '大唐发电有限公司', gbIndustryCode: 'D4412', gbIndustryName: '热电联产', industryLabel: 'D4412 热电联产', tier1Branch: '北京分行', manager: '王磊' },
       { id: 'C2025001034', customerName: '华电能源有限公司', gbIndustryCode: 'D4411', gbIndustryName: '火力发电', industryLabel: 'D4411 火力发电', tier1Branch: '南京分行', manager: '刘洋' },
@@ -877,6 +879,120 @@ const DemoSeed = {
       dispatchedAt: cfg.dispatched === false ? null : (cfg.dispatchedAt || '2025-02-16 10:00:00'),
       dispatchedBy: cfg.dispatched === false ? null : (cfg.dispatchedBy || '张明')
     };
+  },
+
+  /** 万华化学归集示范：6 笔 → 4 个归集单元（非项目 1 + 项目 3） */
+  patchCollectGroupDemo(candidates, formalList, taskId) {
+    if (taskId !== 'T2025001') return;
+    if ((formalList || []).some(f => f.id === 'FCG01' && f.taskId === taskId)) return;
+    const uscc = '91370200MA3WHGROUPX';
+    const customerName = '万华化学归集示范';
+    const customerIndustry = 'C2614';
+    const groupLeadBranch = '北京分行';
+    const year = 2024;
+    const specs = [
+      { id: '01', cid: 'CGC01', fid: 'FCG01', loanType: '短期流动资金贷款', biz: 'non_project', branch: '北京分行', manager: '王磊', invest: 'C2614', investLabel: '有机化学原料制造', disbursement: `${year}-01-15`, balance: 3200 },
+      { id: '02', cid: 'CGC02', fid: 'FCG02', loanType: '中期流动资金贷款', biz: 'non_project', branch: '上海分行', manager: '陈静', invest: 'C2651', investLabel: '合成材料制造', disbursement: `${year}-03-20`, balance: 2800 },
+      { id: '03', cid: 'CGC03', fid: 'FCG03', loanType: '一般性固定资产贷款', biz: 'project', branch: '深圳分行', manager: '刘洋', projectNo: 'PRJ-WH-2024-A', projectName: '万华MDI技改项目', disbursement: `${year}-02-10`, balance: 5600 },
+      { id: '04', cid: 'CGC04', fid: 'FCG04', loanType: '一般性固定资产贷款', biz: 'project', branch: '杭州分行', manager: '赵敏', projectNo: 'PRJ-WH-2024-A', projectName: '万华MDI技改项目', disbursement: `${year}-06-18`, balance: 4200 },
+      { id: '05', cid: 'CGC05', fid: 'FCG05', loanType: '出口退税账户托管贷款', biz: 'project', branch: '南京分行', manager: '周强', projectNo: 'PRJ-WH-2024-B', projectName: '万华乙烯项目', disbursement: `${year}-04-05`, balance: 3900 },
+      { id: '06', cid: 'CGC06', fid: 'FCG06', loanType: '一般性固定资产贷款', biz: 'project', branch: '成都分行', manager: '李娜', projectNo: 'PRJ-WH-2024-C', projectName: '万华新材料项目', disbursement: `${year}-05-12`, balance: 4500 }
+    ];
+    specs.forEach((s, i) => {
+      const projectDetails = s.biz === 'project' ? [{
+        projectNo: s.projectNo,
+        projectName: s.projectName,
+        projectProvince: s.branch.replace('分行', ''),
+        projectIndustry: '化工',
+        customerNo: `KHWH${s.id}`,
+        customerName,
+        creditCode: uscc,
+        nationalIndustryCodeLv4: customerIndustry,
+        projectAvgLoanBalanceWan: s.balance,
+        projectRevenueWan: s.balance * 6,
+        projectTotalInvestmentWan: s.balance * 80
+      }] : [];
+      candidates.push({
+        id: s.cid,
+        taskId,
+        customerName,
+        customerScale: '大型企业',
+        enterpriseScale: '大型企业',
+        companyNature: '民营',
+        companyType: '股份制有限公司（非上市）',
+        creditCode: uscc,
+        customerIndustryCode: customerIndustry,
+        customerIndustryLabel: `${customerIndustry} 基础化学原料制造`,
+        gbIndustryCode: s.invest || customerIndustry,
+        gbIndustryName: s.investLabel || '化工',
+        industryMajor: '化工',
+        industryLabel: `${s.invest || customerIndustry} ${s.investLabel || '化工'}`,
+        investIndustryCode: s.invest || customerIndustry,
+        productType: s.loanType,
+        loanType: s.loanType,
+        bizType: s.biz,
+        accountingType: s.biz === 'project' ? 'project_as_project' : 'non_project',
+        projectInfoAvailable: s.biz === 'project' ? true : null,
+        tier1Branch: s.branch,
+        handlingBranch: s.branch.replace('分行', '') + '营业部',
+        branch: s.branch,
+        groupLeadBranch: s.biz === 'non_project' ? groupLeadBranch : undefined,
+        projectLeadBranch: s.biz === 'project' ? s.branch : undefined,
+        loanAccount: '622' + String(7700000000000 + i * 8803).slice(0, 13),
+        disbursementAmount: s.balance * 10000 * 8,
+        disbursementDate: s.disbursement,
+        operatingRevenue: s.balance * 5,
+        avgMonthlyBalance: s.balance,
+        totalAssets: s.balance * 60,
+        prevYearTotalAssets: s.balance * 55,
+        avgTotalAssets: s.balance * 57.5,
+        revenue: s.balance * 5,
+        manager: s.manager,
+        projectDetails,
+        excluded: false,
+        included: true,
+        accountingYear: year
+      });
+      formalList.push({
+        id: s.fid,
+        taskId,
+        customerId: s.cid,
+        customerName,
+        loanType: s.loanType,
+        productType: s.loanType,
+        collectMode: this._collectMode(s.loanType),
+        bizType: s.biz,
+        objectType: s.biz === 'project' ? '项目' : '融资主体',
+        boundary: '范围一+范围二',
+        scope1: true,
+        scope2: true,
+        period: '自然年度',
+        creditCode: uscc,
+        customerIndustryCode: customerIndustry,
+        customerIndustryLabel: `${customerIndustry} 基础化学原料制造`,
+        investIndustryCode: s.invest || customerIndustry,
+        groupLeadBranch: s.biz === 'non_project' ? groupLeadBranch : undefined,
+        projectLeadBranch: s.biz === 'project' ? s.branch : undefined,
+        gbIndustryCode: s.invest || customerIndustry,
+        industryMajor: '化工',
+        industryLabel: `${s.invest || customerIndustry} ${s.investLabel || '化工'}`,
+        tier1Branch: s.branch,
+        handlingBranch: s.branch.replace('分行', '') + '营业部',
+        branch: s.branch,
+        loanAccount: '622' + String(7700000000000 + i * 8803).slice(0, 13),
+        disbursementAmount: s.balance * 10000 * 8,
+        disbursementDate: s.disbursement,
+        avgMonthlyBalance: s.balance,
+        operatingRevenue: s.balance * 5,
+        manager: s.manager,
+        projectDetails,
+        accountingType: s.biz === 'project' ? 'project_as_project' : 'non_project',
+        projectInfoAvailable: s.biz === 'project' ? true : null,
+        status: 'confirmed',
+        lockedAt: '2025-02-16',
+        economyDirectStatus: null
+      });
+    });
   },
 
   patchBranchTaskData(candidates, formalList, supplements) {
