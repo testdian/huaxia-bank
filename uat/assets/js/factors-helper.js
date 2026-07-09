@@ -64,11 +64,30 @@ function renderFactorUnitSelect(name, options, selected, disabled) {
   return `<select name="${name}"${dis}>${opts}</select>`;
 }
 
+/** 建材/有色：subIndustry 提升到「行业」列展示，其他行业保持原样 */
+const FACTOR_SUB_INDUSTRY_MAJOR_SET = new Set(['建材', '有色']);
+
+/**
+ * 行业列展示标签：
+ * - 建材/有色 且有 subIndustry → "建材-水泥" / "有色-铜冶炼" 等
+ * - 其他 → 原 industryMajor
+ */
+function factorIndustryDisplayLabel(f) {
+  if (!f) return '-';
+  const major = f.industryMajor || '-';
+  if (f.methodId === 'energy' && f.subIndustry && FACTOR_SUB_INDUSTRY_MAJOR_SET.has(major)) {
+    return `${major}-${f.subIndustry}`;
+  }
+  return major;
+}
+
 function factorItemDetailLabel(f) {
   if (!f) return '-';
   if (f.methodId === 'energy') {
     const parts = [f.energyCategory, f.itemName].filter(Boolean);
-    if (f.subIndustry) parts.push(f.subIndustry);
+    if (f.subIndustry && !FACTOR_SUB_INDUSTRY_MAJOR_SET.has(f.industryMajor)) {
+      parts.push(f.subIndustry);
+    }
     return parts.join(' · ') || '-';
   }
   if (f.methodId === 'product') {
@@ -118,14 +137,11 @@ function normalizeFactorSourceSheet(code) {
   return m ? m[1] + m[2] : s;
 }
 
-/** 列表/详情展示：内置因子显示「人行2-1C」等人行附2表号 */
+/** 列表/详情展示：内置因子统一显示「银办发〔2026〕48号-附件2」 */
 function formatFactorSourceLabel(f) {
   if (!f) return '-';
   if (!f.isBuiltin) return f.sourceNote || '自定义';
-  const sheet = normalizeFactorSourceSheet(f.sourceSheet || '附2');
-  if (sheet === '附2') return '人行附2';
-  if (sheet === '2-9') return '人行2-9';
-  return '人行' + sheet;
+  return '银办发〔2026〕48号-附件2';
 }
 
 function filterFactors(list, filters) {
@@ -379,7 +395,7 @@ function renderFactorGroupTableRow(g) {
     : (g.isCustom ? '<span class="badge badge-primary">自定义</span>' : factorSourceBadge(f));
   return `<tr>
     <td>${factorMethodLabel(f.methodId)}</td>
-    <td>${f.industryMajor || '-'}</td>
+    <td>${factorIndustryDisplayLabel(f)}</td>
     <td>${factorItemDetailLabel(f)}</td>
     <td>${val}</td>
     <td>${f.unit || '-'}</td>
@@ -397,7 +413,7 @@ function renderFactorTableRow(f, options = {}) {
   if (unified) {
     return `<tr>
       <td>${factorMethodLabel(f.methodId)}</td>
-      <td>${f.industryMajor || '-'}</td>
+      <td>${factorIndustryDisplayLabel(f)}</td>
       <td>${factorItemDetailLabel(f)}</td>
       <td>${val}</td>
       <td>${f.unit || '-'}</td>

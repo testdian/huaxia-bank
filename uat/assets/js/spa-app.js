@@ -114,18 +114,505 @@ function bindParamFormFormatPanels() {
     form.querySelectorAll('[data-format-panel]').forEach(el => {
       el.hidden = el.dataset.formatPanel !== fmt;
     });
-    const numType = form.querySelector('[name="numberUnitType"]:checked')?.value;
-    const optType = form.querySelector('[name="optionUnitType"]:checked')?.value;
-    const activeUnitType = fmt === 'option' ? optType : numType;
     const unitsPanel = form.querySelector('#paramUnitsPanel');
     if (unitsPanel) {
-      unitsPanel.hidden = !(fmt === 'number' || fmt === 'option') || activeUnitType === 'none';
+      unitsPanel.hidden = !(fmt === 'number' || fmt === 'option');
     }
   };
   form.addEventListener('change', e => {
-    if (['paramType', 'numberUnitType', 'optionUnitType'].includes(e.target.name)) sync();
+    if (e.target.name === 'paramType') sync();
   });
   sync();
+  bindParamUnitsCombo();
+  bindParamIndustryCombo();
+  bindEnumTagInput();
+}
+
+/** 绑定核算方法 combobox（模板新建/编辑） */
+function bindMethodCombo() {
+  qsa('.method-combo-wrap').forEach(wrap => {
+    if (wrap.dataset.bound === '1') return;
+    wrap.dataset.bound = '1';
+    const field = wrap.querySelector('.method-combo-field');
+    const input = wrap.querySelector('.method-combo-input');
+    const dropdown = wrap.querySelector('.method-combo-dropdown');
+    const arrow = wrap.querySelector('.param-units-drop-arrow');
+    if (!field || !input || !dropdown) return;
+    let open = false;
+    const openDrop = () => {
+      open = true;
+      dropdown.style.display = 'block';
+      if (arrow) arrow.textContent = '▲';
+    };
+    const closeDrop = () => {
+      open = false;
+      dropdown.style.display = 'none';
+      if (arrow) arrow.textContent = '▼';
+    };
+    field.addEventListener('click', (e) => {
+      if (e.target === input) return;
+      if (open) closeDrop(); else openDrop();
+      input.focus();
+    });
+    input.addEventListener('focus', () => { if (!open) openDrop(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrop(); });
+    wrap.querySelectorAll('.method-combo-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        input.value = opt.dataset.value || opt.textContent.trim();
+        closeDrop();
+      });
+    });
+    document.addEventListener('click', function onOutside(e) {
+      if (!wrap.isConnected) {
+        document.removeEventListener('click', onOutside);
+        return;
+      }
+      if (!wrap.contains(e.target)) closeDrop();
+    });
+  });
+}
+
+function readUploadFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('读取文件失败'));
+    reader.readAsText(file, 'UTF-8');
+  });
+}
+
+function resolveImportStatus(added, total, errors) {
+  if (added === total && !errors?.length) return 'success';
+  if (added > 0) return 'partial';
+  return 'failed';
+}
+
+function openParamBatchImportModal() {
+  BatchImportModal.open({
+    title: '导入',
+    step1Text: '1、请下载参数导入模板，按模板格式填写参数信息',
+    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
+    accept: '.xlsx,.xls,.csv,text/csv',
+    onDownloadTemplate: () => METHOD_CONFIG.downloadParamImportTemplate(),
+    getHistory: () => Store.getParamImportHistory(),
+    getRecord: (id) => Store.getParamImportRecord(id),
+    onConfirm: async (file, onDone) => {
+      try {
+        const text = await readUploadFileAsText(file);
+        const result = METHOD_CONFIG.importParamsFromCsv(text);
+        const total = result.added + result.skipped + (result.errors?.length || 0);
+        const status = resolveImportStatus(result.added, Math.max(total, result.added), result.errors);
+        Store.recordParamImportHistory({
+          fileName: file.name,
+          total: total || result.added,
+          imported: result.added,
+          errorCount: result.errors?.length || 0,
+          status,
+          reason: result.errors?.slice(0, 3).join('；') || '',
+          errorReport: result.errors?.join('\n') || '',
+          dataStatus: result.added ? '已入库' : '—'
+        });
+        const parts = [`成功导入 ${result.added} 条`];
+        if (result.skipped) parts.push(`跳过 ${result.skipped} 条`);
+        if (result.errors?.length) parts.push(`${result.errors.length} 条失败`);
+        toast(parts.join('，'), result.added ? 'success' : 'warning');
+        if (typeof onDone === 'function') onDone();
+        route();
+      } catch (err) {
+        toast(err.message || '读取文件失败', 'warning');
+      }
+    }
+  });
+}
+
+function openIndustryBatchImportModal() {
+  BatchImportModal.open({
+    title: '导入',
+    step1Text: '1、请下载行业配置导入模板，按模板格式填写行业信息',
+    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
+    accept: '.xlsx,.xls,.csv,text/csv',
+    onDownloadTemplate: () => IndustryConfig.downloadImportTemplate(),
+    getHistory: () => Store.getIndustryImportHistory(),
+    getRecord: (id) => Store.getIndustryImportRecord(id),
+    onConfirm: async (file, onDone) => {
+      try {
+        const text = await readUploadFileAsText(file);
+        const result = IndustryConfig.importFromCsv(text);
+        const total = result.added + result.skipped + (result.errors?.length || 0);
+        const status = resolveImportStatus(result.added, Math.max(total, result.added), result.errors);
+        Store.recordIndustryImportHistory({
+          fileName: file.name,
+          total: total || result.added,
+          imported: result.added,
+          errorCount: result.errors?.length || 0,
+          status,
+          reason: result.errors?.slice(0, 3).join('；') || (result.skipped ? `跳过重复 ${result.skipped} 条` : ''),
+          errorReport: result.errors?.join('\n') || '',
+          dataStatus: result.added ? '已入库' : '—'
+        });
+        const parts = [`成功导入 ${result.added} 条`];
+        if (result.skipped) parts.push(`跳过重复 ${result.skipped} 条`);
+        if (result.errors?.length) parts.push(`${result.errors.length} 条失败`);
+        toast(parts.join('，'), result.added ? 'success' : 'warning');
+        if (typeof onDone === 'function') onDone();
+        route();
+      } catch (err) {
+        toast(err.message || '读取文件失败', 'warning');
+      }
+    }
+  });
+}
+
+function openFactorBatchImportModal() {
+  BatchImportModal.open({
+    title: '导入',
+    step1Text: '1、请下载排放因子导入模板，按模板格式填写因子信息',
+    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
+    accept: '.xlsx,.xls,.csv,text/csv',
+    onDownloadTemplate: () => downloadFactorImportTemplate(),
+    getHistory: () => Store.getFactorImportHistory(),
+    getRecord: (id) => Store.getFactorImportRecord(id),
+    onConfirm: async (file, onDone) => {
+      await handleFactorImportFile(file, { stayOnPage: true, keepModal: true });
+      if (typeof onDone === 'function') onDone();
+    }
+  });
+}
+
+/** 将核算方法名称反查为 id，未匹配时直接返回输入值（自定义方法） */
+function resolveMethodIdFromName(nameOrId) {
+  if (!nameOrId) return nameOrId;
+  const methods = (typeof GUIDE !== 'undefined' && GUIDE.METHODS) ? GUIDE.METHODS : [];
+  const byId = methods.find(m => m.id === nameOrId);
+  if (byId) return byId.id;
+  const byName = methods.find(m => m.name === nameOrId);
+  if (byName) return byName.id;
+  return nameOrId;
+}
+
+function bindEnumTagInput() {
+  const wrap = qs('#enumTagsWrap');
+  const hidden = qs('#enumValuesCombined');
+  const listEl = qs('#enumTagsList');
+  const input = qs('#enumTagInput');
+  if (!wrap || !hidden || !listEl || !input) return;
+
+  let items = hidden.value ? hidden.value.split(';').map(s => s.trim()).filter(Boolean) : [];
+
+  function syncHidden() { hidden.value = items.join(';'); }
+
+  function renderTags() {
+    qsa('.enum-tag', listEl).forEach(el => el.remove());
+    items.forEach((v, i) => {
+      const span = document.createElement('span');
+      span.className = 'enum-tag';
+      span.dataset.idx = i;
+      span.innerHTML = `${escapeHtml(v)}<button type="button" class="enum-tag-remove" aria-label="删除">×</button>`;
+      span.querySelector('.enum-tag-remove').onclick = () => {
+        items.splice(i, 1);
+        syncHidden(); renderTags();
+      };
+      listEl.insertBefore(span, input);
+    });
+  }
+
+  function addItem(val) {
+    const v = val.trim();
+    if (!v || items.includes(v)) return false;
+    items.push(v);
+    syncHidden(); renderTags();
+    return true;
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ';' || e.key === '；') {
+      e.preventDefault();
+      if (addItem(input.value)) input.value = '';
+    } else if (e.key === 'Backspace' && !input.value && items.length) {
+      items.pop();
+      syncHidden(); renderTags();
+    }
+  });
+
+  input.addEventListener('input', () => {
+    const v = input.value;
+    if (v.endsWith(';') || v.endsWith('；')) {
+      const raw = v.slice(0, -1);
+      if (addItem(raw)) input.value = '';
+    }
+  });
+
+  wrap.addEventListener('click', () => input.focus());
+}
+
+function bindParamIndustryCombo() {
+  const wrap = qs('#paramIndustryComboWrap');
+  const hidden = qs('#applyIndustryCombined');
+  const field = qs('#paramIndustryComboField');
+  const tagsEl = qs('#paramIndustryTags');
+  const dropdown = qs('#paramIndustryDropdown');
+  const optionsEl = qs('#paramIndustryOptions');
+  const inlineInput = qs('#paramIndustryInlineInput');
+  const arrow = qs('#paramIndustryDropArrow');
+  if (!wrap || !hidden || !field || !tagsEl || !dropdown || !optionsEl) return;
+
+  let selected = [];
+  try {
+    const parsed = JSON.parse(hidden.value || '[]');
+    selected = Array.isArray(parsed) ? parsed.map(v => String(v).trim()).filter(Boolean) : [];
+  } catch (_) { selected = []; }
+  let dropOpen = false;
+
+  // 从行业配置取分组数据
+  function getGroups() {
+    const pboRows = [];
+    const bankRows = [];
+    const hasCfg = typeof IndustryConfig !== 'undefined' && IndustryConfig.getRows().length > 0;
+    if (hasCfg) {
+      IndustryConfig.getRows().forEach(r => {
+        const code = r.code || r.cascadeCode || '';
+        const name = r.level4Name || r.name || '';
+        if (!code) return;
+        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_PBO_EIGHT)) pboRows.push({ code, label: `${code} ${name}` });
+        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR)) bankRows.push({ code, label: `${code} ${name}` });
+      });
+    }
+    if (!pboRows.length && typeof INDUSTRY_TABLE !== 'undefined') {
+      INDUSTRY_TABLE.forEach(r => pboRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    if (!bankRows.length && typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined') {
+      INDUSTRY_BANK_MAJOR_TABLE.forEach(r => bankRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    return [
+      { groupLabel: '人行八大高碳行业', rows: pboRows },
+      { groupLabel: '我行主要行业', rows: bankRows }
+    ];
+  }
+
+  function syncHidden() { hidden.value = JSON.stringify(selected); }
+
+  function addItem(code) {
+    const v = String(code || '').trim();
+    if (!v || selected.includes(v)) return;
+    selected.push(v);
+    syncHidden(); renderTags(); renderOptions();
+  }
+
+  function removeItem(code) {
+    selected = selected.filter(c => c !== code);
+    syncHidden(); renderTags(); renderOptions();
+  }
+
+  function renderTags() {
+    tagsEl.innerHTML = selected.map(code => {
+      const groups = getGroups();
+      let label = code;
+      groups.forEach(g => { const r = g.rows.find(r => r.code === code); if (r) label = r.label; });
+      return `<span class="param-units-tag">
+        ${escapeHtml(label)}
+        <button type="button" class="param-units-tag-remove" data-code="${escapeHtml(code)}" aria-label="移除">×</button>
+      </span>`;
+    }).join('');
+    qsa('.param-units-tag-remove', tagsEl).forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); removeItem(btn.dataset.code); };
+    });
+  }
+
+  function renderOptions() {
+    const groups = getGroups();
+    let html = '';
+    groups.forEach(g => {
+      if (!g.rows.length) return;
+      html += `<div class="param-units-group-label">${escapeHtml(g.groupLabel)}</div>`;
+      g.rows.forEach(({ code, label }) => {
+        const isSel = selected.includes(code);
+        html += `<div class="param-units-option${isSel ? ' is-selected' : ''}" data-code="${escapeHtml(code)}">
+          <span class="param-units-option-check">${isSel ? '✓' : ''}</span>
+          <span>${escapeHtml(label)}</span>
+        </div>`;
+      });
+    });
+    optionsEl.innerHTML = html || '<div class="param-units-empty">暂无行业数据，请先在行业配置中导入</div>';
+    qsa('.param-units-option', optionsEl).forEach(opt => {
+      opt.onclick = (e) => {
+        e.stopPropagation();
+        const code = opt.dataset.code;
+        if (selected.includes(code)) removeItem(code);
+        else addItem(code);
+      };
+    });
+  }
+
+  function openDropdown() {
+    dropOpen = true; dropdown.style.display = 'block';
+    if (arrow) arrow.textContent = '▲';
+    renderOptions();
+  }
+  function closeDropdown() {
+    dropOpen = false; dropdown.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
+
+  field.onclick = (e) => {
+    if (e.target.closest('.param-units-tag-remove')) return;
+    if (dropOpen) closeDropdown(); else openDropdown();
+    inlineInput?.focus();
+  };
+  inlineInput?.addEventListener('focus', () => { if (!dropOpen) openDropdown(); });
+  inlineInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDropdown();
+  });
+
+  document.addEventListener('click', function onOutside(e) {
+    if (!wrap.contains(e.target)) closeDropdown();
+    if (!qs('#paramIndustryComboWrap')) document.removeEventListener('click', onOutside);
+  });
+
+  renderTags(); syncHidden();
+}
+
+function bindParamUnitsCombo() {
+  const wrap = qs('#paramUnitsComboWrap');
+  const hidden = qs('#paramUnitsCombined');
+  const field = qs('#paramUnitsComboField');
+  const tagsEl = qs('#paramUnitsTags');
+  const dropdown = qs('#paramUnitsDropdown');
+  const optionsEl = qs('#paramUnitsOptions');
+  const inlineInput = qs('#paramUnitsInlineInput');
+  const customInput = qs('#paramUnitsCustomInput');
+  const arrow = qs('#paramUnitsDropArrow');
+  if (!wrap || !hidden || !field || !tagsEl || !dropdown || !optionsEl) return;
+
+  const presetOptions = METHOD_CONFIG.PARAM_UNIT_OPTIONS || [];
+  let selected = [];
+  try {
+    const parsed = JSON.parse(hidden.value || '[]');
+    selected = Array.isArray(parsed) ? parsed.map(u => String(u).trim()).filter(Boolean) : [];
+  } catch (_) {
+    selected = [];
+  }
+  let dropOpen = false;
+
+  function syncHidden() {
+    hidden.value = JSON.stringify(selected);
+  }
+
+  function addUnit(unit) {
+    const val = String(unit || '').trim();
+    if (!val || selected.includes(val)) return false;
+    selected.push(val);
+    syncHidden();
+    renderTags();
+    renderOptions();
+    return true;
+  }
+
+  function removeUnit(unit) {
+    selected = selected.filter(u => u !== unit);
+    syncHidden();
+    renderTags();
+    renderOptions();
+  }
+
+  function renderTags() {
+    tagsEl.innerHTML = selected.map(unit => `
+      <span class="param-units-tag">
+        ${escapeHtml(unit)}
+        <button type="button" class="param-units-tag-remove" data-unit="${escapeHtml(unit)}" aria-label="移除">×</button>
+      </span>
+    `).join('');
+    qsa('.param-units-tag-remove', tagsEl).forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        removeUnit(btn.dataset.unit);
+      };
+    });
+  }
+
+  function renderOptions() {
+    const presetSet = new Set(presetOptions);
+    const customSelected = selected.filter(u => !presetSet.has(u));
+    const optionItems = [
+      ...presetOptions.map(u => ({ unit: u, preset: true })),
+      ...customSelected.map(u => ({ unit: u, preset: false }))
+    ];
+    if (!optionItems.length) {
+      optionsEl.innerHTML = '<div class="param-units-empty">暂无可选单位</div>';
+      return;
+    }
+    optionsEl.innerHTML = optionItems.map(({ unit, preset }) => {
+      const isSel = selected.includes(unit);
+      return `<div class="param-units-option${isSel ? ' is-selected' : ''}" data-unit="${escapeHtml(unit)}">
+        <span class="param-units-option-check">${isSel ? '✓' : ''}</span>
+        <span>${escapeHtml(unit)}</span>
+        ${preset ? '' : '<span class="param-units-option-custom">自定义</span>'}
+      </div>`;
+    }).join('');
+    qsa('.param-units-option', optionsEl).forEach(opt => {
+      opt.onclick = (e) => {
+        e.stopPropagation();
+        const unit = opt.dataset.unit;
+        if (selected.includes(unit)) removeUnit(unit);
+        else addUnit(unit);
+      };
+    });
+  }
+
+  function openDropdown() {
+    dropOpen = true;
+    dropdown.style.display = 'block';
+    if (arrow) arrow.textContent = '▲';
+    renderOptions();
+    setTimeout(() => customInput?.focus(), 30);
+  }
+
+  function closeDropdown() {
+    dropOpen = false;
+    dropdown.style.display = 'none';
+    if (arrow) arrow.textContent = '▼';
+  }
+
+  function commitInputValue(input) {
+    const raw = (input?.value || '').trim();
+    if (!raw) return;
+    const parts = typeof METHOD_CONFIG.parseUnitsInput === 'function'
+      ? METHOD_CONFIG.parseUnitsInput(raw)
+      : raw.split(/[,，、;；\s]+/).map(s => s.trim()).filter(Boolean);
+    parts.forEach(addUnit);
+    if (input) input.value = '';
+  }
+
+  field.onclick = (e) => {
+    if (e.target.closest('.param-units-tag-remove')) return;
+    if (dropOpen) closeDropdown();
+    else openDropdown();
+    inlineInput?.focus();
+  };
+  inlineInput?.addEventListener('focus', () => { if (!dropOpen) openDropdown(); });
+  inlineInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitInputValue(inlineInput);
+    } else if (e.key === 'Backspace' && !inlineInput.value && selected.length) {
+      removeUnit(selected[selected.length - 1]);
+    }
+  });
+  customInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitInputValue(customInput);
+    }
+  });
+
+  document.addEventListener('click', function onOutside(e) {
+    if (!wrap.contains(e.target)) closeDropdown();
+    if (!qs('#paramUnitsComboWrap')) document.removeEventListener('click', onOutside);
+  });
+
+  renderTags();
+  renderOptions();
+  syncHidden();
 }
 
 function dismissSpaOverlays() {
@@ -441,8 +928,7 @@ function bindPageEvents(base, ctx) {
     qs('#dataCollectFilterBtn')?.addEventListener('click', () => {
       saveDataCollectFilters(taskId, {
         keyword: qs('#dcf_keyword')?.value || '',
-        collectStatus: qs('#dcf_collect_status')?.value || '',
-        auditStatus: qs('#dcf_audit_status')?.value || ''
+        dataStatus: qs('#dcf_data_status')?.value || ''
       });
       route();
     });
@@ -486,11 +972,12 @@ function bindPageEvents(base, ctx) {
       btn.onclick = () => {
         const groupId = btn.dataset.groupId;
         const group = Store.getCollectGroups(taskId).find(g => g.id === groupId);
-        const next = window.prompt('请输入主办客户经理姓名', group?.assignedManager || '');
-        if (next == null) return;
-        const r = Store.reassignCollectGroupManager(taskId, groupId, next);
-        toast(r.message, r.ok ? 'success' : 'warning');
-        if (r.ok) route();
+        openReassignManagerModal(taskId, groupId, group?.assignedManager || '', (next) => {
+          const needsWipe = collectGroupNeedsWipeConfirm(Store.get(), taskId, groupId);
+          const r = Store.reassignCollectGroupManager(taskId, groupId, next, { wipeData: needsWipe });
+          toast(r.message, r.ok ? 'success' : 'warning');
+          if (r.ok) route();
+        });
       };
     });
 
@@ -975,16 +1462,7 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/industry-config') {
-    qs('#icImportBtn')?.addEventListener('click', () => {
-      const cfg = Store.getIndustryConfig();
-      const msg = cfg.imported
-        ? '重新导入将覆盖当前全部行业列表（含标识设置），是否继续？'
-        : '将从 GB/T 4754 导入全部四级行业，并自动标识人行八大高碳与我行主要行业，是否继续？';
-      if (!confirm(msg)) return;
-      const r = Store.importIndustryConfigFromGb4754();
-      toast(r.ok ? `已导入 ${r.count} 条四级行业分类` : (r.message || '导入失败'), r.ok ? 'success' : 'warning');
-      route();
-    });
+    qs('#icImportBtn')?.addEventListener('click', () => openIndustryBatchImportModal());
     qs('#icAddBtn')?.addEventListener('click', () => {
       IndustryConfig.openEditModal(null, (payload) => {
         const added = Store.addIndustryConfigRow(payload);
@@ -1098,39 +1576,12 @@ function bindPageEvents(base, ctx) {
         }
       };
     });
+    qs('#factorBatchImportBtn')?.addEventListener('click', () => openFactorBatchImportModal());
   }
 
   if (base === '#/factors/import') {
-    paginationHook = 'factor_import_history';
-    qs('#factorImportDownloadBtn')?.addEventListener('click', () => downloadFactorImportTemplate());
-    qs('#factorImportUploadBtn')?.addEventListener('click', () => qs('#factorImportFile')?.click());
-    qs('#factorImportFile')?.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      if (file.size > 5 * 1024 * 1024) {
-        toast('文件大小不能超过 5M', 'warning');
-        e.target.value = '';
-        return;
-      }
-      handleFactorImportFile(file, { stayOnPage: true }).finally(() => { e.target.value = ''; });
-    });
-    qsa('.factor-import-err-btn').forEach(btn => {
-      btn.onclick = () => {
-        const rec = Store.getFactorImportRecord(btn.dataset.id);
-        if (!rec?.errorReport) {
-          toast('暂无异常明细', 'warning');
-          return;
-        }
-        if (!ensureReviewModal()) return;
-        qs('#reviewModalTitle').textContent = '异常数据 · ' + (rec.fileName || '');
-        qs('#reviewModalBody').innerHTML = `<pre class="factor-import-error-report">${rec.errorReport.replace(/</g, '&lt;')}</pre>`;
-        qs('#reviewModalFooter').innerHTML = `<button type="button" class="btn" onclick="hideModal('reviewModal')">关闭</button>`;
-        showModal('reviewModal');
-      };
-    });
-    qsa('.factor-import-src-btn').forEach(btn => {
-      btn.onclick = () => toast('演示环境未保留源文件，请重新上传', 'warning');
-    });
+    location.hash = '#/factors';
+    setTimeout(() => openFactorBatchImportModal(), 0);
   }
 
   if (base === '#/factors/new' || base === '#/factors/edit') {
@@ -1231,25 +1682,21 @@ function bindPageEvents(base, ctx) {
     qs('#paramFilterResetBtn')?.addEventListener('click', () => {
       location.hash = '#/method-config/params';
     });
-    qs('#paramBatchImportBtn')?.addEventListener('click', () => qs('#paramBatchImportFile')?.click());
-    qs('#paramBatchImportFile')?.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = METHOD_CONFIG.importParamsFromCsv(reader.result);
-        const parts = [`成功导入 ${result.added} 条`];
-        if (result.skipped) parts.push(`跳过 ${result.skipped} 条`);
-        if (result.errors.length) parts.push(`${result.errors.length} 条失败`);
-        toast(parts.join('，'), result.added ? 'success' : 'warning');
-        if (result.errors.length) console.warn(result.errors.join('\n'));
-        route();
-      };
-      reader.onerror = () => toast('读取文件失败', 'warning');
-      reader.readAsText(file, 'UTF-8');
-      e.target.value = '';
-    });
+    qs('#paramBatchImportBtn')?.addEventListener('click', () => openParamBatchImportModal());
     qs('#viewRoot')?.addEventListener('click', e => {
+      const copyBtn = e.target.closest('[data-param-copy]');
+      if (copyBtn) {
+        const id = copyBtn.dataset.paramCopy;
+        if (!id) return;
+        const result = METHOD_CONFIG.copyParam(id);
+        if (!result.ok) {
+          toast(result.message, 'error');
+          return;
+        }
+        toast(`已复制为「${result.param?.name || '副本'}」`, 'success');
+        route();
+        return;
+      }
       const delBtn = e.target.closest('[data-param-delete]');
       if (delBtn) {
         const id = delBtn.dataset.paramDelete;
@@ -1332,6 +1779,7 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/method-config/templates/new') {
+    bindMethodCombo();
     qs('#tplCreateBtn')?.addEventListener('click', () => {
       const form = qs('#tplCreateForm');
       if (!form?.reportValidity()) return;
@@ -1345,7 +1793,7 @@ function bindPageEvents(base, ctx) {
         templateName: (fd.get('templateName') || '').toString().trim(),
         industry: (fd.get('industry') || '').toString().trim(),
         subCategory: (fd.get('subCategory') || '').toString().trim(),
-        methodId: fd.get('methodId'),
+        methodId: resolveMethodIdFromName((fd.get('methodId') || '').toString().trim()),
         priority: fd.get('priority'),
         applyScene,
         description: (fd.get('description') || '').toString().trim()
@@ -1366,6 +1814,7 @@ function bindPageEvents(base, ctx) {
 
   if (base === '#/method-config/templates/edit') {
     MethodConfigEditor.bindTemplateEdit();
+    bindMethodCombo();
   }
 
   bindListPagination(paginationHook);

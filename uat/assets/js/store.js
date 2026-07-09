@@ -2023,6 +2023,63 @@ const Store = {
     return (this.get().factorImportHistory || []).find(x => x.id === id) || null;
   },
 
+  getParamImportHistory() {
+    return [...(this.get().paramImportHistory || [])].sort((a, b) =>
+      String(b.importTime || '').localeCompare(String(a.importTime || ''))
+    );
+  },
+
+  recordParamImportHistory(entry) {
+    let record = null;
+    this.update(d => {
+      d.paramImportHistory = d.paramImportHistory || [];
+      record = {
+        id: 'PI' + Date.now(),
+        operator: d.currentUser || '—',
+        importTime: new Date().toLocaleString('zh-CN'),
+        ...entry
+      };
+      d.paramImportHistory.unshift(record);
+    });
+    return record;
+  },
+
+  getParamImportRecord(id) {
+    return (this.get().paramImportHistory || []).find(x => x.id === id) || null;
+  },
+
+  getIndustryImportHistory() {
+    return [...(this.get().industryImportHistory || [])].sort((a, b) =>
+      String(b.importTime || '').localeCompare(String(a.importTime || ''))
+    );
+  },
+
+  recordIndustryImportHistory(entry) {
+    let record = null;
+    this.update(d => {
+      d.industryImportHistory = d.industryImportHistory || [];
+      record = {
+        id: 'II' + Date.now(),
+        operator: d.currentUser || '—',
+        importTime: new Date().toLocaleString('zh-CN'),
+        ...entry
+      };
+      d.industryImportHistory.unshift(record);
+    });
+    return record;
+  },
+
+  getIndustryImportRecord(id) {
+    return (this.get().industryImportHistory || []).find(x => x.id === id) || null;
+  },
+
+  importIndustryConfigFromCsv(text) {
+    if (typeof IndustryConfig === 'undefined' || !IndustryConfig.importFromCsv) {
+      return { ok: false, added: 0, skipped: 0, errors: ['导入解析器不可用'] };
+    }
+    return IndustryConfig.importFromCsv(text);
+  },
+
   importFactors(rows) {
     const result = { added: 0, skipped: 0, errors: [] };
     if (!rows?.length) return result;
@@ -2786,23 +2843,47 @@ const Store = {
   },
 
   findSupplementForGroup(d, taskId, groupId) {
-    return (d.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === groupId) || null;
+    const s = (d.supplements || []).find(x => x.taskId === taskId && x.collectGroupId === groupId);
+    return s?.dispatchedAt ? s : null;
   },
 
-  reassignCollectGroupManager(taskId, groupId, manager) {
+  /** 查找归集单元 supplement（含未派发，供内部清理等使用） */
+  findSupplementForGroupRaw(d, taskId, groupId) {
+    return (d.supplements || []).find(x => x.taskId === taskId && x.collectGroupId === groupId) || null;
+  },
+
+  reassignCollectGroupManager(taskId, groupId, manager, options = {}) {
     const name = (manager || '').trim();
     if (!name) return { ok: false, message: '请填写客户经理姓名' };
+    const wipeData = !!options.wipeData;
     let updated = false;
     this.update(d => {
       const g = (d.collectGroups || []).find(x => x.id === groupId && x.taskId === taskId);
       if (!g) return;
       g.assignedManager = name;
       g.assignedManagerSource = 'branch_override';
-      const sup = this.findSupplementForGroup(d, taskId, groupId);
-      if (sup) sup.manager = name;
+
+      if (wipeData) {
+        const sup = this.findSupplementForGroupRaw(d, taskId, groupId);
+        if (sup) {
+          d.supplements = (d.supplements || []).filter(x => x.id !== sup.id);
+          d.approvals = (d.approvals || []).filter(a =>
+            !(a.docType === 'supplement' && a.docId === sup.id)
+          );
+        }
+        g.supplementId = null;
+        g.status = 'pending';
+      } else {
+        const sup = this.findSupplementForGroupRaw(d, taskId, groupId);
+        if (sup) sup.manager = name;
+      }
       updated = true;
+      this.syncTaskWorkflow(d, taskId);
     });
-    return updated ? { ok: true, message: '已更新收集人' } : { ok: false, message: '归集单元不存在' };
+    if (!updated) return { ok: false, message: '归集单元不存在' };
+    return wipeData
+      ? { ok: true, message: '已改派收集人，原填报与审核任务已清空' }
+      : { ok: true, message: '已更新收集人' };
   },
 
   dispatchCollectGroups(taskId, groupIds) {

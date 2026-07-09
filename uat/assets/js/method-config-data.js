@@ -208,6 +208,16 @@ window.METHOD_CONFIG = {
 
   readParamUnitsFromForm(fd, unitType) {
     if (unitType === 'none') return [];
+    const combined = (fd.get('paramUnitsCombined') || '').toString().trim();
+    if (combined) {
+      try {
+        const parsed = JSON.parse(combined);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map(u => String(u).trim()).filter(Boolean))];
+        }
+      } catch (_) { /* fall through */ }
+      return this.parseUnitsInput(combined);
+    }
     const checked = fd.getAll('paramUnits').map(v => String(v).trim()).filter(Boolean);
     const extra = this.parseUnitsInput(fd.get('paramUnitsExtra'));
     return [...new Set([...checked, ...extra])];
@@ -271,40 +281,57 @@ window.METHOD_CONFIG = {
     const paramType = (fd.get('paramType') || '数值型').toString();
     const format = this.formatFromParamType(paramType);
     const enumRaw = (fd.get('enumValues') || '').toString().trim();
-    const enumValues = enumRaw ? enumRaw.split(/\n/).map(s => s.trim()).filter(Boolean) : undefined;
-    const applyRaw = fd.getAll('applyIndustry');
-    const applyIndustry = applyRaw.filter(Boolean);
+    // 支持分号分隔（新 tag 输入）和换行分隔（旧 textarea）两种格式
+    const enumValues = enumRaw
+      ? enumRaw.split(/[;\n；]/).map(s => s.trim()).filter(Boolean)
+      : undefined;
+    // 优先读新的多选下拉（applyIndustryCombined JSON），兼容旧 checkbox（applyIndustry）
+    const industryCombined = (fd.get('applyIndustryCombined') || '').toString().trim();
+    let applyIndustry;
+    if (industryCombined) {
+      try {
+        const parsed = JSON.parse(industryCombined);
+        applyIndustry = Array.isArray(parsed)
+          ? parsed.map(v => String(v).trim()).filter(Boolean)
+          : [];
+      } catch (_) {
+        applyIndustry = industryCombined.split(/[,，、;；\s]+/).map(s => s.trim()).filter(Boolean);
+      }
+    } else {
+      applyIndustry = fd.getAll('applyIndustry').filter(Boolean);
+    }
     const minVal = fd.get('validateMin');
+    const paramId = (fd.get('id') || '').toString().trim();
+    const existingParam = paramId ? this.getParam(paramId) : null;
+    const unitType = existingParam?.unitType || 'common';
     const payload = {
-      id: (fd.get('id') || '').toString().trim(),
+      id: paramId,
       paramCode: (fd.get('paramCode') || '').toString().trim(),
       name: (fd.get('name') || '').toString().trim(),
       paramType,
       format,
       category: (fd.get('category') || '活动水平类').toString(),
-      status: (fd.get('status') || 'active').toString(),
+      status: existingParam?.status || 'active',
       applyIndustry,
-      remark: (fd.get('remark') || '').toString().trim(),
-      description: (fd.get('remark') || '').toString().trim(),
+      remark: existingParam?.remark ?? existingParam?.description ?? '',
+      description: existingParam?.description ?? existingParam?.remark ?? '',
       scope: 'custom',
-      showInTemplate: fd.get('showInTemplate') !== '0',
+      showInTemplate: existingParam ? existingParam.showInTemplate !== false : true,
       validateRule: {
         min: minVal === '' || minVal == null ? 0 : Number(minVal),
         decimalPlaces: Number(fd.get('decimalPlaces')) || 4
       }
     };
     if (format === 'text') {
-      payload.textMode = fd.get('textMode') || 'single';
+      payload.textMode = existingParam?.textMode || 'single';
       payload.maxLength = Number(fd.get('maxLength')) || 200;
       payload.unit = '—';
     } else if (format === 'number') {
-      const unitType = fd.get('numberUnitType') || 'common';
       const units = this.readParamUnitsFromForm(fd, unitType);
       payload.decimalPlaces = Number(fd.get('decimalPlaces')) || 4;
       payload.unitType = unitType;
       this.applyParamUnits(payload, units, unitType);
     } else if (format === 'option') {
-      const unitType = fd.get('optionUnitType') || 'common';
       const units = this.readParamUnitsFromForm(fd, unitType);
       payload.enumValues = enumValues;
       payload.enumCount = enumValues?.length;
@@ -502,6 +529,16 @@ window.METHOD_CONFIG = {
   },
 
   /** CSV 列：参数名称, 参数分类, 参数类型, 单位, 适用行业, 小数位数, 枚举值（选项型） */
+  PARAM_IMPORT_HEADERS: ['参数名称', '参数分类', '参数类型', '单位', '适用行业', '小数位数', '枚举值'],
+
+  downloadParamImportTemplate() {
+    if (typeof downloadCsvFile !== 'function') return;
+    downloadCsvFile('参数导入模板', this.PARAM_IMPORT_HEADERS, [
+      ['煤炭消耗量', '活动水平类', '数值型', 't', '', '4', ''],
+      ['燃料品种', '活动水平类', '选项型', '—', '', '', '烟煤;褐煤;天然气']
+    ]);
+  },
+
   importParamsFromCsv(text) {
     let added = 0;
     let skipped = 0;
@@ -645,6 +682,32 @@ window.METHOD_CONFIG = {
       }
     });
     return refs;
+  },
+
+  copyParam(paramId) {
+    const src = this.getParam(String(paramId || '').trim());
+    if (!src) return { ok: false, message: '参数不存在' };
+    const newCode = this.generateParamCode();
+    const newId = `P_${newCode.replace(/^PARAM_/, '')}`;
+    // 名称加"副本"后缀，若已有则继续叠加
+    let newName = src.name + '副本';
+    let suffix = 1;
+    while (this.params.some(p => p.name === newName)) {
+      newName = src.name + '副本' + (++suffix);
+    }
+    const copy = {
+      ...src,
+      id: newId,
+      paramCode: newCode,
+      name: newName,
+      scope: 'custom',
+      builtin: false,
+      status: 'active'
+    };
+    delete copy.builtinKey;
+    const result = this.saveParam(copy, true);
+    if (result.ok) result.param = this.getParam(newId) || copy;
+    return result;
   },
 
   deleteParam(paramId) {
@@ -1236,17 +1299,39 @@ window.METHOD_CONFIG = {
           if (lib) defVal = String(lib.value ?? lib.factorValue ?? defVal);
         }
         const factorUnitFull = libId ? this.getFactorUnitFromLibrary(libId) : (prev.unitFactor || '');
+        const amountUnits = this.getParamUnits(amountP);
         const unitAssess = this.assessParamUnitConversion(amountP, factorUnitFull);
-        const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
-        const convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
+        let dynUnitConversions = prev.unitConversions || [];
         let conversionFactor = 1;
-        if (unitAssess.needsConversion) {
-          const raw = convInput?.value?.trim();
-          conversionFactor = raw !== '' && raw != null ? Number(raw) : (prev.conversionFactor ?? unitAssess.suggestedFactor ?? 1);
-          if (!Number.isFinite(conversionFactor)) conversionFactor = 1;
+        let convNote = '';
+        if (amountUnits.length > 1 && form) {
+          dynUnitConversions = amountUnits.map((u, i) => {
+            const cfEl = form.querySelector(`[name="inline_unit_factor_${refKey}_u${i}"]`);
+            const noteEl = form.querySelector(`[name="inline_unit_note_${refKey}_u${i}"]`);
+            const assess = this.assessUnitConversion(u, factorUnitFull);
+            const cfRaw = cfEl?.value?.trim();
+            const cf = cfRaw !== '' && cfRaw != null ? Number(cfRaw) : (assess.match ? 1 : (assess.suggestedFactor ?? 1));
+            return {
+              unit: u,
+              conversionFactor: Number.isFinite(cf) ? cf : 1,
+              conversionNote: noteEl?.value?.trim() || assess.suggestedLabel || '',
+              match: assess.match
+            };
+          });
+          const best = dynUnitConversions.find(c => c.match) || dynUnitConversions[0];
+          conversionFactor = best?.conversionFactor ?? 1;
+          convNote = best?.conversionNote || '';
+        } else {
+          const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
+          convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
+          if (unitAssess.needsConversion) {
+            const raw = convInput?.value?.trim();
+            conversionFactor = raw !== '' && raw != null ? Number(raw) : (prev.conversionFactor ?? unitAssess.suggestedFactor ?? 1);
+            if (!Number.isFinite(conversionFactor)) conversionFactor = 1;
+          }
         }
         let formulaExpr = this.expandDynamicRowFormula(sectionFormulaExpr, refKey, amountId);
-        if (unitAssess.needsConversion && conversionFactor !== 1 && amountId) {
+        if ((unitAssess.needsConversion || amountUnits.length > 1) && conversionFactor !== 1 && amountId) {
           formulaExpr = this.applyConversionFactorToExpr(formulaExpr, amountId, conversionFactor);
         }
         bindings.push({
@@ -1259,7 +1344,8 @@ window.METHOD_CONFIG = {
           unitActivity: amountP?.unit && amountP.unit !== '—' ? amountP.unit : '',
           unitFactor: factorUnitFull,
           unitConversion: convNote || prev.unitConversion || unitAssess.suggestedLabel || '',
-          conversionFactor: unitAssess.needsConversion ? conversionFactor : 1,
+          conversionFactor: (unitAssess.needsConversion || amountUnits.length > 1) ? conversionFactor : 1,
+          unitConversions: dynUnitConversions.length ? dynUnitConversions : prev.unitConversions || [],
           caliberTag: prev.caliberTag || 'bank',
           formulaExpression: formulaExpr
         });
@@ -1774,14 +1860,38 @@ window.METHOD_CONFIG = {
           const lib = Store.getFactor(libId);
           if (lib) defVal = String(lib.value ?? lib.factorValue ?? defVal);
         }
+        const paramUnits = this.getParamUnits(p);
         const unitAssess = this.assessParamUnitConversion(p, factorUnitFull);
-        const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
-        const convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
+        // 多单位：逐单位收集换算系数
+        let unitConversions = prev.unitConversions || [];
         let conversionFactor = 1;
-        if (unitAssess.needsConversion) {
-          const raw = convInput?.value?.trim();
-          conversionFactor = raw !== '' && raw != null ? Number(raw) : (prev.conversionFactor ?? unitAssess.suggestedFactor ?? 1);
-          if (!Number.isFinite(conversionFactor)) conversionFactor = 1;
+        let convNote = '';
+        if (paramUnits.length > 1 && form) {
+          unitConversions = paramUnits.map((u, i) => {
+            const cfEl = form.querySelector(`[name="inline_unit_factor_${refKey}_u${i}"]`);
+            const noteEl = form.querySelector(`[name="inline_unit_note_${refKey}_u${i}"]`);
+            const assess = this.assessUnitConversion(u, factorUnitFull);
+            const cfRaw = cfEl?.value?.trim();
+            const cf = cfRaw !== '' && cfRaw != null ? Number(cfRaw) : (assess.match ? 1 : (assess.suggestedFactor ?? 1));
+            return {
+              unit: u,
+              conversionFactor: Number.isFinite(cf) ? cf : 1,
+              conversionNote: noteEl?.value?.trim() || assess.suggestedLabel || '',
+              match: assess.match
+            };
+          });
+          // 主 conversionFactor 取最优（单位匹配的那个）
+          const best = unitConversions.find(c => c.match) || unitConversions[0];
+          conversionFactor = best?.conversionFactor ?? 1;
+          convNote = best?.conversionNote || '';
+        } else {
+          const convInput = form?.querySelector(`[name="inline_unit_factor_${refKey}"]`);
+          convNote = form?.querySelector(`[name="inline_unit_note_${refKey}"]`)?.value?.trim() || '';
+          if (unitAssess.needsConversion) {
+            const raw = convInput?.value?.trim();
+            conversionFactor = raw !== '' && raw != null ? Number(raw) : (prev.conversionFactor ?? unitAssess.suggestedFactor ?? 1);
+            if (!Number.isFinite(conversionFactor)) conversionFactor = 1;
+          }
         }
         const ctx = this.buildInlineFormulaContext(
           primary,
@@ -1813,7 +1923,8 @@ window.METHOD_CONFIG = {
           unitActivity: unitAssess.activityUnit || p?.unit || '',
           unitFactor: factorUnitFull || prev.unitFactor || '',
           unitConversion: convNote || prev.unitConversion || unitAssess.suggestedLabel || '',
-          conversionFactor: unitAssess.needsConversion ? conversionFactor : 1,
+          conversionFactor: (unitAssess.needsConversion || paramUnits.length > 1) ? conversionFactor : 1,
+          unitConversions: unitConversions.length ? unitConversions : prev.unitConversions || [],
           caliberTag: prev.caliberTag || 'bank',
           formulaExpression: formulaExpr
         });
@@ -1874,7 +1985,9 @@ window.METHOD_CONFIG = {
         templateName: form.querySelector('[name="meta_templateName"]')?.value?.trim() || '',
         industry: form.querySelector('[name="meta_industry"]')?.value?.trim() || '',
         subCategory: form.querySelector('[name="meta_subCategory"]')?.value?.trim() || '',
-        methodId: form.querySelector('[name="meta_methodId"]')?.value?.trim() || '',
+        methodId: (typeof resolveMethodIdFromName === 'function'
+          ? resolveMethodIdFromName(form.querySelector('[name="meta_methodId"]')?.value?.trim() || '')
+          : form.querySelector('[name="meta_methodId"]')?.value?.trim()) || '',
         priority: Number(form.querySelector('[name="meta_priority"]')?.value) || 3,
         applyScene: applyScene.length ? applyScene : ['entity'],
         bizType,
@@ -2217,9 +2330,25 @@ window.METHOD_CONFIG = {
   },
 
   getParam(id) {
-    const detail = Object.values(this.templateDetails).find(d => d.params?.some(p => p.id === id));
-    const fromDetail = detail?.params?.find(p => p.id === id);
-    return fromDetail || this.params.find(p => p.id === id);
+    const sid = String(id || '').trim();
+    if (!sid) return undefined;
+    const global = this.params.find(p => p.id === sid);
+    const detail = Object.values(this.templateDetails).find(d => d.params?.some(p => p.id === sid));
+    const fromDetail = detail?.params?.find(p => p.id === sid);
+    if (!fromDetail) return global ? this.normalizeParam(global) : undefined;
+    if (!global) return this.normalizeParam(fromDetail);
+    // 模板内 params 为快照；单位、名称等主数据以参数库（含 overrides）为准
+    const masterFields = [
+      'name', 'units', 'unit', 'unitType', 'paramType', 'format', 'category',
+      'enumValues', 'enumCount', 'decimalPlaces', 'validateRule', 'applyIndustry',
+      'paramCode', 'status', 'remark', 'description', 'attachAccept', 'attachMaxCount',
+      'attachMaxMb', 'maxLength', 'textMode', 'defaultValue', 'hasDefault', 'scope', 'showInTemplate'
+    ];
+    const merged = { ...fromDetail };
+    masterFields.forEach(key => {
+      if (global[key] !== undefined) merged[key] = global[key];
+    });
+    return this.normalizeParam(merged);
   },
 
   methodLabel(id) {

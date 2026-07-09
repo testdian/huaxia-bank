@@ -1052,7 +1052,6 @@ window.SUPPLEMENT_FIELDS = {
     if (!qs('#f_economy_value', rootEl)) return;
     payload.economyValue = numVal('#f_economy_value', rootEl);
     payload.economyFactor = numVal('#f_economy_factor', rootEl) || 2.35;
-    payload.economyBasis = qs('#f_economy_basis', rootEl)?.value;
   },
 
   _mergeOtherTab(rootEl, supplement, payload) {

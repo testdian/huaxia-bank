@@ -246,6 +246,196 @@ function interfaceYearRecordTotal(batches, year) {
 function showModal(id) { qs('#' + id)?.classList.add('show'); }
 function hideModal(id) { qs('#' + id)?.classList.remove('show'); }
 
+/** 批量导入弹窗 — 统一样式：下载模板 → 上传文件 → 导入历史 */
+window.BatchImportModal = {
+  _state: { file: null, options: null },
+
+  ensureModal() {
+    let modal = qs('#batchImportModal');
+    if (modal) return modal;
+    const root = qs('#modalRoot');
+    if (!root) return null;
+    root.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="batchImportModal">
+        <div class="modal modal-xl batch-import-modal">
+          <div class="modal-header">
+            <h4 id="batchImportModalTitle">导入</h4>
+            <button type="button" class="modal-close" id="batchImportModalClose">&times;</button>
+          </div>
+          <div class="modal-body" id="batchImportModalBody"></div>
+          <div class="modal-footer" id="batchImportModalFooter"></div>
+        </div>
+      </div>`);
+    modal = qs('#batchImportModal');
+    qs('#batchImportModalClose').onclick = () => this.close();
+    return modal;
+  },
+
+  importStatusBadge(status) {
+    if (status === 'success') return '<span class="badge badge-success">导入成功</span>';
+    if (status === 'processing') return '<span class="badge badge-warning">导入中</span>';
+    if (status === 'partial') return '<span class="badge badge-warning">部分成功</span>';
+    return '<span class="badge badge-danger">导入失败</span>';
+  },
+
+  renderHistoryTable(history, options = {}) {
+    const rows = history || [];
+    if (!rows.length) {
+      return `<div class="batch-import-empty">
+        <div class="batch-import-empty-icon">📋</div>
+        <p>暂无数据</p>
+      </div>`;
+    }
+    const showOps = options.showOps !== false;
+    return `<div class="table-wrap batch-import-history-wrap"><table class="data-table batch-import-history-table">
+      <thead><tr>
+        <th>文件名称</th><th>文件总条数</th><th>成功条数</th><th>异常条数</th>
+        <th>导入状态</th><th>原因描述</th><th>数据状态</th><th>操作人</th><th>导入时间</th>
+        ${showOps ? '<th>操作</th>' : ''}
+      </tr></thead>
+      <tbody>${rows.map(row => {
+        const ops = [];
+        if (showOps && row.errorCount > 0 && row.errorReport) {
+          ops.push(`<button type="button" class="btn-link batch-import-err-btn" data-id="${escapeHtml(row.id || '')}">异常数据</button>`);
+        }
+        return `<tr>
+          <td>${escapeHtml(row.fileName || '—')}</td>
+          <td>${row.total ?? '—'}</td>
+          <td>${row.imported ?? '—'}</td>
+          <td>${row.errorCount ?? '—'}</td>
+          <td>${this.importStatusBadge(row.status)}</td>
+          <td class="batch-import-reason">${escapeHtml((row.reason || row.errorReport || '—').slice(0, 40))}${(row.reason || row.errorReport || '').length > 40 ? '…' : ''}</td>
+          <td>${escapeHtml(row.dataStatus || (row.status === 'success' ? '已入库' : '—'))}</td>
+          <td>${escapeHtml(row.operator || '—')}</td>
+          <td>${escapeHtml(row.importTime || '—')}</td>
+          ${showOps ? `<td>${ops.join(' · ') || '—'}</td>` : ''}
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  },
+
+  renderBody(options) {
+    const step1 = options.step1Text || '1、请下载导入模板，按模板格式填写';
+    const step2 = options.step2Text || '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M';
+    const fileName = this._state.file?.name || '';
+    const history = typeof options.getHistory === 'function' ? options.getHistory() : [];
+    return `
+      <div class="batch-import-steps">
+        <div class="batch-import-step-box">
+          <p class="batch-import-step-text">${escapeHtml(step1)}</p>
+          <button type="button" class="btn" id="batchImportDownloadBtn">下载模板</button>
+        </div>
+        <div class="batch-import-step-box">
+          <p class="batch-import-step-text">${escapeHtml(step2)}</p>
+          <button type="button" class="btn" id="batchImportUploadBtn">上传文件</button>
+          <input type="file" id="batchImportFileInput" accept="${escapeHtml(options.accept || '.xlsx,.csv,text/csv')}" hidden>
+          ${fileName ? `<p class="batch-import-file-name">已选择：${escapeHtml(fileName)}</p>` : ''}
+        </div>
+      </div>
+      <div class="batch-import-history-section">
+        <div class="batch-import-history-head">
+          <h4>导入历史</h4>
+          <button type="button" class="btn btn-primary btn-sm" id="batchImportRefreshBtn">刷新</button>
+        </div>
+        <div id="batchImportHistoryHost">${this.renderHistoryTable(history, options)}</div>
+      </div>`;
+  },
+
+  refreshHistory() {
+    const options = this._state.options;
+    if (!options) return;
+    const host = qs('#batchImportHistoryHost');
+    if (!host) return;
+    const history = typeof options.getHistory === 'function' ? options.getHistory() : [];
+    host.innerHTML = this.renderHistoryTable(history, options);
+    this.bindHistoryEvents(options);
+  },
+
+  bindHistoryEvents(options) {
+    qsa('.batch-import-err-btn', qs('#batchImportModalBody')).forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.id;
+        const record = typeof options.getRecord === 'function' ? options.getRecord(id) : null;
+        if (!record?.errorReport) return;
+        if (!ensureReviewModal()) return;
+        qs('#reviewModal')?.querySelector('.modal')?.classList.add('modal-lg');
+        qs('#reviewModalTitle').textContent = '异常数据 · ' + (record.fileName || '');
+        qs('#reviewModalBody').innerHTML = `<pre class="factor-import-error-report">${escapeHtml(record.errorReport)}</pre>`;
+        qs('#reviewModalFooter').innerHTML = `<button type="button" class="btn" onclick="hideModal('reviewModal')">关闭</button>`;
+        showModal('reviewModal');
+      };
+    });
+  },
+
+  bindEvents(options) {
+    const body = qs('#batchImportModalBody');
+    if (!body) return;
+    qs('#batchImportDownloadBtn', body)?.addEventListener('click', () => {
+      if (typeof options.onDownloadTemplate === 'function') options.onDownloadTemplate();
+    });
+    qs('#batchImportUploadBtn', body)?.addEventListener('click', () => {
+      qs('#batchImportFileInput', body)?.click();
+    });
+    qs('#batchImportFileInput', body)?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      this._state.file = file || null;
+      body.innerHTML = this.renderBody(options);
+      this.bindEvents(options);
+      this.bindHistoryEvents(options);
+    });
+    qs('#batchImportRefreshBtn', body)?.addEventListener('click', () => this.refreshHistory());
+    this.bindHistoryEvents(options);
+  },
+
+  open(options) {
+    if (!this.ensureModal()) return;
+    this._state = { file: null, options };
+    const title = options.title || '导入';
+    qs('#batchImportModalTitle').textContent = title;
+    qs('#batchImportModalBody').innerHTML = this.renderBody(options);
+    qs('#batchImportModalFooter').innerHTML = `
+      <button type="button" class="btn" id="batchImportCancelBtn">取消</button>
+      <button type="button" class="btn btn-primary" id="batchImportConfirmBtn">确认</button>`;
+    qs('#batchImportCancelBtn').onclick = () => this.close();
+    qs('#batchImportConfirmBtn').onclick = async () => {
+      const file = this._state.file;
+      if (!file) {
+        toast('请先上传文件', 'warning');
+        return;
+      }
+      const maxMb = options.maxSizeMb || 200;
+      if (file.size > maxMb * 1024 * 1024) {
+        toast(`文件大小不能超过 ${maxMb}M`, 'warning');
+        return;
+      }
+      if (typeof options.onConfirm === 'function') {
+        const btn = qs('#batchImportConfirmBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '导入中…'; }
+        try {
+          await options.onConfirm(file, () => {
+            this._state.file = null;
+            this.refreshHistory();
+            const body = qs('#batchImportModalBody');
+            if (body) {
+              body.innerHTML = this.renderBody(options);
+              this.bindEvents(options);
+            }
+          });
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = '确认'; }
+        }
+      }
+    };
+    this.bindEvents(options);
+    showModal('batchImportModal');
+  },
+
+  close() {
+    this._state = { file: null, options: null };
+    hideModal('batchImportModal');
+  }
+};
+
 function ensureSupplementDrawer() {
   let root = qs('#drawerRoot');
   if (!root) {
@@ -1146,7 +1336,7 @@ function ledgerGroupExportRowValues(group, taskId, data, sectionLabel) {
     group.accountingIndustryLabel || group.accountingIndustryCode || '—',
     strip(primary ? systemAccountingMethodBadge(primary, taskId, d) : '—'),
     strip(emissions.systemHtml),
-    strip(primary ? manualAccountingMethodBadge(primary, taskId, d) : '—'),
+    strip(primary ? manualAccountingMethodBadge(primary, taskId, d, supp) : '—'),
     strip(emissions.manualHtml),
     strip(emissions.effectiveHtml),
     summary.attributedEmission != null ? formatNum(summary.attributedEmission) : '—',
@@ -1259,8 +1449,8 @@ const LEDGER_DETAIL_EXPORT_HEADERS = [
   '任务名称', '核算年度',
   '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '贷款账号',
   '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
-  ...Array.from({ length: 12 }, (_, i) => `${i + 1}月末余额（元）`),
-  '营业收入（元）', '上年末合并报表资产总额（元）', '本年末合并报表资产总额（元）', '主办客户经理',
+  '月均贷款余额（元）',
+  '营业收入（元）', '平均资产总额（元）', '主办客户经理',
   '归因排放(tCO₂e)', '质量等级'
 ];
 
@@ -1560,17 +1750,13 @@ function isSupplementManualVisible(supp) {
 }
 
 function isSupplementCollectEmissionVisible(supp) {
-  if (!supp?.dispatchedAt) return false;
-  if (isSupplementManualVisible(supp)) return true;
-  if (typeof Store === 'undefined') return false;
-  const e = Store.calcEntityEmission(supp);
-  return e != null && !Number.isNaN(Number(e)) && Number(e) > 0;
+  // 只有客户经理已提交（completed）或进入审核阶段，才显示手动主体排放
+  // 草稿/填报中状态下禁止用预填数据提前展示
+  return isSupplementManualVisible(supp);
 }
 
 function isSupplementCollectMethodVisible(supp) {
-  if (!supp?.dispatchedAt) return false;
-  if (isSupplementManualVisible(supp)) return true;
-  return isSupplementCollectEmissionVisible(supp);
+  return isSupplementManualVisible(supp);
 }
 
 function formatSystemEntityEmission(taskId, formalId) {
@@ -2061,14 +2247,14 @@ function renderCalculationGroupTableCells(group, taskId, data, options = {}) {
   return `
     <td>${customerCell}</td>
     <td>${group.creditCode || '—'}</td>
-    <td>${collectGroupBucketDisplay(group)}</td>
+    <td>${collectGroupBucketDisplay(group, d)}</td>
     <td>${group.memberCount || summary.members.length || 0}</td>
     <td>${group.dispatchBranch || '—'}</td>
     <td>${group.assignedManager || '—'}</td>
     <td>${group.accountingIndustryLabel || group.accountingIndustryCode || '—'}${industryNote}</td>
     <td>${primary ? systemAccountingMethodBadge(primary, taskId, d) : '—'}</td>
     <td>${systemHtml}</td>
-    <td>${primary ? manualAccountingMethodBadge(primary, taskId, d) : '—'}</td>
+    <td>${primary ? manualAccountingMethodBadge(primary, taskId, d, supp) : '—'}</td>
     <td>${manualHtml}</td>
     <td>${effectiveHtml}</td>
     <td>${summary.attributedEmission != null ? formatNum(summary.attributedEmission) : '—'}</td>
@@ -2191,12 +2377,16 @@ function resolveSystemAccountingMethodLabel(formal, taskId, d) {
   return '—';
 }
 
-/** 手动核算方法：收集任务提交后的客户经理填报口径 */
-function resolveManualAccountingMethodLabel(formal, taskId, d) {
+/** 手动核算方法：收集任务提交后的客户经理填报口径
+ * @param {object|null|undefined} supplement 归集单元级 supplement；传 null 表示未派发，不再回查 formalId
+ */
+function resolveManualAccountingMethodLabel(formal, taskId, d, supplement) {
   d = d || (typeof Store !== 'undefined' ? Store.get() : null);
   if (!formal || !d || typeof CarbonAccount === 'undefined') return '—';
 
-  const supp = getSupplementForFormal(taskId, formal.id, d);
+  const supp = supplement !== undefined
+    ? supplement
+    : getSupplementForFormal(taskId, formal.id, d);
   if (!isSupplementCollectMethodVisible(supp)) return '—';
 
   const methodId = supp.approvedMethodId || (typeof Store !== 'undefined' ? Store.matchMethod(supp)?.id : null);
@@ -2245,8 +2435,8 @@ function systemAccountingMethodBadge(formal, taskId, d) {
   return html;
 }
 
-function manualAccountingMethodBadge(formal, taskId, d) {
-  return accountingMethodBadge(resolveManualAccountingMethodLabel(formal, taskId, d));
+function manualAccountingMethodBadge(formal, taskId, d, supplement) {
+  return accountingMethodBadge(resolveManualAccountingMethodLabel(formal, taskId, d, supplement));
 }
 
 function formalAccountingMethodBadge(formal, taskId, d) {
@@ -2277,7 +2467,7 @@ function collectModeBadge(mode) {
     : `<span class="badge badge-primary">${typeof CarbonAccount !== 'undefined' ? CarbonAccount.METHOD_LABEL.ECONOMY_REVENUE : '经济活动法'}</span>`;
 }
 
-/** 收集状态五档（筛选项与列表展示） */
+/** 收集状态五档（筛选项与列表展示，保留供内部逻辑兼容使用） */
 const DATA_COLLECT_COLLECTION_STATUS_OPTIONS = [
   { value: '', label: '全部' },
   { value: 'pending', label: '待处理' },
@@ -2329,6 +2519,78 @@ const DATA_COLLECT_AUDIT_STATUS_LABELS = {
 const DATA_COLLECT_STATUS_OPTIONS = DATA_COLLECT_COLLECTION_STATUS_OPTIONS.concat(
   DATA_COLLECT_AUDIT_STATUS_OPTIONS.filter(o => o.value && !['none', 'returned'].includes(o.value))
 );
+
+/**
+ * 统一「数据状态」筛选项（替代旧的收集状态+审核状态双字段）
+ * 未派发显示 —；派发后：待填报 / 填报中 / 系统计算完成 / 待分行初审 / 待总行终审 / 填报完成
+ */
+const DATA_STATUS_OPTIONS = [
+  { value: '',              label: '全部' },
+  { value: 'none',          label: '—' },
+  { value: 'pending_fill',  label: '待填报' },
+  { value: 'in_progress',   label: '填报中' },
+  { value: 'system_done',   label: '系统计算完成' },
+  { value: 'branch_review', label: '待分行初审' },
+  { value: 'hq_review',     label: '待总行终审' },
+  { value: 'done',          label: '填报完成' },
+];
+
+const DATA_STATUS_LABELS = {
+  none:          ['—',            ''],
+  pending_fill:  ['待填报',       'badge-draft'],
+  in_progress:   ['填报中',       'badge-running'],
+  system_done:   ['系统计算完成', 'badge-info'],
+  branch_review: ['待分行初审',   'badge-warning'],
+  hq_review:     ['待总行终审',   'badge-warning'],
+  done:          ['填报完成',     'badge-success'],
+};
+
+/** 采集任务是否已发放（客户经理可见） */
+function isCollectTaskDispatched(supplement) {
+  return !!(supplement && supplement.dispatchedAt);
+}
+
+/** 从 formal + supplement 推导统一数据状态
+ *  - 未发放采集任务 → none（列表显示 —）
+ *  - 已发放、仅有系统数据 → system_done（系统计算完成）
+ *  - 已发放、客户经理已提交并通过 → done（填报完成）
+ */
+function getDataStatus(formal, supplement, taskId, d) {
+  if (!formal) return 'none';
+  if (!isCollectTaskDispatched(supplement)) return 'none';
+
+  if (supplement.status === 'returned') return 'pending_fill';
+  if (supplement.status === 'pending') {
+    if (formal.economyDirectStatus === 'done') return 'system_done';
+    if (typeof formalHasSystemEntityEmission === 'function' &&
+        formalHasSystemEntityEmission(formal, taskId, d)) return 'system_done';
+    return 'pending_fill';
+  }
+  if (supplement.status === 'in_progress') return 'in_progress';
+  if (supplement.status === 'completed') {
+    const stage = supplement.auditStage || '';
+    if (stage === 'approved')      return 'done';
+    if (stage === 'hq_review')     return 'hq_review';
+    if (stage === 'branch_review') return 'branch_review';
+    return 'in_progress';
+  }
+  return 'none';
+}
+
+/** 数据状态 badge */
+function dataStatusBadge(formal, supplement, taskId, d) {
+  const status = getDataStatus(formal, supplement, taskId, d);
+  if (status === 'none') return '—';
+  const [text, cls] = DATA_STATUS_LABELS[status] || ['待填报', 'badge-draft'];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+/** 数据状态筛选下拉 */
+function renderDataStatusOptions(selected) {
+  return DATA_STATUS_OPTIONS.map(o =>
+    `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
 
 /** 是否已有系统侧主体排放（与列表「系统主体排放」列口径一致） */
 function formalHasSystemEntityEmission(formal, taskId, d) {
@@ -2455,10 +2717,18 @@ function supplementForCollectGroup(d, taskId, groupId) {
   return (d?.supplements || []).find(s => s.taskId === taskId && s.collectGroupId === groupId) || null;
 }
 
-function collectGroupBucketDisplay(group) {
+function collectGroupBucketDisplay(group, data) {
   if (!group) return '—';
   const CG = typeof CollectGroups !== 'undefined' ? CollectGroups : null;
-  return CG?.bucketLabel(group.bucket) || group.bucket || '—';
+  if (!CG) return group.bucket || '—';
+  let bucket = group.bucket;
+  if (bucket === 'project') {
+    const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+    const primaryId = group.memberFormalIds?.[0];
+    const primary = primaryId && d ? (d.formalList || []).find(f => f.id === primaryId) : null;
+    if (primary) bucket = CG.resolveProjectBucket(primary, null) || bucket;
+  }
+  return CG.bucketLabel(bucket) || bucket || '—';
 }
 
 function collectGroupStatusBadge(group, supplement, taskId, d) {
@@ -2497,16 +2767,23 @@ function filterCollectGroupsList(groups, filters, taskId, data) {
       ].join(' ').toLowerCase();
       if (!hay.includes(kw)) return false;
     }
-    const collectStatus = normalizeDataCollectCollectFilter(f.collectStatus ?? f.status ?? '');
-    const auditStatus = f.auditStatus ?? '';
-    if (collectStatus) {
+    const dataStatus = f.dataStatus ?? '';
+    if (dataStatus) {
       const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
-      const tier = getDataCollectCollectionTier(primary, supp, taskId, d);
-      if (tier !== collectStatus) return false;
+      if (getDataStatus(primary, supp, taskId, d) !== dataStatus) return false;
     }
-    if (auditStatus) {
-      const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
-      if (getDataCollectAuditStatus(primary, supp) !== auditStatus) return false;
+    // 兼容旧筛选字段（collectStatus / auditStatus）
+    if (!dataStatus) {
+      const collectStatus = normalizeDataCollectCollectFilter(f.collectStatus ?? f.status ?? '');
+      const auditStatus = f.auditStatus ?? '';
+      if (collectStatus) {
+        const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
+        if (getDataCollectCollectionTier(primary, supp, taskId, d) !== collectStatus) return false;
+      }
+      if (auditStatus) {
+        const primary = (d.formalList || []).find(x => x.id === group.memberFormalIds?.[0]);
+        if (getDataCollectAuditStatus(primary, supp) !== auditStatus) return false;
+      }
     }
     return true;
   });
@@ -2521,8 +2798,64 @@ function renderCollectGroupMemberTable(group, formals, candidatesById, taskId, d
     return '<div style="padding:8px 12px;color:#909399">无关联逐笔记录</div>';
   }
   const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  const isProjectGroup = group?.bucket && group.bucket !== 'non_project';
+
+  if (isProjectGroup) {
+    let seq = 0;
+    const projectRows = members.flatMap(f => {
+      const cand = candidatesById?.get(f.customerId);
+      const details = resolveFormalProjectDetails(f, cand);
+      if (details.length) {
+        return details.map(p => {
+          seq += 1;
+          return `<tr>
+            <td>${seq}</td>
+            <td>${p.projectNo || f.creditRefNo || '—'}</td>
+            <td>${p.projectName || f.projectName || '—'}</td>
+            <td>${p.projectProvince || '—'}</td>
+            <td>${p.projectIndustry || f.investIndustryCode || f.gbIndustryCode || cand?.gbIndustryCode || '—'}</td>
+            <td>${p.customerNo || f.creditCode || cand?.creditCode || '—'}</td>
+            <td>${p.customerName || f.customerName || '—'}</td>
+            <td>${p.creditCode || f.creditCode || cand?.creditCode || '—'}</td>
+            <td>${p.nationalIndustryCodeLv4 || f.gbIndustryCode || cand?.gbIndustryCode || '—'}</td>
+            <td>${formatProjectWanAsYuan(p.projectAvgLoanBalanceWan)}</td>
+            <td>${formatProjectWanAsYuan(p.projectRevenueWan)}</td>
+            <td>${formatProjectWanAsYuan(p.projectTotalInvestmentWan)}</td>
+          </tr>`;
+        });
+      }
+      seq += 1;
+      const balanceWan = candidateBalanceAmountWan(f, task?.year, task);
+      return [`<tr>
+        <td>${seq}</td>
+        <td>${f.creditRefNo || f.projectNo || '—'}</td>
+        <td>${f.projectName || '—'}</td>
+        <td>—</td>
+        <td>${f.investIndustryCode || f.gbIndustryCode || cand?.gbIndustryCode || '—'}</td>
+        <td>${f.creditCode || cand?.creditCode || '—'}</td>
+        <td>${f.customerName || '—'}</td>
+        <td>${f.creditCode || cand?.creditCode || '—'}</td>
+        <td>${f.gbIndustryCode || cand?.gbIndustryCode || '—'}</td>
+        <td>${balanceWan ? formatLedgerAmountYuan(balanceWan) : '—'}</td>
+        <td>—</td>
+        <td>—</td>
+      </tr>`];
+    });
+    return `<div class="collect-group-member-wrap">
+      <div class="project-detail-title">项目明细</div>
+      <div class="table-wrap"><table class="data-table project-detail-table">
+        <thead><tr>
+          <th>序号</th><th>授信编号</th><th>项目名称</th><th>项目所在地区域（省）</th><th>项目所属行业</th>
+          <th>客户号</th><th>客户名称</th><th>统一社会信用代码</th><th>国民经济行业代码（4级）</th>
+          <th>项目月均贷款余额（元）</th><th>项目收入（元）</th><th>项目总投资（元）</th>
+        </tr></thead>
+        <tbody>${projectRows.join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
+
   const rows = members.map(f => {
-    const cand = candidatesById.get(f.customerId);
+    const cand = candidatesById?.get(f.customerId);
     const invest = f.investIndustryCode || f.gbIndustryCode || cand?.investIndustryCode || cand?.gbIndustryCode || '—';
     const customerInd = f.customerIndustryCode || cand?.customerIndustryCode || cand?.gbIndustryCode || '—';
     const balanceWan = candidateBalanceAmountWan(f, task?.year, task);
@@ -2710,6 +3043,34 @@ function supplementApprovalFlowSteps(task) {
   ];
   if (hqInitiated) steps.push({ key: 'hq', title: '总行终审' });
   return steps;
+}
+
+/** 当前流程所处节点（用于渐进展示步骤条） */
+function resolveSupplementFlowActiveStepKey(s, task, approvals) {
+  if (!s) return 'dispatch';
+  const stage = s.auditStage || 'pending_fill';
+  const hqInitiated = task?.initiatorOrg !== 'branch';
+
+  if (!s.dispatchedAt) return 'dispatch';
+
+  if (s.status === 'returned' || (stage === 'pending_fill' && s.rejectReason)) return 'manager_fill';
+  if (s.status === 'pending' || s.status === 'in_progress') return 'manager_fill';
+  if (stage === 'pending_fill' && s.status === 'completed') return 'manager_fill';
+
+  if (stage === 'branch_review') return 'branch';
+  if (stage === 'hq_review') return 'hq';
+  if (stage === 'approved') return hqInitiated ? 'hq' : 'branch';
+
+  return 'manager_fill';
+}
+
+/** 按进度返回应展示的流程步骤（仅到当前节点，不含后续未到达环节） */
+function getVisibleSupplementFlowSteps(s, task, approvals) {
+  const steps = supplementApprovalFlowSteps(task);
+  const activeKey = resolveSupplementFlowActiveStepKey(s, task, approvals);
+  const idx = steps.findIndex(st => st.key === activeKey);
+  if (idx < 0) return steps.slice(0, 1);
+  return steps.slice(0, idx + 1);
 }
 
 function pickLatestSupplementApproval(approvals, level) {
@@ -3268,7 +3629,7 @@ function renderSupplementDispatchTimelineNode(s, task) {
 
 function renderSupplementApprovalTimeline(s, task) {
   const approvals = getSupplementApprovals(s);
-  const steps = supplementApprovalFlowSteps(task);
+  const steps = getVisibleSupplementFlowSteps(s, task, approvals);
   const round = s?.reviewRound || 1;
   const editNodes = approvals.filter(a =>
     ['branch_edit', 'hq_edit'].includes(a.reviewLevel) && (a.round || 1) === round
@@ -3285,9 +3646,13 @@ function renderSupplementApprovalTimeline(s, task) {
     return html;
   }).join('');
 
-  const adminNodes = approvals.filter(a => a.reviewLevel === 'admin').map(a => {
-    const stateCls = a.status === 'rejected' ? 'is-rejected' : 'is-done';
-    return `<div class="approval-timeline-item ${stateCls} is-admin">
+  const activeKey = resolveSupplementFlowActiveStepKey(s, task, approvals);
+  const showAdminNodes = activeKey === 'manager_fill'
+    && resolveSupplementRejectSource(s, approvals) === 'admin';
+  const adminNodes = showAdminNodes
+    ? approvals.filter(a => a.reviewLevel === 'admin').map(a => {
+      const stateCls = a.status === 'rejected' ? 'is-rejected' : 'is-done';
+      return `<div class="approval-timeline-item ${stateCls} is-admin">
       <div class="approval-timeline-head">
         <strong>${reviewLevelLabel('admin')}</strong>
         ${approvalStatusBadge(a.status)}
@@ -3298,7 +3663,8 @@ function renderSupplementApprovalTimeline(s, task) {
         ${a.rejectReason ? `<div class="approval-timeline-reason"><span class="label">退回原因</span>${escapeHtml(a.rejectReason)}</div>` : ''}
       </div>
     </div>`;
-  }).join('');
+    }).join('')
+    : '';
 
   const timelineContent = items
     ? `<div class="approval-timeline">${items}${adminNodes}</div>`
@@ -3425,10 +3791,6 @@ function renderSupplementFillBody(s, options = {}) {
       <div class="${panelCls('economy')}" data-panel="economy">
         ${economyPrefillTip}
         <div class="form-grid">
-        <div class="form-item"><label>测算基数</label><select id="f_economy_basis" ${economyDis}>
-          <option value="revenue" ${basis === 'revenue' ? 'selected' : ''}>营业收入</option>
-          <option value="assets" ${basis === 'assets' ? 'selected' : ''}>资产规模</option>
-        </select></div>
         <div class="form-item"><label>基数值(万元)</label><input id="f_economy_value" type="number" value="${economyValue}" ${economyDis}></div>
         <div class="form-item"><label>行业因子</label><input id="f_economy_factor" type="number" step="0.01" value="${economyFactor}" ${economyDis}></div>
         ${economyLocked && economyEntityDisplay != null ? `<div class="form-item"><label>主体排放(tCO₂e)</label><input type="text" value="${formatNum(economyEntityDisplay)}" disabled></div>` : ''}
@@ -4006,6 +4368,217 @@ function listApprovalRejectManagers(approval, supplement) {
   }));
 }
 
+/** 任务下所有客户经理姓名列表（改派专用） */
+function listTaskManagers(taskId) {
+  const names = new Set();
+  if (typeof CandidateSync !== 'undefined' && CandidateSync.MANAGERS) {
+    CandidateSync.MANAGERS.forEach(n => names.add(n));
+  }
+  if (taskId) {
+    (Store.getSupplements(taskId) || []).forEach(s => { if (s.manager) names.add(s.manager); });
+    (Store.getCandidates(taskId) || []).forEach(c => { if (c.manager) names.add(c.manager); });
+    (Store.getCollectGroups(taskId) || []).forEach(g => { if (g.assignedManager) names.add(g.assignedManager); });
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+/** 改派前是否需二次确认（已发放采集/审核任务） */
+function collectGroupNeedsWipeConfirm(d, taskId, groupId) {
+  d = d || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!d || !groupId) return false;
+  const supp = supplementForCollectGroup(d, taskId, groupId);
+  if (isCollectTaskDispatched(supp)) return true;
+  const g = (d.collectGroups || []).find(x => x.id === groupId && x.taskId === taskId);
+  if (!g?.supplementId) return false;
+  const raw = typeof Store !== 'undefined' && Store.findSupplementForGroupRaw
+    ? Store.findSupplementForGroupRaw(d, taskId, groupId)
+    : (d.supplements || []).find(s => s.id === g.supplementId);
+  return isCollectTaskDispatched(raw);
+}
+
+/** 改派收集人弹窗
+ * @param {object} [options]
+ * @param {boolean} [options.needsWipeConfirm] 打开时预判；最终以点击「确认改派」时实时状态为准
+ */
+function openReassignManagerModal(taskId, groupId, currentManager, onConfirm, options = {}) {
+  qs('#reassignWipeConfirmModal')?.remove();
+  let modal = qs('#reassignManagerModal');
+  if (modal && !qs('#reassignStepConfirm')) modal.remove();
+  modal = qs('#reassignManagerModal');
+  const allManagers = listTaskManagers(taskId);
+  if (!modal) {
+    const root = qs('#modalRoot');
+    if (!root) return;
+    root.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay" id="reassignManagerModal">
+        <div class="modal" style="max-width:440px">
+          <div class="modal-header">
+            <h4 id="reassignModalTitle">改派收集人</h4>
+            <button type="button" class="modal-close" id="closeReassignModal">&times;</button>
+          </div>
+          <div class="modal-body" id="reassignModalBody" style="overflow:visible">
+            <div id="reassignStepSelect">
+              <div class="form-item" style="margin-bottom:0;position:relative">
+                <label>选择客户经理</label>
+                <div id="reassignComboWrap" style="position:relative">
+                  <input type="text" id="reassignManagerSearch" autocomplete="off" placeholder="请选择或搜索客户经理"
+                    style="width:100%;padding-right:32px;cursor:pointer;box-sizing:border-box" readonly>
+                  <span id="reassignDropArrow" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#909399;font-size:12px">▼</span>
+                  <div id="reassignManagerList" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;background:#fff;border:1px solid #dcdfe6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:220px;overflow-y:auto">
+                    <div style="padding:6px 8px;border-bottom:1px solid #f0f0f0">
+                      <input type="text" id="reassignManagerKeyword" autocomplete="off" placeholder="输入姓名搜索…"
+                        style="width:100%;box-sizing:border-box;border:1px solid #dcdfe6;border-radius:4px;padding:5px 8px;font-size:13px">
+                    </div>
+                    <div id="reassignManagerOptions"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="reassignStepConfirm" style="display:none">
+              <p style="margin:0;line-height:1.7;color:#606266">当前任务已有数据，改派收集人后会将数据清空，请确认是否改派？</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="reassignCancelBtn">取消</button>
+            <button type="button" class="btn btn-primary" id="reassignConfirmBtn">确认改派</button>
+          </div>
+        </div>
+      </div>`);
+    modal = qs('#reassignManagerModal');
+  }
+
+  const stepSelect = qs('#reassignStepSelect');
+  const stepConfirm = qs('#reassignStepConfirm');
+  const modalTitle = qs('#reassignModalTitle');
+  const cancelBtn = qs('#reassignCancelBtn');
+  const confirmBtn = qs('#reassignConfirmBtn');
+  let confirmStep = false;
+
+  function showSelectStep() {
+    confirmStep = false;
+    if (stepSelect) stepSelect.style.display = '';
+    if (stepConfirm) stepConfirm.style.display = 'none';
+    if (modalTitle) modalTitle.textContent = '改派收集人';
+    if (cancelBtn) {
+      cancelBtn.textContent = '取消';
+      cancelBtn.onclick = () => hideModal('reassignManagerModal');
+    }
+    if (confirmBtn) {
+      confirmBtn.textContent = '确认改派';
+      confirmBtn.className = 'btn btn-primary';
+    }
+  }
+
+  function showConfirmStep() {
+    confirmStep = true;
+    closeDropdown();
+    if (stepSelect) stepSelect.style.display = 'none';
+    if (stepConfirm) stepConfirm.style.display = '';
+    if (modalTitle) modalTitle.textContent = '确认改派';
+    if (cancelBtn) {
+      cancelBtn.textContent = '取消';
+      cancelBtn.onclick = () => showSelectStep();
+    }
+    if (confirmBtn) {
+      confirmBtn.textContent = '确认改派';
+      confirmBtn.className = 'btn btn-danger';
+    }
+  }
+
+  showSelectStep();
+
+  qs('#closeReassignModal').onclick = () => {
+    showSelectStep();
+    hideModal('reassignManagerModal');
+  };
+
+  let selected = currentManager || '';
+  let dropOpen = false;
+
+  const searchEl = qs('#reassignManagerSearch');
+  const listEl = qs('#reassignManagerList');
+  const optionsEl = qs('#reassignManagerOptions');
+  const kwEl = qs('#reassignManagerKeyword');
+
+  function closeDropdown() {
+    dropOpen = false;
+    if (listEl) listEl.style.display = 'none';
+    if (qs('#reassignDropArrow')) qs('#reassignDropArrow').textContent = '▼';
+    const body = qs('#reassignModalBody');
+    if (body) body.style.paddingBottom = '';
+  }
+
+  function renderOptions(keyword) {
+    const kw = (keyword || '').trim().toLowerCase();
+    const filtered = kw ? allManagers.filter(n => n.toLowerCase().includes(kw)) : allManagers;
+    if (!filtered.length) {
+      optionsEl.innerHTML = `<div style="padding:10px 16px;color:#909399;font-size:13px">${kw ? '无匹配结果' : '暂无可选客户经理'}</div>`;
+      return;
+    }
+    optionsEl.innerHTML = filtered.map(name => {
+      const isSel = name === selected;
+      return `<div class="reassign-manager-option" data-name="${escapeHtml(name)}"
+        style="padding:9px 16px;cursor:pointer;font-size:14px;${isSel ? 'background:#e6f7f1;color:#00796b;font-weight:600' : ''}">${escapeHtml(name)}</div>`;
+    }).join('');
+    qsa('.reassign-manager-option', optionsEl).forEach(opt => {
+      opt.onmouseenter = () => { if (opt.dataset.name !== selected) opt.style.background = '#f5f7fa'; };
+      opt.onmouseleave = () => { if (opt.dataset.name !== selected) opt.style.background = ''; };
+      opt.onclick = () => {
+        selected = opt.dataset.name;
+        searchEl.value = selected;
+        closeDropdown();
+      };
+    });
+  }
+
+  function openDropdown() {
+    if (confirmStep) return;
+    dropOpen = true;
+    kwEl.value = '';
+    renderOptions('');
+    listEl.style.display = 'block';
+    qs('#reassignDropArrow').textContent = '▲';
+    const body = qs('#reassignModalBody');
+    if (body) body.style.paddingBottom = '260px';
+    setTimeout(() => kwEl.focus(), 30);
+  }
+
+  searchEl.value = selected;
+  searchEl.onclick = () => (dropOpen ? closeDropdown() : openDropdown());
+  kwEl.oninput = () => renderOptions(kwEl.value);
+
+  document.addEventListener('click', function onOutside(e) {
+    const wrap = qs('#reassignComboWrap');
+    if (wrap && !wrap.contains(e.target)) closeDropdown();
+    if (!qs('#reassignManagerModal')?.classList.contains('show')) {
+      document.removeEventListener('click', onOutside);
+    }
+  });
+
+  confirmBtn.onclick = () => {
+    if (confirmStep) {
+      hideModal('reassignManagerModal');
+      onConfirm(selected);
+      return;
+    }
+    if (!selected) {
+      toast('请选择客户经理', 'warning');
+      return;
+    }
+    const needsConfirm = collectGroupNeedsWipeConfirm(Store.get(), taskId, groupId)
+      || !!options.needsWipeConfirm;
+    if (needsConfirm) {
+      showConfirmStep();
+      return;
+    }
+    hideModal('reassignManagerModal');
+    onConfirm(selected);
+  };
+
+  closeDropdown();
+  showModal('reassignManagerModal');
+}
+
 /** 审核不通过 — 退回路径选项 */
 function listApprovalRejectRouteOptions(approval) {
   const isBranch = approval?.reviewLevel === 'branch';
@@ -4070,7 +4643,6 @@ function ensureApprovalConfirmModal() {
         <div class="modal-body">
           <p id="approvalConfirmMessage"></p>
           <div class="form-item" id="approvalConfirmRejectTypeWrap" style="margin-top:12px;display:none">
-            <label>审核不通过原因</label>
             <div class="method-select-list" id="approvalConfirmRejectTypeList">
               <label class="method-select-option"><input type="radio" name="approvalRejectReasonType" value="data_error" checked> 数据有误</label>
               <label class="method-select-option"><input type="radio" name="approvalRejectReasonType" value="industry_error"> 行业有误</label>
@@ -4986,9 +5558,12 @@ function balanceScopeColumnLabel(task) {
   return isYearEndBalanceRule(task) ? '年末余额（元）' : '月均贷款余额（元）';
 }
 
-/** 年末余额（万元）：演示口径取核算年度末时点余额 */
+/** 年末余额（万元）：取 12 月末时点余额（无则退回月均） */
 function computeCandidateYearEndBalance(c, accountingYear) {
   normalizeCandidateLedgerFields(c, accountingYear);
+  const balances = resolveCandidateMonthEndBalancesWan(c, accountingYear);
+  const dec = balances[11];
+  if (dec != null) return dec;
   return Number(c?.avgMonthlyBalance) || 0;
 }
 
@@ -5119,12 +5694,11 @@ function projectYuanFormToWan(yuan) {
 
 const LEDGER_MONTH_BALANCE_COL_COUNT = 12;
 
-/** 台账列表基础列数：11 个业务字段 + 余额列 + 营收/资产/经理 */
+/** 台账列表基础列数：11 个业务字段 + 余额列（1） + 营收 + 资产（1） + 经理 */
 function ledgerListTableColCount(options = {}) {
-  const { headCheckbox = false, tailExtra = 0, summaryLedger = false } = options;
-  const balanceCols = summaryLedger ? 1 : LEDGER_MONTH_BALANCE_COL_COUNT;
-  const assetCols = summaryLedger ? 1 : 2;
-  return (headCheckbox ? 1 : 0) + 11 + balanceCols + 1 + assetCols + 1 + tailExtra;
+  const { headCheckbox = false, tailExtra = 0 } = options;
+  // 所有清单均使用汇总口径：月均/年末余额（1列） + 平均资产总额（1列）
+  return (headCheckbox ? 1 : 0) + 11 + 1 + 1 + 1 + tailExtra;
 }
 
 function renderConsolidatedAssetsTableHead() {
@@ -5258,8 +5832,8 @@ function formatCandidateAvgTotalAssetsYuan(c) {
   return avg != null ? formatLedgerAmountYuan(avg) : '—';
 }
 
-function renderFormalSummaryBalanceHead() {
-  return '<th>月末余额（元）</th>';
+function renderFormalSummaryBalanceHead(task) {
+  return `<th>${balanceScopeColumnLabel(task)}</th>`;
 }
 
 function renderFormalSummaryAssetsHead() {
@@ -5267,7 +5841,7 @@ function renderFormalSummaryAssetsHead() {
 }
 
 function renderFormalSummaryBalanceCell(c, accountingYear, task) {
-  return `<td>${formatCandidateMonthEndBalanceMeanYuan(c, accountingYear, task)}</td>`;
+  return `<td>${formatCandidateBalanceByRule(c, accountingYear, task)}</td>`;
 }
 
 function renderFormalSummaryAssetsCell(c) {
@@ -5277,7 +5851,7 @@ function renderFormalSummaryAssetsCell(c) {
 const FORMAL_LIST_EXPORT_HEADERS = [
   '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '贷款账号',
   '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
-  '月末余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理', '状态'
+  '月均贷款余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理', '状态'
 ];
 
 function formalListExportRowValues(f, taskId, task) {
@@ -5660,38 +6234,34 @@ function renderCandidateListCells(c, options = {}) {
     <td>${c.disbursementDate || '-'}</td>
     <td>${candidateLoanSubjectType(c)}</td>
     ${renderFormalIndustryCells(c, options)}
-    ${listKind === 'formal'
-      ? renderFormalSummaryBalanceCell(c, c.accountingYear, task)
-      : renderMonthEndBalanceCells(c, c.accountingYear, task)}
+    ${renderFormalSummaryBalanceCell(c, c.accountingYear, task)}
     <td>${formatLedgerAmountYuan(c.operatingRevenue ?? c.revenue)}</td>
-    ${listKind === 'formal'
-      ? renderFormalSummaryAssetsCell(c)
-      : renderConsolidatedAssetsCells(c)}
+    ${renderFormalSummaryAssetsCell(c)}
     <td>${c.manager || '-'}</td>`;
 }
 
+const _LEDGER_COMMON_HEAD_INNER = `<th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
+  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>`;
+const _LEDGER_REVENUE_HEAD = `<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>`;
+
 const CANDIDATE_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
-  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  ${renderMonthEndBalanceTableHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderConsolidatedAssetsTableHead()}<th>主办客户经理</th>`;
+  ${_LEDGER_COMMON_HEAD_INNER}
+  <th>月均贷款余额（元）</th>${_LEDGER_REVENUE_HEAD}${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
 
 function renderCandidateListTableHead(task) {
   return `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
-  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  ${renderMonthEndBalanceTableHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderConsolidatedAssetsTableHead()}<th>主办客户经理</th>`;
+  ${_LEDGER_COMMON_HEAD_INNER}
+  ${renderFormalSummaryBalanceHead(task)}${_LEDGER_REVENUE_HEAD}${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
 }
 
 const FORMAL_LIST_TABLE_HEAD = `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
-  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  ${renderFormalSummaryBalanceHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
+  ${_LEDGER_COMMON_HEAD_INNER}
+  <th>月均贷款余额（元）</th>${_LEDGER_REVENUE_HEAD}${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
 
 function renderFormalListTableHead(task) {
   return `
-  <th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>贷款账号</th>
-  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>
-  ${renderFormalSummaryBalanceHead()}<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
+  ${_LEDGER_COMMON_HEAD_INNER}
+  ${renderFormalSummaryBalanceHead(task)}${_LEDGER_REVENUE_HEAD}${renderFormalSummaryAssetsHead()}<th>主办客户经理</th>`;
 }
 
 function renderCalculationListTableHead(task) {
@@ -6218,10 +6788,11 @@ function buildDqrGradeGuideHtml(dqr) {
       <td>${levels[i]?.label || '—'}</td>
     </tr>`;
   }).join('');
-  const methodRows = (GUIDE.METHODS || []).filter(m => m.qualityGrade != null).map(m => `<tr>
-      <td>${m.qualityGrade}</td>
-      <td>${escapeHtml(m.name)}</td>
-      <td>${escapeHtml(qualityGradeText(m.qualityGrade))}</td>
+  const methodRows = (GUIDE.DQR_METHOD_TABLE || []).map(m => `<tr>
+      <td>${escapeHtml(m.method)}</td>
+      <td>${escapeHtml(m.subject)}</td>
+      <td style="font-size:12px;line-height:1.5">${escapeHtml(m.basis)}</td>
+      <td style="text-align:center">${m.grade}</td>
     </tr>`).join('');
   const currentHtml = current != null && !Number.isNaN(current)
     ? `<p class="dqr-guide-current">当前任务 DQR = <strong>${dqr.dqr}</strong>，对应等次 <strong>${currentGrade || '—'}</strong></p>`
@@ -6230,14 +6801,14 @@ function buildDqrGradeGuideHtml(dqr) {
     <p class="candidate-filter-hint">DQR 为各笔业务质量得分的归因排放量加权平均；单笔质量得分由所采用的核算方法确定（见下表）。</p>
     <p class="dqr-guide-formula"><strong>计算公式：</strong>${escapeHtml(GUIDE.FORMULAS?.dqr || '—')}</p>
     ${currentHtml}
-    <h5 class="dqr-guide-section-title">表3 数据质量评级结果划分标准</h5>
+    <h5 class="dqr-guide-section-title">表1 数据质量评级结果划分标准</h5>
     <div class="table-wrap"><table class="data-table dqr-guide-table">
       <thead><tr><th>DQR 区间</th><th>对应等次</th><th>评级描述</th></tr></thead>
       <tbody>${bandRows}</tbody>
     </table></div>
-    <h5 class="dqr-guide-section-title">单笔业务质量得分（核算方法）</h5>
+    <h5 class="dqr-guide-section-title">表2 数据质量等级赋值标准</h5>
     <div class="table-wrap"><table class="data-table dqr-guide-table">
-      <thead><tr><th>质量得分</th><th>核算方法</th><th>等级说明</th></tr></thead>
+      <thead><tr><th>核算方法</th><th>适用主体</th><th>基础数据</th><th style="white-space:nowrap">数据质量等级</th></tr></thead>
       <tbody>${methodRows}</tbody>
     </table></div>`;
 }

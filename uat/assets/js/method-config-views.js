@@ -3,10 +3,59 @@ if (typeof SPA_VIEWS === 'undefined') {
   console.error('method-config-views.js 必须在 spa-views.js 之后加载');
 }
 
-function methodConfigIndustryOptions(selected) {
-  return METHOD_CONFIG.EIGHT_INDUSTRIES.map(ind =>
-    `<option value="${escapeHtml(ind)}" ${ind === selected ? 'selected' : ''}>${escapeHtml(ind)}</option>`
+/** 从行业配置取已标识行业，生成带 optgroup 的 option 列表 */
+function methodConfigIndustryOptions(selected, includeBlank) {
+  const pboRows = [];
+  const bankRows = [];
+  const hasCfg = typeof IndustryConfig !== 'undefined' && IndustryConfig.getRows().length > 0;
+  if (hasCfg) {
+    IndustryConfig.getRows().forEach(r => {
+      const code = r.code || r.cascadeCode || '';
+      const name = r.level4Name || r.name || '';
+      if (!code) return;
+      const label = `${code} ${name}`;
+      if (IndustryConfig.hasTag(r, IndustryConfig.TAG_PBO_EIGHT)) pboRows.push({ value: code, label });
+      if (IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR)) bankRows.push({ value: code, label });
+    });
+  }
+  if (!pboRows.length && typeof INDUSTRY_TABLE !== 'undefined') {
+    INDUSTRY_TABLE.forEach(r => pboRows.push({ value: r.code, label: `${r.code} ${r.name}` }));
+  }
+  if (!bankRows.length && typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined') {
+    INDUSTRY_BANK_MAJOR_TABLE.forEach(r => bankRows.push({ value: r.code, label: `${r.code} ${r.name}` }));
+  }
+  const blank = includeBlank !== false ? `<option value="">全部行业</option>` : '';
+  const pboGroup = pboRows.length
+    ? `<optgroup label="人行八大高碳行业">${pboRows.map(o => `<option value="${escapeHtml(o.value)}" ${o.value === selected ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</optgroup>`
+    : '';
+  const bankGroup = bankRows.length
+    ? `<optgroup label="我行主要行业">${bankRows.map(o => `<option value="${escapeHtml(o.value)}" ${o.value === selected ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</optgroup>`
+    : '';
+  // 兼容旧数据：selected 若是旧大类名（如"电力"），补一个隐式选项保持已选状态
+  const allCodes = pboRows.concat(bankRows).map(o => o.value);
+  const isLegacy = selected && !allCodes.includes(selected);
+  const legacyOpt = isLegacy ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>` : '';
+  return blank + legacyOpt + pboGroup + bankGroup;
+}
+
+/** 核算方法 combobox：样式与其他下拉统一，支持选择预设或手动输入 */
+function methodConfigMethodCombo(fieldName, selected, comboId) {
+  const methods = (typeof GUIDE !== 'undefined' && GUIDE.METHODS) ? GUIDE.METHODS : [];
+  const displayVal = methods.find(m => m.id === selected)?.name || selected || '';
+  const options = methods.map(m =>
+    `<div class="param-units-option method-combo-option" data-value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</div>`
   ).join('');
+  return `
+    <div class="method-combo-wrap param-units-combo" id="${escapeHtml(comboId)}Wrap" data-combo-id="${escapeHtml(comboId)}">
+      <div class="method-combo-field param-units-combo-field" tabindex="0">
+        <input type="text" name="${escapeHtml(fieldName)}" class="method-combo-input" autocomplete="off"
+          value="${escapeHtml(displayVal)}" required placeholder="请选择或输入核算方法名称">
+        <span class="param-units-drop-arrow">▼</span>
+      </div>
+      <div class="method-combo-dropdown param-units-dropdown" style="display:none">
+        <div class="method-combo-options param-units-options">${options}</div>
+      </div>
+    </div>`;
 }
 
 function methodConfigMethodOptions(selected, methods) {
@@ -35,6 +84,7 @@ SPA_VIEWS['#/method-config/params'] = function() {
       <td>${METHOD_CONFIG.paramStatusBadge(p.status)}</td>
       <td class="actions">
         <a href="#/method-config/params/edit?id=${encodeURIComponent(p.id)}" class="btn-link">编辑</a>
+        <button type="button" class="btn-link" data-param-copy="${escapeHtml(p.id)}">复制</button>
         ${p.builtin ? '' : `<button type="button" class="btn-link" data-param-toggle="${escapeHtml(p.id)}">${p.status === 'inactive' ? '启用' : '停用'}</button>`}
         ${p.builtin ? '' : `<button type="button" class="btn-link btn-link-danger" data-param-delete="${escapeHtml(p.id)}">删除</button>`}
       </td>
@@ -57,7 +107,6 @@ SPA_VIEWS['#/method-config/params'] = function() {
     <div class="toolbar method-config-filter-bar">
       <a href="#/method-config/params/new" class="btn btn-primary">+ 新增参数</a>
       <button type="button" class="btn" id="paramBatchImportBtn">批量导入</button>
-      <input type="file" id="paramBatchImportFile" accept=".csv,text/csv" hidden>
     </div>
     <div class="card">
       <div class="card-header"><h3>查询筛选</h3></div>
@@ -104,36 +153,75 @@ function renderMethodConfigParamForm(param) {
   const isEdit = !!param;
   const isBuiltin = param?.builtin || METHOD_CONFIG.BUILTIN_RESULT_PARAM_IDS.includes(param?.id);
   const paramType = param?.paramType || METHOD_CONFIG.paramTypeFromFormat(param?.format || 'number');
-  const enumText = param?.enumValues ? param.enumValues.join('\n') : '';
-  const unitType = param?.unitType || 'common';
+  const enumList = param?.enumValues || [];
+  const enumText = enumList.join('\n');
   const textMode = param?.textMode || 'single';
   const applySet = new Set(param?.applyIndustry || []);
   const validateMin = param?.validateRule?.min ?? 0;
   const decimalPlaces = param?.validateRule?.decimalPlaces ?? param?.decimalPlaces ?? 4;
 
-  const unitTypeRadios = (name, selected) => `
-    <div class="radio-row param-unit-type-row">
-      ${[['common', '普通单位'], ['composite', '复合单位'], ['none', '无单位']].map(([v, l]) => `
-        <label class="radio-chip"><input type="radio" name="${name}" value="${v}" ${selected === v ? 'checked' : ''}> ${l}</label>
-      `).join('')}
-    </div>`;
+  // 从行业配置中取已标识的行业选项，按标识分组；fallback 到内置 INDUSTRY_TABLE
+  function getIndustryOptionGroups() {
+    const pboRows = [];
+    const bankRows = [];
+    const hasCfg = typeof IndustryConfig !== 'undefined' && IndustryConfig.getRows().length > 0;
+    if (hasCfg) {
+      IndustryConfig.getRows().forEach(r => {
+        const code = r.code || r.cascadeCode || '';
+        const name = r.level4Name || r.name || '';
+        if (!code) return;
+        const label = `${code} ${name}`;
+        const isPbo = IndustryConfig.hasTag(r, IndustryConfig.TAG_PBO_EIGHT);
+        const isBank = IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR);
+        if (isPbo) pboRows.push({ code, label });
+        if (isBank) bankRows.push({ code, label });
+      });
+    }
+    if (!pboRows.length && typeof INDUSTRY_TABLE !== 'undefined') {
+      INDUSTRY_TABLE.forEach(r => pboRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    if (!bankRows.length && typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined') {
+      INDUSTRY_BANK_MAJOR_TABLE.forEach(r => bankRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    return [
+      { groupLabel: '人行八大高碳行业', rows: pboRows },
+      { groupLabel: '我行主要行业', rows: bankRows }
+    ];
+  }
+  const industryGroups = getIndustryOptionGroups();
+  // 用隐藏字段存已选代码列表（JSON），渲染时兼容旧大类名称
+  const industryComboSelected = JSON.stringify([...applySet]);
+  const industryMultiSelect = `
+    <div id="paramIndustryComboWrap" class="param-units-combo">
+      <div id="paramIndustryComboField" class="param-units-combo-field" tabindex="0">
+        <div id="paramIndustryTags" class="param-units-tags"></div>
+        <input type="text" id="paramIndustryInlineInput" autocomplete="off" placeholder="点击选择行业">
+        <span id="paramIndustryDropArrow" class="param-units-drop-arrow">▼</span>
+      </div>
+      <div id="paramIndustryDropdown" class="param-units-dropdown" style="display:none;max-height:320px;overflow-y:auto">
+        <div id="paramIndustryOptions" class="param-units-options"></div>
+      </div>
+      <input type="hidden" name="applyIndustryCombined" id="applyIndustryCombined" value="${escapeHtml(industryComboSelected)}">
+    </div>
+    <small class="text-muted">从人行八大高碳行业或我行主要行业中多选，不选表示全行业通用</small>`;
 
-  const industryChecks = METHOD_CONFIG.EIGHT_INDUSTRIES.map(ind => `
-    <label class="checkbox-chip"><input type="checkbox" name="applyIndustry" value="${escapeHtml(ind)}" ${applySet.has(ind) ? 'checked' : ''}> ${escapeHtml(ind)}</label>
-  `).join('');
-
-  const selectedUnits = new Set(METHOD_CONFIG.getParamUnits(param));
-  const extraUnits = [...selectedUnits].filter(u => !METHOD_CONFIG.PARAM_UNIT_OPTIONS.includes(u));
-  const unitOptionChecks = METHOD_CONFIG.PARAM_UNIT_OPTIONS.map(u => `
-    <label class="checkbox-chip"><input type="checkbox" name="paramUnits" value="${escapeHtml(u)}" ${selectedUnits.has(u) ? 'checked' : ''}> ${escapeHtml(u)}</label>
-  `).join('');
+  const selectedUnits = [...new Set(METHOD_CONFIG.getParamUnits(param))];
   const unitMultiSelect = `
-    <div class="checkbox-row param-unit-checkbox-row">${unitOptionChecks}</div>
-    <div class="form-item param-unit-extra" style="margin-top:8px">
-      <label>其他单位</label>
-      <input name="paramUnitsExtra" value="${escapeHtml(extraUnits.join('、'))}" placeholder="可多填，逗号或顿号分隔">
-      <small class="text-muted">可多选；至少选择或填写一个单位</small>
-    </div>`;
+    <div id="paramUnitsComboWrap" class="param-units-combo">
+      <div id="paramUnitsComboField" class="param-units-combo-field" tabindex="0">
+        <div id="paramUnitsTags" class="param-units-tags"></div>
+        <input type="text" id="paramUnitsInlineInput" autocomplete="off" placeholder="选择或输入单位，回车添加">
+        <span id="paramUnitsDropArrow" class="param-units-drop-arrow">▼</span>
+      </div>
+      <div id="paramUnitsDropdown" class="param-units-dropdown" style="display:none">
+        <div id="paramUnitsOptions" class="param-units-options"></div>
+        <div class="param-units-custom-row">
+          <input type="text" id="paramUnitsCustomInput" autocomplete="off" placeholder="自定义单位，回车添加">
+        </div>
+      </div>
+      <input type="hidden" name="paramUnitsCombined" id="paramUnitsCombined" value="${escapeHtml(JSON.stringify(selectedUnits))}">
+    </div>
+    <small class="text-muted">可多选预设单位，也支持自定义录入；至少选择一项</small>`;
 
   return `
     <h1 class="page-title">${isEdit ? '编辑参数' : '新增参数'}</h1>
@@ -160,20 +248,6 @@ function renderMethodConfigParamForm(param) {
             ).join('')}
           </select>
         </div>
-        <div class="form-item"><label>状态</label>
-          <select name="status" ${isBuiltin ? 'disabled' : ''}>
-            <option value="active" ${param?.status !== 'inactive' ? 'selected' : ''}>启用</option>
-            <option value="inactive" ${param?.status === 'inactive' ? 'selected' : ''}>停用</option>
-          </select>
-        </div>
-
-        <div class="form-item full param-format-panel" data-format-panel="text">
-          <label>文本样式</label>
-          <div class="radio-row">
-            <label class="radio-chip"><input type="radio" name="textMode" value="single" ${textMode !== 'multiline' ? 'checked' : ''}> 单行</label>
-            <label class="radio-chip"><input type="radio" name="textMode" value="multiline" ${textMode === 'multiline' ? 'checked' : ''}> 多行</label>
-          </div>
-        </div>
         <div class="form-item param-format-panel" data-format-panel="text">
           <label>最大字符长度</label><input type="number" name="maxLength" min="1" max="9999" value="${param?.maxLength ?? 200}">
         </div>
@@ -184,19 +258,20 @@ function renderMethodConfigParamForm(param) {
         <div class="form-item param-format-panel" data-format-panel="number">
           <label>最小值</label><input type="number" name="validateMin" step="any" value="${validateMin}">
         </div>
-        <div class="form-item full param-format-panel" data-format-panel="number">
-          <label>单位类型</label>${unitTypeRadios('numberUnitType', unitType)}
-        </div>
 
         <div class="form-item full param-format-panel" data-format-panel="option">
           <label>枚举值 <span class="req">*</span></label>
-          <textarea name="enumValues" rows="4" placeholder="每行一个选项">${escapeHtml(enumText)}</textarea>
+          <div id="enumTagsWrap" class="enum-tags-wrap">
+            <div id="enumTagsList" class="enum-tags-list">
+              ${enumList.map((v, i) => `<span class="enum-tag" data-idx="${i}">${escapeHtml(v)}<button type="button" class="enum-tag-remove" data-idx="${i}" aria-label="删除">×</button></span>`).join('')}
+              <input type="text" id="enumTagInput" class="enum-tag-input" autocomplete="off" placeholder="输入选项，按回车或分号添加">
+            </div>
+          </div>
+          <input type="hidden" name="enumValues" id="enumValuesCombined" value="${escapeHtml(enumList.join(';'))}">
+          <small class="text-muted">每项按回车或输入分号（；）确认，可拖拽排序</small>
         </div>
         <div class="form-item param-format-panel" data-format-panel="option">
           <label>默认值</label><input name="defaultValue" value="${escapeHtml(param?.defaultValue || '')}">
-        </div>
-        <div class="form-item full param-format-panel" data-format-panel="option">
-          <label>单位类型</label>${unitTypeRadios('optionUnitType', unitType)}
         </div>
 
         <div class="form-item full param-units-panel" id="paramUnitsPanel">
@@ -226,17 +301,7 @@ function renderMethodConfigParamForm(param) {
         </div>
 
         <div class="form-item full"><label>适用行业</label>
-          <div class="checkbox-row">${industryChecks}</div>
-          <small class="text-muted">不选表示全行业通用</small>
-        </div>
-        <div class="form-item full"><label>备注说明</label>
-          <textarea name="remark" rows="2" maxlength="200" placeholder="采集端字段提示，≤200字">${escapeHtml(param?.remark || param?.description || '')}</textarea>
-        </div>
-        <div class="form-item"><label>模板中展示</label>
-          <select name="showInTemplate">
-            <option value="1" ${param?.showInTemplate !== false ? 'selected' : ''}>是</option>
-            <option value="0" ${param?.showInTemplate === false ? 'selected' : ''}>否（仅公式/因子引用）</option>
-          </select>
+          ${industryMultiSelect}
         </div>
       </form>
     </div></div>
@@ -273,10 +338,8 @@ SPA_VIEWS['#/method-config/templates'] = function() {
       </td>
     </tr>`).join('');
 
-  const industryOpts = ['', ...METHOD_CONFIG.EIGHT_INDUSTRIES].map(c =>
-    `<option value="${c}" ${filters.industry === c ? 'selected' : ''}>${c || '全部行业'}</option>`
-  ).join('');
-  const methodOpts = ['', 'report', 'energy', 'product', 'economy', 'other'].map(mid =>
+  const industryOpts = methodConfigIndustryOptions(filters.industry, true);
+  const methodOpts = ['', ...( (GUIDE.METHODS || []).map(m => m.id) )].map(mid =>
     `<option value="${mid}" ${filters.methodId === mid ? 'selected' : ''}>${mid ? METHOD_CONFIG.methodLabel(mid) : '全部方法'}</option>`
   ).join('');
   const statusOpts = [
@@ -322,9 +385,7 @@ SPA_VIEWS['#/method-config/templates'] = function() {
 };
 
 SPA_VIEWS['#/method-config/templates/new'] = function() {
-  const defaultInd = METHOD_CONFIG.EIGHT_INDUSTRIES[0];
-  const industryOpts = methodConfigIndustryOptions(defaultInd);
-  const methodOpts = methodConfigMethodOptions('energy');
+  const industryOpts = methodConfigIndustryOptions('', false);
   const sceneChecks = METHOD_CONFIG.APPLY_SCENES.map(s => `
     <label class="checkbox-chip"><input type="checkbox" name="applyScene" value="${s.value}" checked> ${s.label}</label>
   `).join('');
@@ -343,10 +404,11 @@ SPA_VIEWS['#/method-config/templates/new'] = function() {
           <input name="subCategory" maxlength="50" placeholder="如：水泥、平板玻璃">
         </div>
         <div class="form-item"><label>核算方法 <span class="req">*</span></label>
-          <select name="methodId" id="tplCreateMethod" required>${methodOpts}</select>
+          ${methodConfigMethodCombo('methodId', '', 'tplCreateMethodDatalist')}
         </div>
         <div class="form-item"><label>方法优先级 <span class="req">*</span></label>
-          <input type="number" name="priority" min="1" max="5" value="3" title="1-5，数字越小优先级越高">
+          <input type="number" name="priority" min="1" max="99" value="3">
+          <small class="text-muted">决定同一行业下全部核算方法的排列顺序，数字越小排名越靠前</small>
         </div>
         <div class="form-item full"><label>适用场景 <span class="req">*</span></label>
           <div class="checkbox-row">${sceneChecks}</div>
@@ -373,16 +435,17 @@ function renderTemplateBasicInfoTab(detail) {
       <input name="meta_templateName" required maxlength="100" value="${escapeHtml(m.templateName || '')}">
     </div>
     <div class="form-item"><label>所属行业 <span class="req">*</span></label>
-      <select name="meta_industry" required>${methodConfigIndustryOptions(m.industry)}</select>
+      <select name="meta_industry" required>${methodConfigIndustryOptions(m.industry, false)}</select>
     </div>
     <div class="form-item"><label>细分品类</label>
       <input name="meta_subCategory" maxlength="50" value="${escapeHtml(m.subCategory || '')}">
     </div>
     <div class="form-item"><label>核算方法 <span class="req">*</span></label>
-      <select name="meta_methodId" required>${methodConfigMethodOptions(m.methodId)}</select>
+      ${methodConfigMethodCombo('meta_methodId', m.methodId, 'tplEditMethodDatalist')}
     </div>
     <div class="form-item"><label>方法优先级 <span class="req">*</span></label>
-      <input type="number" name="meta_priority" min="1" max="5" value="${m.priority ?? 3}">
+      <input type="number" name="meta_priority" min="1" max="99" value="${m.priority ?? 3}">
+      <small class="text-muted">决定同一行业下全部核算方法的排列顺序，数字越小排名越靠前</small>
     </div>
     <div class="form-item full"><label>适用场景 <span class="req">*</span></label>
       <div class="checkbox-row">${sceneChecks}</div>
@@ -727,7 +790,7 @@ SPA_VIEWS['#/method-config/templates/edit'] = function() {
       <div>
         <h1 class="page-title" style="margin-bottom:4px">${escapeHtml(title)}</h1>
         <p class="text-muted" style="margin:0;font-size:13px">
-          ${METHOD_CONFIG.templateStatusBadge(tpl)} · 版本 ${escapeHtml(tpl.version || '—')} · 模板 ID <code>${escapeHtml(id)}</code>
+          ${METHOD_CONFIG.templateStatusBadge(tpl)}
         </p>
       </div>
     </div>

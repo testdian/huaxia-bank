@@ -233,6 +233,23 @@ window.MethodConfigEditor = {
     const param = METHOD_CONFIG.getParam(amountId);
     const libId = presetRowEl.querySelector(`[name="inline_factor_lib_${refKey}"]`)?.value?.trim() || '';
     const factorUnit = libId ? METHOD_CONFIG.getFactorUnitFromLibrary(libId) : '';
+    const units = METHOD_CONFIG.getParamUnits(param);
+
+    // 多单位模式
+    if (units.length > 1) {
+      const multiPanel = presetRowEl.querySelector(`.structure-unit-multi-conv[data-ref-key="${refKey}"]`);
+      if (multiPanel) {
+        const hasFactor = !!libId;
+        const newHtml = this._multiUnitConversionHtml(refKey, units, factorUnit, null, hasFactor, false, '');
+        multiPanel.insertAdjacentHTML('afterend', newHtml);
+        multiPanel.remove();
+        const newPanel = presetRowEl.querySelector(`.structure-unit-multi-conv[data-ref-key="${refKey}"]`);
+        if (newPanel) this._bindMultiUnitPresets(newPanel, refKey, units, factorUnit);
+      }
+      return;
+    }
+
+    // 单单位模式
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = presetRowEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
     const okBar = presetRowEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
@@ -330,8 +347,7 @@ window.MethodConfigEditor = {
   renderStructureTab(detail) {
     const layout = METHOD_CONFIG.normalizeLayoutBlocks(METHOD_CONFIG.ensureDetailLayout(detail));
     const paramLib = METHOD_CONFIG.listParams()
-      .filter(p => p.status !== 'inactive')
-      .map(p => `<button type="button" class="param-lib-chip" data-add-param="${escapeHtml(p.id)}" title="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`)
+      .map(p => `<button type="button" class="param-lib-chip${p.status === 'inactive' ? ' param-lib-chip--inactive' : ''}" data-add-param="${escapeHtml(p.id)}" title="${escapeHtml(p.paramCode || p.id)}">${escapeHtml(p.name)}</button>`)
       .join('');
     const partitions = layout.map((partition, idx) => this.structurePartitionHtml(partition, idx, detail)).join('');
 
@@ -341,7 +357,6 @@ window.MethodConfigEditor = {
           <div class="card-header"><h3>参数库</h3></div>
           <div class="card-body">
             <input type="search" id="tplParamLibFilter" placeholder="搜索参数…" style="width:100%;margin-bottom:8px">
-            <p class="text-muted" style="font-size:12px;margin:0 0 8px">点击数值型参数加入当前编辑中的排放源；保存卡片后锁定，再选参将创建新卡片</p>
             <div class="param-lib-list" id="tplParamLib">${paramLib}</div>
           </div>
         </aside>
@@ -396,8 +411,16 @@ window.MethodConfigEditor = {
     const factorUnit = binding?.factorSource
       ? METHOD_CONFIG.getFactorUnitFromLibrary(binding.factorSource)
       : (binding?.unitFactor || '');
+    const hasFactor = !!(binding?.factorSource || factorUnit);
+    const units = METHOD_CONFIG.getParamUnits(param);
+
+    // 多单位模式：每个单位独立一行换算配置
+    if (units.length > 1) {
+      return this._multiUnitConversionHtml(refKey, units, factorUnit, binding, hasFactor, saved, disabledAttr);
+    }
+
+    // 单单位模式（原有逻辑）
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
-    const hasFactor = !!(binding?.factorSource);
     const showConvert = hasFactor && assess.needsConversion;
     const showOk = hasFactor && assess.match;
     const cf = binding?.conversionFactor ?? assess.suggestedFactor ?? '';
@@ -436,6 +459,60 @@ window.MethodConfigEditor = {
       </div>`;
   },
 
+  /** 多单位换算面板 HTML（每个单位一行） */
+  _multiUnitConversionHtml(refKey, units, factorUnit, binding, hasFactor, saved, disabledAttr) {
+    const prevConversions = binding?.unitConversions || [];
+    const rows = units.map((u, i) => {
+      const assess = hasFactor ? METHOD_CONFIG.assessUnitConversion(u, factorUnit) : null;
+      const prev = prevConversions.find(c => c.unit === u) || {};
+      const cf = prev.conversionFactor !== undefined ? prev.conversionFactor
+        : (assess?.suggestedFactor ?? '');
+      const note = prev.conversionNote || assess?.suggestedLabel || '';
+      const presetOpts = [{ factor: '', label: '常用换算…' }]
+        .concat(assess?.presets || [])
+        .map(p => `<option value="${p.factor}" ${String(cf) === String(p.factor) && p.factor !== '' ? 'selected' : ''}>${escapeHtml(p.label)}</option>`)
+        .join('');
+      const hiddenInputs = `
+        <input type="hidden" name="inline_unit_name_${escapeHtml(refKey)}_u${i}" value="${escapeHtml(u)}">
+        <input type="hidden" name="inline_unit_note_${escapeHtml(refKey)}_u${i}" value="${escapeHtml(note)}">`;
+      if (!hasFactor) {
+        return `<tr>${hiddenInputs}
+          <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
+          <td colspan="3" class="text-muted" style="font-size:12px">请先选择排放因子</td></tr>`;
+      }
+      if (assess?.match) {
+        return `<tr>${hiddenInputs}
+          <input type="hidden" name="inline_unit_factor_${escapeHtml(refKey)}_u${i}" value="1">
+          <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
+          <td><span class="unit-conv-arrow">→</span> 因子分母 <strong>${escapeHtml(assess.factorDenominator)}</strong></td>
+          <td colspan="2"><span class="tag tag-success">单位一致，无需换算</span></td></tr>`;
+      }
+      return `<tr class="unit-conv-multi-row">${hiddenInputs}
+        <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
+        <td><span class="unit-conv-arrow">→</span> 因子分母 <strong>${escapeHtml(assess?.factorDenominator || '—')}</strong></td>
+        <td>
+          <div class="inline-multi-unit-inputs">
+            <input type="number" step="any"
+              name="inline_unit_factor_${escapeHtml(refKey)}_u${i}"
+              class="inline-unit-factor-input" value="${cf !== '' && cf != null ? escapeHtml(String(cf)) : ''}"
+              placeholder="换算系数"${disabledAttr}>
+            <select name="inline_unit_preset_${escapeHtml(refKey)}_u${i}"
+              class="inline-unit-preset-select"${disabledAttr}>${presetOpts}</select>
+          </div>
+        </td>
+        <td class="text-muted" style="font-size:12px">${escapeHtml(note || '活动量 × 系数 × 因子')}</td></tr>`;
+    }).join('');
+
+    return `
+      <div class="structure-unit-multi-conv" data-ref-key="${escapeHtml(refKey)}" ${hasFactor ? '' : 'hidden'}>
+        <input type="hidden" name="inline_unit_count_${escapeHtml(refKey)}" value="${units.length}">
+        <table class="unit-conv-multi-table">
+          <thead><tr><th>单位</th><th>换算关系</th><th>换算系数 / 快捷选择</th><th>说明</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  },
+
   refreshUnitConversionPanel(sourceEl, form) {
     if (!sourceEl) return;
     const ctx = this.getEmissionSourceContext(sourceEl);
@@ -444,6 +521,25 @@ window.MethodConfigEditor = {
     const param = METHOD_CONFIG.getParam(primary);
     const libId = sourceEl.querySelector(`[name="inline_factor_lib_${refKey}"]`)?.value?.trim() || '';
     const factorUnit = libId ? METHOD_CONFIG.getFactorUnitFromLibrary(libId) : '';
+    const units = METHOD_CONFIG.getParamUnits(param);
+
+    // 多单位模式：重渲染整个多单位面板
+    if (units.length > 1) {
+      const multiPanel = sourceEl.querySelector(`.structure-unit-multi-conv[data-ref-key="${refKey}"]`);
+      if (multiPanel) {
+        const hasFactor = !!libId;
+        const newHtml = this._multiUnitConversionHtml(refKey, units, factorUnit, null, hasFactor, false, '');
+        multiPanel.outerHTML && multiPanel.insertAdjacentHTML('afterend', newHtml);
+        multiPanel.remove();
+        // 重绑定 preset 事件
+        const newPanel = sourceEl.querySelector(`.structure-unit-multi-conv[data-ref-key="${refKey}"]`);
+        if (newPanel) this._bindMultiUnitPresets(newPanel, refKey, units, factorUnit);
+      }
+      this.syncEmissionRowExpression(sourceEl, form);
+      return;
+    }
+
+    // 单单位模式
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = sourceEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
     const okBar = sourceEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
@@ -473,6 +569,23 @@ window.MethodConfigEditor = {
     }
     if (okBar) okBar.hidden = !assess.match;
     this.syncEmissionRowExpression(sourceEl, form);
+  },
+
+  /** 绑定多单位换算面板中的快捷选择下拉 */
+  _bindMultiUnitPresets(panelEl, refKey, units, factorUnit) {
+    units.forEach((u, i) => {
+      const sel = panelEl.querySelector(`[name="inline_unit_preset_${refKey}_u${i}"]`);
+      const cfInput = panelEl.querySelector(`[name="inline_unit_factor_${refKey}_u${i}"]`);
+      const noteInput = panelEl.querySelector(`[name="inline_unit_note_${refKey}_u${i}"]`);
+      if (!sel || !cfInput) return;
+      sel.addEventListener('change', () => {
+        const v = sel.value;
+        if (v !== '' && cfInput) cfInput.value = v;
+        const assess = METHOD_CONFIG.assessUnitConversion(u, factorUnit);
+        const preset = assess?.presets?.find(p => String(p.factor) === String(v));
+        if (preset && noteInput) noteInput.value = preset.label;
+      });
+    });
   },
 
   syncEmissionRowExpression(sourceEl, form) {
@@ -837,10 +950,16 @@ window.MethodConfigEditor = {
     const p = METHOD_CONFIG.getParam(fid);
     const req = p?.required;
     const showRemove = canRemove && !saved;
+    const units = p ? METHOD_CONFIG.getParamUnits(p) : [];
+    const unitHtml = units.length
+      ? units.map(u => `<span class="structure-emission-unit">${escapeHtml(u)}</span>`).join('')
+      : (p && METHOD_CONFIG.paramUnitsDisplay(p) !== '—'
+        ? `<span class="structure-emission-unit">${escapeHtml(METHOD_CONFIG.paramUnitsDisplay(p))}</span>`
+        : '');
     return `<div class="structure-emission-param-row" data-source-param="${escapeHtml(fid)}">
       <input type="hidden" name="source_field" data-source-id="${escapeHtml(sourceId)}" value="${escapeHtml(fid)}">
       <span class="structure-emission-param-name">${escapeHtml(p?.name || fid)}</span>
-      ${p && METHOD_CONFIG.paramUnitsDisplay(p) !== '—' ? `<span class="structure-emission-unit">${escapeHtml(METHOD_CONFIG.paramUnitsDisplay(p))}</span>` : ''}
+      ${unitHtml}
       <label class="req-inline structure-emission-req"><input type="checkbox" name="field_required_${escapeHtml(fid)}" data-partition-index="${blockIndex}" ${req ? 'checked' : ''} ${saved ? 'disabled' : ''}> 必填</label>
       ${showRemove ? `<button type="button" class="btn btn-sm structure-source-param-remove" data-remove-source-param="${escapeHtml(fid)}" title="移除此参数">×</button>` : ''}
     </div>`;
@@ -1225,11 +1344,11 @@ window.MethodConfigEditor = {
     return `<div class="structure-section structure-section--fixed" data-section-row data-section-type="fixed" data-section-index="${sIndex}">
       <div class="structure-section-head">
         <span class="tag tag-info">固定字段</span>
-        <span class="text-muted structure-section-hint">数值型参数形成排放源卡片，左侧选参追加到当前编辑中的卡片，保存后锁定</span>
+        <span class="text-muted structure-section-hint">从左侧参数库选择参数，追加到当前编辑中的卡片，保存后锁定</span>
         <button type="button" class="btn btn-sm btn-link-danger structure-section-remove" data-remove-section="${pIndex}-${sIndex}" title="移除此固定字段区块">×</button>
       </div>
       <div class="structure-field-drop structure-form-canvas" data-field-drop="${pIndex}-${sIndex}">
-        ${hasContent ? '' : '<p class="text-muted structure-empty-hint">从左侧参数库点击数值型参数，将创建排放源卡片；可连续选参直到保存</p>'}
+        ${hasContent ? '' : '<p class="text-muted structure-empty-hint">从左侧参数库点击参数即可添加，可连续选参直到保存</p>'}
         <div class="structure-field-list">${simpleRows}${sourceRows}</div>
       </div>
     </div>`;
@@ -1376,7 +1495,7 @@ window.MethodConfigEditor = {
         }
         const drop = fixedSection?.querySelector('[data-field-drop]');
         if (drop && !drop.querySelector('.structure-field-row, [data-emission-source]')) {
-          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击数值型参数，将创建排放源卡片；可连续选参直到保存</p>');
+          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击参数即可添加，可连续选参直到保存</p>');
         }
         this.refreshPartitionFormulaBar(partitionEl2, this.readInlineFormulaDetail(form));
         this.persistStep2Draft({ silent: true });
@@ -1405,7 +1524,7 @@ window.MethodConfigEditor = {
         }
         const drop = fixedSection?.querySelector('[data-field-drop]');
         if (drop && !drop.querySelector('.structure-field-row, [data-emission-source]')) {
-          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击数值型参数，将创建排放源卡片；可连续选参直到保存</p>');
+          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击参数即可添加，可连续选参直到保存</p>');
         }
         this.refreshPartitionFormulaBar(partitionEl2, this.readInlineFormulaDetail(form));
         this.persistStep2Draft({ silent: true });
@@ -1443,7 +1562,7 @@ window.MethodConfigEditor = {
         rmField.closest('.structure-field-row')?.remove();
         const drop = rmField.closest('[data-field-drop]');
         if (drop && !drop.querySelector('.structure-field-row, [data-emission-source]')) {
-          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击数值型参数，将创建排放源卡片；可连续选参直到保存</p>');
+          drop.insertAdjacentHTML('afterbegin', '<p class="text-muted structure-empty-hint">从左侧参数库点击参数即可添加，可连续选参直到保存</p>');
         }
         this.refreshPartitionFormulaBar(partitionEl2, this.readInlineFormulaDetail(form));
         return;
