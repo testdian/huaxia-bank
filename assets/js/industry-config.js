@@ -151,7 +151,12 @@ window.IndustryConfig = {
   filterRows(rows, filters) {
     const f = filters || {};
     let list = rows || [];
-    if (f.tag) list = list.filter(r => this.hasTag(r, f.tag));
+    // 支持多标识筛选（tags 数组）或兼容旧单 tag 字段
+    const activeTags = Array.isArray(f.tags) ? f.tags.filter(Boolean)
+      : (f.tag ? [f.tag] : []);
+    if (activeTags.length) {
+      list = list.filter(r => activeTags.every(t => this.hasTag(r, t)));
+    }
     if (f.keyword) {
       const kw = f.keyword.trim().toLowerCase();
       if (kw) {
@@ -177,13 +182,21 @@ window.IndustryConfig = {
 
   renderFilterPanel(filters) {
     const f = filters || {};
-    const tagOpts = this.TAG_OPTIONS.map(o =>
-      `<option value="${o.value}" ${(f.tag || '') === o.value ? 'selected' : ''}>${o.label === '—' ? '全部标识' : o.label}</option>`
+    const selectedTags = new Set(
+      Array.isArray(f.tags) ? f.tags : (f.tag ? [f.tag] : [])
+    );
+    const tagChecks = this.SELECTABLE_TAG_OPTIONS.map(o =>
+      `<label class="ic-tag-filter-chip">
+        <input type="checkbox" class="icf_tag_check" value="${o.value}" ${selectedTags.has(o.value) ? 'checked' : ''}>
+        <span>${o.label}</span>
+      </label>`
     ).join('');
     return `
       <div class="filter-panel industry-config-filter">
         <div class="filter-extra industry-config-filter-grid">
-          <div class="form-item"><label>标识</label><select id="icf_tag">${tagOpts}</select></div>
+          <div class="form-item ic-tag-filter-item"><label>标识（可多选）</label>
+            <div class="ic-tag-filter-chips">${tagChecks}</div>
+          </div>
           <div class="form-item"><label>关键词</label>
             <input id="icf_keyword" type="search" value="${f.keyword || ''}" placeholder="行业代码或各级名称"></div>
           <div class="form-item filter-actions">
@@ -215,6 +228,7 @@ window.IndustryConfig = {
   renderFormFields(row) {
     const r = row || {};
     const selected = new Set(this.normalizeRowTags(r));
+    const cascade = r.cascadeCode || toCascadeIndustryCode(r.code) || '';
     const tagChecks = this.SELECTABLE_TAG_OPTIONS.map(o =>
       `<label class="filter-check">
         <input type="checkbox" name="ic_form_tag" value="${o.value}" ${selected.has(o.value) ? 'checked' : ''}>
@@ -222,41 +236,60 @@ window.IndustryConfig = {
       </label>`
     ).join('');
     return `
-      <div class="form-grid">
-        <div class="form-item"><label>四级行业代码 *</label>
-          <input id="ic_form_cascade" value="${r.cascadeCode || toCascadeIndustryCode(r.code) || ''}" placeholder="如 2614"></div>
-        <div class="form-item"><label>完整代码</label>
-          <input id="ic_form_scoped" value="${r.code || ''}" placeholder="自动带出，如 C2614"></div>
-        <div class="form-item"><label>一级行业</label><input id="ic_form_l1" value="${r.level1Name || ''}" readonly></div>
-        <div class="form-item"><label>二级行业</label><input id="ic_form_l2" value="${r.level2Name || ''}" readonly></div>
-        <div class="form-item"><label>三级行业</label><input id="ic_form_l3" value="${r.level3Name || ''}" readonly></div>
-        <div class="form-item"><label>四级行业名称</label><input id="ic_form_l4" value="${r.level4Name || r.name || ''}"></div>
+      <div class="form-grid ic-form-grid">
+        <div class="form-item"><label>一级行业代码 <span class="req">*</span></label>
+          <input id="ic_form_l1_code" value="${escapeHtml(r.level1Code || '')}" placeholder="如 C" maxlength="10" required></div>
+        <div class="form-item"><label>一级行业名称 <span class="req">*</span></label>
+          <input id="ic_form_l1" value="${escapeHtml(r.level1Name || '')}" placeholder="如 制造业" maxlength="100" required></div>
+
+        <div class="form-item"><label>二级行业代码 <span class="req">*</span></label>
+          <input id="ic_form_l2_code" value="${escapeHtml(r.level2Code || '')}" placeholder="如 30" maxlength="10" required></div>
+        <div class="form-item"><label>二级行业名称 <span class="req">*</span></label>
+          <input id="ic_form_l2" value="${escapeHtml(r.level2Name || '')}" placeholder="如 非金属矿物制品业" maxlength="100" required></div>
+
+        <div class="form-item"><label>三级行业代码 <span class="req">*</span></label>
+          <input id="ic_form_l3_code" value="${escapeHtml(r.level3Code || '')}" placeholder="如 301" maxlength="10" required></div>
+        <div class="form-item"><label>三级行业名称 <span class="req">*</span></label>
+          <input id="ic_form_l3" value="${escapeHtml(r.level3Name || '')}" placeholder="如 水泥、石灰和石膏制造" maxlength="100" required></div>
+
+        <div class="form-item"><label>四级行业代码（GB/T） <span class="req">*</span></label>
+          <input id="ic_form_cascade" value="${escapeHtml(cascade)}" placeholder="如 3011" maxlength="10" required></div>
+        <div class="form-item"><label>四级行业名称 <span class="req">*</span></label>
+          <input id="ic_form_l4" value="${escapeHtml(r.level4Name || r.name || '')}" placeholder="如 水泥制造" maxlength="100" required></div>
+
         <div class="form-item full"><label>标识</label>
           <div class="filter-checkbox-group ic-tag-checkbox-group">${tagChecks}</div>
         </div>
-      </div>
-      <p class="candidate-filter-hint" style="margin-top:8px">输入四级代码后可从 GB/T 4754 自动回填各级名称；标识可多选，同一行业可同时属于「人行八大高碳」与「我行主要行业」。</p>`;
+      </div>`;
+  },
+
+  resolveScopedCode(rootEl) {
+    const root = rootEl || document;
+    const cascade = qs('#ic_form_cascade', root)?.value?.trim() || '';
+    const l1Code = qs('#ic_form_l1_code', root)?.value?.trim() || '';
+    if (!cascade) return '';
+    if (/^[A-Z]\d/.test(cascade)) return cascade;
+    const leaf = typeof toCascadeIndustryCode === 'function' ? toCascadeIndustryCode(cascade) : cascade;
+    if (l1Code && /^[A-Z]$/i.test(l1Code)) return l1Code.toUpperCase() + leaf;
+    return typeof toScopedIndustryCode === 'function' ? toScopedIndustryCode(cascade) : cascade;
   },
 
   readFormPayload(rootEl) {
     const root = rootEl || document;
     const cascade = qs('#ic_form_cascade', root)?.value?.trim() || '';
-    const scoped = qs('#ic_form_scoped', root)?.value?.trim()
-      || (typeof toScopedIndustryCode === 'function' ? toScopedIndustryCode(cascade) : cascade);
-    const auto = cascade ? this.lookupLevelsByCascadeCode(cascade) : null;
+    const scoped = this.resolveScopedCode(root);
     return {
       code: scoped,
       cascadeCode: cascade,
-      level1Code: auto?.level1Code || '',
-      level1Name: qs('#ic_form_l1', root)?.value?.trim() || auto?.level1Name || '',
-      level2Code: auto?.level2Code || '',
-      level2Name: qs('#ic_form_l2', root)?.value?.trim() || auto?.level2Name || '',
-      level3Code: auto?.level3Code || '',
-      level3Name: qs('#ic_form_l3', root)?.value?.trim() || auto?.level3Name || '',
-      level4Code: auto?.level4Code || cascade,
-      level4Name: qs('#ic_form_l4', root)?.value?.trim() || auto?.level4Name || '',
-      name: qs('#ic_form_l4', root)?.value?.trim() || auto?.level4Name || '',
-      major: auto?.major || '',
+      level1Code: qs('#ic_form_l1_code', root)?.value?.trim() || '',
+      level1Name: qs('#ic_form_l1', root)?.value?.trim() || '',
+      level2Code: qs('#ic_form_l2_code', root)?.value?.trim() || '',
+      level2Name: qs('#ic_form_l2', root)?.value?.trim() || '',
+      level3Code: qs('#ic_form_l3_code', root)?.value?.trim() || '',
+      level3Name: qs('#ic_form_l3', root)?.value?.trim() || '',
+      level4Code: cascade,
+      level4Name: qs('#ic_form_l4', root)?.value?.trim() || '',
+      name: qs('#ic_form_l4', root)?.value?.trim() || '',
       tags: typeof qsa === 'function'
         ? qsa('input[name="ic_form_tag"]:checked', root).map(el => el.value).filter(Boolean)
         : [],
@@ -267,19 +300,25 @@ window.IndustryConfig = {
   bindFormLookup(rootEl) {
     const root = rootEl || document;
     const cascadeInput = qs('#ic_form_cascade', root);
-    const scopedInput = qs('#ic_form_scoped', root);
     if (!cascadeInput) return;
     const apply = () => {
       const cascade = cascadeInput.value.trim();
       if (!cascade) return;
       const row = this.lookupLevelsByCascadeCode(cascade);
-      if (scopedInput) scopedInput.value = row?.code || (typeof toScopedIndustryCode === 'function' ? toScopedIndustryCode(cascade) : cascade);
-      if (row) {
-        qs('#ic_form_l1', root).value = row.level1Name || '';
-        qs('#ic_form_l2', root).value = row.level2Name || '';
-        qs('#ic_form_l3', root).value = row.level3Name || '';
-        qs('#ic_form_l4', root).value = row.level4Name || '';
-      }
+      if (!row) return;
+      const fields = [
+        ['#ic_form_l1_code', row.level1Code],
+        ['#ic_form_l1',      row.level1Name],
+        ['#ic_form_l2_code', row.level2Code],
+        ['#ic_form_l2',      row.level2Name],
+        ['#ic_form_l3_code', row.level3Code],
+        ['#ic_form_l3',      row.level3Name],
+        ['#ic_form_l4',      row.level4Name || row.name]
+      ];
+      fields.forEach(([sel, val]) => {
+        const el = qs(sel, root);
+        if (el && !el.value && val) el.value = val;
+      });
     };
     cascadeInput.addEventListener('change', apply);
     cascadeInput.addEventListener('blur', apply);
@@ -296,14 +335,98 @@ window.IndustryConfig = {
       <button type="button" class="btn" onclick="hideModal('reviewModal')">取消</button>
       <button type="button" class="btn btn-primary" id="icFormSaveBtn">保存</button>`;
     qs('#icFormSaveBtn').onclick = () => {
-      const payload = this.readFormPayload(qs('#reviewModalBody'));
-      if (!payload.cascadeCode && !payload.code) {
-        toast('请填写四级行业代码', 'warning');
+      const body = qs('#reviewModalBody');
+      const payload = this.readFormPayload(body);
+      const required = [
+        ['四级行业代码', payload.cascadeCode],
+        ['四级行业名称', payload.level4Name],
+        ['三级行业代码', payload.level3Code],
+        ['三级行业名称', payload.level3Name],
+        ['二级行业代码', payload.level2Code],
+        ['二级行业名称', payload.level2Name],
+        ['一级行业代码', payload.level1Code],
+        ['一级行业名称', payload.level1Name]
+      ];
+      const missing = required.find(([, v]) => !v);
+      if (missing) {
+        toast(`请填写「${missing[0]}」`, 'warning');
         return;
       }
       onSave(payload, isNew ? null : row.id);
     };
     showModal('reviewModal');
+  },
+
+  IMPORT_HEADERS: [
+    '一级行业代码', '一级行业名称', '二级行业代码', '二级行业名称',
+    '三级行业代码', '三级行业名称', '四级行业代码', '四级行业名称', '完整代码', '标识'
+  ],
+
+  downloadImportTemplate() {
+    if (typeof downloadCsvFile !== 'function') return;
+    downloadCsvFile('行业配置导入模板', this.IMPORT_HEADERS, [
+      ['C', '制造业', '30', '非金属矿物制品业', '301', '水泥、石灰和石膏制造', '3011', '水泥制造', 'C3011', '人行八大高碳'],
+      ['D', '电力、热力生产和供应业', '44', '电力、热力生产和供应业', '441', '电力生产', '4411', '火力发电', 'D4411', '人行八大高碳;我行主要行业']
+    ]);
+  },
+
+  parseTagsFromCell(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return [];
+    const tags = [];
+    text.split(/[;；、,，\s]+/).filter(Boolean).forEach(part => {
+      if (/人行|八大|高碳/.test(part)) tags.push(this.TAG_PBO_EIGHT);
+      else if (/我行|主要/.test(part)) tags.push(this.TAG_BANK_MAJOR);
+      else if (part === this.TAG_PBO_EIGHT || part === 'pbo_eight') tags.push(this.TAG_PBO_EIGHT);
+      else if (part === this.TAG_BANK_MAJOR || part === 'bank_major') tags.push(this.TAG_BANK_MAJOR);
+    });
+    return [...new Set(tags)];
+  },
+
+  importFromCsv(text) {
+    let added = 0;
+    let skipped = 0;
+    const errors = [];
+    const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return { ok: false, added, skipped, errors: ['未解析到可导入数据'] };
+    const parseLine = typeof parseFactorImportCsvLine === 'function'
+      ? parseFactorImportCsvLine
+      : (line) => line.split(',').map(s => s.trim());
+    for (let li = 1; li < lines.length; li++) {
+      const cells = parseLine(lines[li]);
+      if (!cells.some(c => c)) continue;
+      const payload = {
+        level1Code: (cells[0] || '').trim(),
+        level1Name: (cells[1] || '').trim(),
+        level2Code: (cells[2] || '').trim(),
+        level2Name: (cells[3] || '').trim(),
+        level3Code: (cells[4] || '').trim(),
+        level3Name: (cells[5] || '').trim(),
+        cascadeCode: (cells[6] || '').trim(),
+        level4Name: (cells[7] || '').trim(),
+        code: (cells[8] || '').trim(),
+        tags: this.parseTagsFromCell(cells[9])
+      };
+      payload.level4Code = payload.cascadeCode;
+      payload.name = payload.level4Name;
+      if (!payload.cascadeCode && !payload.code) {
+        errors.push(`第 ${li + 1} 行：四级行业代码不能为空`);
+        continue;
+      }
+      if (!payload.level1Name || !payload.level2Name || !payload.level3Name || !payload.level4Name) {
+        errors.push(`第 ${li + 1} 行：各级行业名称均必填`);
+        continue;
+      }
+      if (!payload.code) {
+        payload.code = typeof toScopedIndustryCode === 'function'
+          ? toScopedIndustryCode(payload.cascadeCode)
+          : payload.cascadeCode;
+      }
+      const row = typeof Store !== 'undefined' ? Store.addIndustryConfigRow(payload) : null;
+      if (row) added += 1;
+      else skipped += 1;
+    }
+    return { ok: added > 0 || !errors.length, added, skipped, errors };
   }
 };
 
@@ -326,8 +449,11 @@ function saveIndustryConfigFilters(filters) {
 }
 
 function readIndustryConfigFilterInputs() {
+  const tags = typeof qsa === 'function'
+    ? qsa('.icf_tag_check:checked').map(el => el.value).filter(Boolean)
+    : [];
   return {
-    tag: qs('#icf_tag')?.value || '',
+    tags,
     keyword: qs('#icf_keyword')?.value || ''
   };
 }

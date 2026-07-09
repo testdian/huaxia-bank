@@ -9,7 +9,9 @@ const CollectGroups = {
 
   BUCKET_LABELS: {
     non_project: '非项目',
-    project: '项目'
+    project: '项目',
+    project_as_project: '项目（以项目方式计算）',
+    project_as_non_project: '项目（以非项目方式计算）'
   },
 
   resolveCreditCode(formal, candidate) {
@@ -55,8 +57,20 @@ const CollectGroups = {
   isProjectBucket(formal, candidate) {
     const row = formal || candidate;
     if (!row) return false;
+    const type = typeof resolveAccountingType === 'function' ? resolveAccountingType(row) : row.accountingType;
+    if (type === 'project_as_project' || type === 'project_as_non_project') return true;
     if (typeof candidateIsProjectType === 'function' && candidateIsProjectType(row)) return true;
     return (row.bizType || '') === 'project';
+  },
+
+  /** 从 formal 推导精确的项目 bucket 类型 */
+  resolveProjectBucket(formal, candidate) {
+    const row = formal || candidate;
+    if (!row) return 'project';
+    const type = typeof resolveAccountingType === 'function' ? resolveAccountingType(row) : row.accountingType;
+    if (type === 'project_as_project') return 'project_as_project';
+    if (type === 'project_as_non_project') return 'project_as_non_project';
+    return 'project';
   },
 
   formalCreditRefNo(formal) {
@@ -217,13 +231,14 @@ const CollectGroups = {
           || leadRow.tier1Branch
           || leadRow.branch;
         const dispatchRule = branches.length > 1 ? 'first_disbursement' : 'single_branch';
+        const projectBucket = this.resolveProjectBucket(leadRow, leadCand);
         seq += 1;
         groups.push({
           id: `G${taskId}_${seq}`,
           taskId,
           creditCode: creditCode.startsWith('NAME:') ? '' : creditCode,
           customerName,
-          bucket: 'project',
+          bucket: projectBucket,
           creditRefNo: creditRef.startsWith('UNKNOWN_') ? '' : creditRef,
           loanType: loanType.startsWith('UNKNOWN_') ? '' : loanType,
           projectName: this.formalProjectName(leadRow) || creditRef,
@@ -260,7 +275,9 @@ const CollectGroups = {
 
   syncGroupSupplementState(groups, supplements) {
     (groups || []).forEach(g => {
-      const sup = (supplements || []).find(s => s.collectGroupId === g.id || s.id === g.supplementId);
+      const sup = (supplements || []).find(s =>
+        (s.collectGroupId === g.id || s.id === g.supplementId) && s.dispatchedAt
+      );
       if (sup) {
         g.supplementId = sup.id;
         g.status = sup.status === 'completed' ? 'completed' : 'dispatched';

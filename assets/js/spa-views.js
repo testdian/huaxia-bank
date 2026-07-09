@@ -2,9 +2,10 @@
 const SPA_VIEWS = {};
 
 function roleFilterSupplements(supps, roleKey, role) {
-  if (roleKey === 'branch' && role.branch) return supps.filter(s => s.branch === role.branch);
-  if (roleKey === 'manager') return supps.filter(s => s.manager === role.user);
-  return supps;
+  let list = (supps || []).filter(s => s.dispatchedAt);
+  if (roleKey === 'branch' && role.branch) list = list.filter(s => s.branch === role.branch);
+  if (roleKey === 'manager') list = list.filter(s => s.manager === role.user);
+  return list;
 }
 
 SPA_VIEWS['#/dashboard'] = function(ctx) {
@@ -330,8 +331,7 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
     const members = (g.memberFormalIds || []).map(fid => formals.find(f => f.id === fid)).filter(Boolean);
     const primary = members[0];
     const calc = primary ? calcsByFormal.get(primary.id) : null;
-    const statusCol = collectGroupStatusBadge(g, supp, taskId, d);
-    const auditCol = collectGroupAuditBadge(g, supp, task, d);
+    const dataStatusCol = dataStatusBadge(primary, supp, taskId, d);
     const { systemHtml: systemEntityCol, manualHtml: manualEntityCol, effectiveHtml: effectiveEntityCol } =
       primary ? formatDataCollectEmissionCells(primary, supp, calc) : { systemHtml: '—', manualHtml: '—', effectiveHtml: '—' };
     const canDispatch = !viewOnly && !supp && g.status === 'pending';
@@ -368,22 +368,21 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         </span>
       </td>
       <td>${g.creditCode || '—'}</td>
-      <td>${collectGroupBucketDisplay(g)}</td>
+      <td>${collectGroupBucketDisplay(g, d)}</td>
       <td>${g.memberCount || members.length || 0}</td>
       <td>${g.dispatchBranch || '—'}</td>
       <td>${g.assignedManager || '—'}</td>
       <td>${g.accountingIndustryLabel || g.accountingIndustryCode || '—'}${industryNote}</td>
       <td>${primary ? systemAccountingMethodBadge(primary, taskId, d) : '—'}</td>
       <td>${systemEntityCol}</td>
-      <td>${primary ? manualAccountingMethodBadge(primary, taskId, d) : '—'}</td>
+      <td>${primary ? manualAccountingMethodBadge(primary, taskId, d, supp) : '—'}</td>
       <td>${manualEntityCol}</td>
       <td>${effectiveEntityCol}</td>
-      <td>${statusCol}</td>
-      <td>${auditCol}</td>
+      <td>${dataStatusCol}</td>
       <td>${ops.join(' ')}</td>
     </tr>
     <tr class="collect-group-detail-row" data-detail-for="${g.id}" hidden>
-      <td colspan="16">${memberTable}</td>
+      <td colspan="15">${memberTable}</td>
     </tr>`;
   }).join('');
   const collectDone = Store.isDataCollectionComplete(taskId);
@@ -407,11 +406,8 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
         <fieldset class="view-mode-fieldset"${viewOnly ? ' disabled' : ''}>
         <div class="filter-extra task-filter-grid">
           <div class="form-item"><label>客户名称</label><input id="dcf_keyword" placeholder="模糊搜索" value="${filters.keyword || ''}"></div>
-          <div class="form-item"><label>收集状态</label>
-            <select id="dcf_collect_status">${renderDataCollectCollectionStatusOptions(filters.collectStatus || filters.status || '')}</select>
-          </div>
-          <div class="form-item"><label>审核状态</label>
-            <select id="dcf_audit_status">${renderDataCollectAuditStatusOptions(filters.auditStatus || '')}</select>
+          <div class="form-item"><label>数据状态</label>
+            <select id="dcf_data_status">${renderDataStatusOptions(filters.dataStatus || '')}</select>
           </div>
           <div class="form-item"><label>&nbsp;</label>
             <div style="display:flex;gap:8px">
@@ -425,9 +421,9 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
           <th class="col-select"><label class="dispatch-check-all-label"><input type="checkbox" id="dispatchCheckAll" title="全选可派发归集单元" ${viewOnly ? 'disabled' : ''}><span>全选</span></label></th>
-          <th>客户</th><th>信用代码</th><th>业务种类</th><th>归并笔数</th><th>下发分行</th><th>主办客户经理</th><th>归集核算行业</th><th>系统核算方法</th><th>系统主体排放（tCO₂e）</th><th>手动核算方法</th><th>手动主体排放（tCO₂e）</th><th>排放结果（tCO₂e）</th><th>收集状态</th><th>审核状态</th><th>操作</th>
+          <th>客户</th><th>信用代码</th><th>业务种类</th><th>归并笔数</th><th>下发分行</th><th>主办客户经理</th><th>归集核算行业</th><th>系统核算方法</th><th>系统主体排放（tCO₂e）</th><th>手动核算方法</th><th>手动主体排放（tCO₂e）</th><th>排放结果（tCO₂e）</th><th>数据状态</th><th>操作</th>
         </tr></thead>
-        <tbody id="dispatchTbody">${rowsHtml || `<tr><td colspan="16" style="text-align:center;padding:32px;color:#909399">${groups.length ? '无符合筛选条件的归集单元' : '暂无归集单元，请先锁定正式清单后点击「刷新归集」'}</td></tr>`}</tbody>
+        <tbody id="dispatchTbody">${rowsHtml || `<tr><td colspan="15" style="text-align:center;padding:32px;color:#909399">${groups.length ? '无符合筛选条件的归集单元' : '暂无归集单元，请先锁定正式清单后点击「刷新归集」'}</td></tr>`}</tbody>
       </table></div></div>`;
 };
 
@@ -625,7 +621,7 @@ SPA_VIEWS['#/factors'] = function(ctx) {
     <h1 class="page-title">排放因子库</h1>
     <div class="toolbar">
       <a href="#/factors/new" class="btn btn-primary">新增因子</a>
-      <a href="#/factors/import" class="btn">导入因子</a>
+      <button type="button" class="btn" id="factorBatchImportBtn">批量导入</button>
     </div>
     <div class="card">
       <div class="card-header"><h3>筛选条件</h3></div>
