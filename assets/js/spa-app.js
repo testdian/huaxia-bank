@@ -80,7 +80,13 @@ function route() {
       return;
     }
   }
-  const title = ROUTE_TITLES[base] || '投融资碳核算';
+  const title = (() => {
+    if (base === '#/method-config/templates/edit') {
+      const mode = new URLSearchParams((location.hash.split('?')[1] || '')).get('mode');
+      if (mode === 'view') return '查看核算模板';
+    }
+    return ROUTE_TITLES[base] || '投融资碳核算';
+  })();
   const ctx = renderSpaLayout(title);
   const fn = SPA_VIEWS[base] || SPA_VIEWS['#/tasks'];
   const root = document.getElementById('viewRoot');
@@ -101,6 +107,9 @@ function route() {
   root.innerHTML = fn(ctx);
   dismissSpaOverlays();
   bindPageEvents(base, ctx);
+  if (typeof BatchImportDevSpec !== 'undefined') {
+    BatchImportDevSpec.bindBatchImportDevHints(root);
+  }
   document.title = title + ' - 华夏银行投融资碳核算';
 }
 
@@ -128,6 +137,33 @@ function bindParamFormFormatPanels() {
   bindEnumTagInput();
 }
 
+function resolveMethodIdFromName(nameOrId) {
+  if (!nameOrId) return nameOrId;
+  const methods = (typeof GUIDE !== 'undefined' && GUIDE.METHODS) ? GUIDE.METHODS : [];
+  const byId = methods.find(m => m.id === nameOrId);
+  if (byId) return byId.id;
+  const byName = methods.find(m => m.name === nameOrId);
+  if (byName) return byName.id;
+  return nameOrId;
+}
+
+function syncMethodCollectHintForWrap(wrap) {
+  if (!wrap || typeof METHOD_CONFIG === 'undefined') return;
+  const input = wrap.querySelector('.method-combo-input');
+  const hintEl = wrap.parentElement?.querySelector('[data-method-collect-hint]')
+    || wrap.closest('.form-item')?.querySelector('[data-method-collect-hint]');
+  if (!input || !hintEl) return;
+  const methodId = resolveMethodIdFromName((input.value || '').trim());
+  const hint = METHOD_CONFIG.getMethodCollectHint(methodId);
+  if (!hint) {
+    hintEl.hidden = true;
+    hintEl.innerHTML = '';
+    return;
+  }
+  hintEl.hidden = false;
+  hintEl.innerHTML = `<strong>${escapeHtml(hint.title)}</strong><p>${escapeHtml(hint.text)}</p>`;
+}
+
 /** 绑定核算方法 combobox（模板新建/编辑） */
 function bindMethodCombo() {
   qsa('.method-combo-wrap').forEach(wrap => {
@@ -138,6 +174,7 @@ function bindMethodCombo() {
     const dropdown = wrap.querySelector('.method-combo-dropdown');
     const arrow = wrap.querySelector('.param-units-drop-arrow');
     if (!field || !input || !dropdown) return;
+    const syncHint = () => syncMethodCollectHintForWrap(wrap);
     let open = false;
     const openDrop = () => {
       open = true;
@@ -161,8 +198,11 @@ function bindMethodCombo() {
         e.stopPropagation();
         input.value = opt.dataset.value || opt.textContent.trim();
         closeDrop();
+        syncHint();
       });
     });
+    input.addEventListener('input', syncHint);
+    syncHint();
     document.addEventListener('click', function onOutside(e) {
       if (!wrap.isConnected) {
         document.removeEventListener('click', onOutside);
@@ -170,15 +210,6 @@ function bindMethodCombo() {
       }
       if (!wrap.contains(e.target)) closeDrop();
     });
-  });
-}
-
-function readUploadFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('读取文件失败'));
-    reader.readAsText(file, 'UTF-8');
   });
 }
 
@@ -192,14 +223,14 @@ function openParamBatchImportModal() {
   BatchImportModal.open({
     title: '导入',
     step1Text: '1、请下载参数导入模板，按模板格式填写参数信息',
-    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
-    accept: '.xlsx,.xls,.csv,text/csv',
+    step2Text: BATCH_IMPORT_STEP2_TEXT,
+    accept: BATCH_IMPORT_ACCEPT,
     onDownloadTemplate: () => METHOD_CONFIG.downloadParamImportTemplate(),
     getHistory: () => Store.getParamImportHistory(),
     getRecord: (id) => Store.getParamImportRecord(id),
     onConfirm: async (file, onDone) => {
       try {
-        const text = await readUploadFileAsText(file);
+        const text = await readBatchImportFileAsText(file);
         const result = METHOD_CONFIG.importParamsFromCsv(text);
         const total = result.added + result.skipped + (result.errors?.length || 0);
         const status = resolveImportStatus(result.added, Math.max(total, result.added), result.errors);
@@ -230,14 +261,14 @@ function openIndustryBatchImportModal() {
   BatchImportModal.open({
     title: '导入',
     step1Text: '1、请下载行业配置导入模板，按模板格式填写行业信息',
-    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
-    accept: '.xlsx,.xls,.csv,text/csv',
+    step2Text: BATCH_IMPORT_STEP2_TEXT,
+    accept: BATCH_IMPORT_ACCEPT,
     onDownloadTemplate: () => IndustryConfig.downloadImportTemplate(),
     getHistory: () => Store.getIndustryImportHistory(),
     getRecord: (id) => Store.getIndustryImportRecord(id),
     onConfirm: async (file, onDone) => {
       try {
-        const text = await readUploadFileAsText(file);
+        const text = await readBatchImportFileAsText(file);
         const result = IndustryConfig.importFromCsv(text);
         const total = result.added + result.skipped + (result.errors?.length || 0);
         const status = resolveImportStatus(result.added, Math.max(total, result.added), result.errors);
@@ -268,8 +299,8 @@ function openFactorBatchImportModal() {
   BatchImportModal.open({
     title: '导入',
     step1Text: '1、请下载排放因子导入模板，按模板格式填写因子信息',
-    step2Text: '2、上传文件，支持格式为：xlsx、csv，单个文件最大不超过 200M',
-    accept: '.xlsx,.xls,.csv,text/csv',
+    step2Text: BATCH_IMPORT_STEP2_TEXT,
+    accept: BATCH_IMPORT_ACCEPT,
     onDownloadTemplate: () => downloadFactorImportTemplate(),
     getHistory: () => Store.getFactorImportHistory(),
     getRecord: (id) => Store.getFactorImportRecord(id),
@@ -307,12 +338,46 @@ function bindEnumTagInput() {
     items.forEach((v, i) => {
       const span = document.createElement('span');
       span.className = 'enum-tag';
+      span.draggable = true;
       span.dataset.idx = i;
       span.innerHTML = `${escapeHtml(v)}<button type="button" class="enum-tag-remove" aria-label="删除">×</button>`;
-      span.querySelector('.enum-tag-remove').onclick = () => {
+      span.querySelector('.enum-tag-remove').onclick = (e) => {
+        e.stopPropagation();
         items.splice(i, 1);
         syncHidden(); renderTags();
       };
+      span.addEventListener('dragstart', (e) => {
+        if (e.target.closest('.enum-tag-remove')) {
+          e.preventDefault();
+          return;
+        }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(i));
+        span.classList.add('enum-tag--dragging');
+      });
+      span.addEventListener('dragend', () => {
+        span.classList.remove('enum-tag--dragging');
+        qsa('.enum-tag', listEl).forEach(el => el.classList.remove('enum-tag--drag-over'));
+      });
+      span.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        span.classList.add('enum-tag--drag-over');
+      });
+      span.addEventListener('dragleave', () => {
+        span.classList.remove('enum-tag--drag-over');
+      });
+      span.addEventListener('drop', (e) => {
+        e.preventDefault();
+        span.classList.remove('enum-tag--drag-over');
+        const from = Number(e.dataTransfer.getData('text/plain'));
+        const to = i;
+        if (Number.isNaN(from) || from === to || from < 0 || from >= items.length) return;
+        const [moved] = items.splice(from, 1);
+        items.splice(to, 0, moved);
+        syncHidden();
+        renderTags();
+      });
       listEl.insertBefore(span, input);
     });
   }
@@ -344,132 +409,20 @@ function bindEnumTagInput() {
   });
 
   wrap.addEventListener('click', () => input.focus());
+  renderTags();
 }
 
 function bindParamIndustryCombo() {
-  const wrap = qs('#paramIndustryComboWrap');
-  const hidden = qs('#applyIndustryCombined');
-  const field = qs('#paramIndustryComboField');
-  const tagsEl = qs('#paramIndustryTags');
-  const dropdown = qs('#paramIndustryDropdown');
-  const optionsEl = qs('#paramIndustryOptions');
-  const inlineInput = qs('#paramIndustryInlineInput');
-  const arrow = qs('#paramIndustryDropArrow');
-  if (!wrap || !hidden || !field || !tagsEl || !dropdown || !optionsEl) return;
+  bindIndustryCombo({ prefix: 'param', multiple: true });
+}
 
-  let selected = [];
-  try {
-    const parsed = JSON.parse(hidden.value || '[]');
-    selected = Array.isArray(parsed) ? parsed.map(v => String(v).trim()).filter(Boolean) : [];
-  } catch (_) { selected = []; }
-  let dropOpen = false;
+function bindMethodConfigIndustryCombo({ prefix, includeOtherAll = false }) {
+  bindIndustryCombo({ prefix, multiple: true, includeOtherAll });
+}
 
-  // 从行业配置取分组数据
-  function getGroups() {
-    const pboRows = [];
-    const bankRows = [];
-    const hasCfg = typeof IndustryConfig !== 'undefined' && IndustryConfig.getRows().length > 0;
-    if (hasCfg) {
-      IndustryConfig.getRows().forEach(r => {
-        const code = r.code || r.cascadeCode || '';
-        const name = r.level4Name || r.name || '';
-        if (!code) return;
-        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_PBO_EIGHT)) pboRows.push({ code, label: `${code} ${name}` });
-        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR)) bankRows.push({ code, label: `${code} ${name}` });
-      });
-    }
-    if (!pboRows.length && typeof INDUSTRY_TABLE !== 'undefined') {
-      INDUSTRY_TABLE.forEach(r => pboRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
-    }
-    if (!bankRows.length && typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined') {
-      INDUSTRY_BANK_MAJOR_TABLE.forEach(r => bankRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
-    }
-    return [
-      { groupLabel: '人行八大高碳行业', rows: pboRows },
-      { groupLabel: '我行主要行业', rows: bankRows }
-    ];
-  }
-
-  function syncHidden() { hidden.value = JSON.stringify(selected); }
-
-  function addItem(code) {
-    const v = String(code || '').trim();
-    if (!v || selected.includes(v)) return;
-    selected.push(v);
-    syncHidden(); renderTags(); renderOptions();
-  }
-
-  function removeItem(code) {
-    selected = selected.filter(c => c !== code);
-    syncHidden(); renderTags(); renderOptions();
-  }
-
-  function renderTags() {
-    tagsEl.innerHTML = selected.map(code => {
-      const groups = getGroups();
-      let label = code;
-      groups.forEach(g => { const r = g.rows.find(r => r.code === code); if (r) label = r.label; });
-      return `<span class="param-units-tag">
-        ${escapeHtml(label)}
-        <button type="button" class="param-units-tag-remove" data-code="${escapeHtml(code)}" aria-label="移除">×</button>
-      </span>`;
-    }).join('');
-    qsa('.param-units-tag-remove', tagsEl).forEach(btn => {
-      btn.onclick = (e) => { e.stopPropagation(); removeItem(btn.dataset.code); };
-    });
-  }
-
-  function renderOptions() {
-    const groups = getGroups();
-    let html = '';
-    groups.forEach(g => {
-      if (!g.rows.length) return;
-      html += `<div class="param-units-group-label">${escapeHtml(g.groupLabel)}</div>`;
-      g.rows.forEach(({ code, label }) => {
-        const isSel = selected.includes(code);
-        html += `<div class="param-units-option${isSel ? ' is-selected' : ''}" data-code="${escapeHtml(code)}">
-          <span class="param-units-option-check">${isSel ? '✓' : ''}</span>
-          <span>${escapeHtml(label)}</span>
-        </div>`;
-      });
-    });
-    optionsEl.innerHTML = html || '<div class="param-units-empty">暂无行业数据，请先在行业配置中导入</div>';
-    qsa('.param-units-option', optionsEl).forEach(opt => {
-      opt.onclick = (e) => {
-        e.stopPropagation();
-        const code = opt.dataset.code;
-        if (selected.includes(code)) removeItem(code);
-        else addItem(code);
-      };
-    });
-  }
-
-  function openDropdown() {
-    dropOpen = true; dropdown.style.display = 'block';
-    if (arrow) arrow.textContent = '▲';
-    renderOptions();
-  }
-  function closeDropdown() {
-    dropOpen = false; dropdown.style.display = 'none';
-    if (arrow) arrow.textContent = '▼';
-  }
-
-  field.onclick = (e) => {
-    if (e.target.closest('.param-units-tag-remove')) return;
-    if (dropOpen) closeDropdown(); else openDropdown();
-    inlineInput?.focus();
-  };
-  inlineInput?.addEventListener('focus', () => { if (!dropOpen) openDropdown(); });
-  inlineInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeDropdown();
-  });
-
-  document.addEventListener('click', function onOutside(e) {
-    if (!wrap.contains(e.target)) closeDropdown();
-    if (!qs('#paramIndustryComboWrap')) document.removeEventListener('click', onOutside);
-  });
-
-  renderTags(); syncHidden();
+function bindTemplateIndustryCombo() {
+  bindMethodConfigIndustryCombo({ prefix: 'tplMeta', includeOtherAll: true });
+  bindMethodConfigIndustryCombo({ prefix: 'tplCreate', includeOtherAll: true });
 }
 
 function bindParamUnitsCombo() {
@@ -663,7 +616,101 @@ function bindTaskCreatePage() {
   bindTaskYearStepper(qs('#viewRoot'));
   bindTaskDeadlineValidation(qs('#viewRoot'));
 }
+
+async function handleMethodConfigParamListClick(e) {
+  if (location.hash.split('?')[0] !== '#/method-config/params') return;
+  const copyBtn = e.target.closest('[data-param-copy]');
+  if (copyBtn) {
+    const id = copyBtn.dataset.paramCopy;
+    if (!id) return;
+    const result = METHOD_CONFIG.copyParam(id);
+    if (!result.ok) {
+      toast(result.message, 'error');
+      return;
+    }
+    toast(`已复制为「${result.param?.name || '副本'}」`, 'success');
+    route();
+    return;
+  }
+  const delBtn = e.target.closest('[data-param-delete]');
+  if (delBtn) {
+    const id = delBtn.dataset.paramDelete;
+    if (!id) return;
+    const ok = await showConfirmDialog({
+      message: `是否确认删除参数「${id}」？`,
+      detail: '若已被模板引用将无法删除。',
+      danger: true
+    });
+    if (!ok) return;
+    const result = METHOD_CONFIG.deleteParam(id);
+    if (!result.ok) {
+      alert(result.message);
+      return;
+    }
+    toast(result.message, 'success');
+    route();
+    return;
+  }
+  const toggleBtn = e.target.closest('[data-param-toggle]');
+  if (toggleBtn) {
+    const result = METHOD_CONFIG.toggleParamStatus(toggleBtn.dataset.paramToggle);
+    toast(result.message, result.ok ? 'success' : 'error');
+    if (result.ok) route();
+  }
+}
+
+async function handleMethodConfigTemplateListClick(e) {
+  if (location.hash.split('?')[0] !== '#/method-config/templates') return;
+  const copyBtn = e.target.closest('[data-tpl-copy]');
+  if (copyBtn) {
+    const result = METHOD_CONFIG.copyTemplateAsDraft(copyBtn.dataset.tplCopy);
+    toast(result.message, result.ok ? 'success' : 'error');
+    if (result.ok) {
+      location.hash = `#/method-config/templates/edit?id=${encodeURIComponent(result.id)}&step=1`;
+    }
+    return;
+  }
+  const delBtn = e.target.closest('[data-tpl-delete]');
+  if (delBtn) {
+    const tpl = METHOD_CONFIG.templates.find(t => t.id === delBtn.dataset.tplDelete);
+    const isPublished = tpl?.status === 'published';
+    const isDraft = tpl?.status === 'draft';
+    let message = '是否确认删除该模板？';
+    let detail = '';
+    if (isPublished) {
+      message = '是否确认删除该已发布模板？';
+      detail = '删除后不可恢复；历史数据采集仍绑定原发布版本，不受影响。';
+    } else if (isDraft) {
+      message = '是否确认删除该草稿模板？';
+    }
+    const ok = await showConfirmDialog({
+      message,
+      detail,
+      danger: true
+    });
+    if (!ok) return;
+    const result = METHOD_CONFIG.deleteTemplate(delBtn.dataset.tplDelete);
+    toast(result.message, result.ok ? 'success' : 'error');
+    if (result.ok) route();
+    return;
+  }
+}
+
+function ensureMethodConfigListClickHandlers() {
+  const root = document.getElementById('viewRoot');
+  if (!root) return;
+  if (root.dataset.methodConfigParamListClick !== '1') {
+    root.dataset.methodConfigParamListClick = '1';
+    root.addEventListener('click', handleMethodConfigParamListClick);
+  }
+  if (root.dataset.methodConfigTplListClick !== '1') {
+    root.dataset.methodConfigTplListClick = '1';
+    root.addEventListener('click', handleMethodConfigTemplateListClick);
+  }
+}
+
 function bindPageEvents(base, ctx) {
+  ensureMethodConfigListClickHandlers();
   const taskId = ctx?.task?.id ?? '';
   let paginationHook = null;
   const viewOnly = isTaskViewMode();
@@ -908,6 +955,39 @@ function bindPageEvents(base, ctx) {
       setListPage('approvals', 1);
       route();
     });
+    qs('#approvalBatchSelectAll')?.addEventListener('change', e => {
+      qsa('.approval-batch-check:not(:disabled)').forEach(cb => { cb.checked = e.target.checked; });
+    });
+    qs('#branchBatchApproveBtn')?.addEventListener('click', async () => {
+      const ids = qsa('.approval-batch-check:checked').filter(cb => cb.dataset.batchKind === 'approve').map(cb => cb.value);
+      if (!ids.length) {
+        toast('请先勾选待分行初审记录', 'warning');
+        return;
+      }
+      const ok = await showConfirmDialog({
+        message: '是否确认批量审核通过？',
+        detail: `本次将处理 <strong>${ids.length}</strong> 笔记录。审核通过后需勾选并点击「一键提交数据」提交总行终审。`
+      });
+      if (!ok) return;
+      const count = Store.bulkApproveBranchSupplements(taskId, ids);
+      toast(count ? `已批量审核通过 ${count} 笔` : '没有可批量审核的记录', count ? 'success' : 'warning');
+      route();
+    });
+    qs('#branchSubmitToHqBtn')?.addEventListener('click', async () => {
+      const ids = qsa('.approval-batch-check:checked').filter(cb => cb.dataset.batchKind === 'submit').map(cb => cb.value);
+      if (!ids.length) {
+        toast('请先勾选分行初审已通过的记录', 'warning');
+        return;
+      }
+      const ok = await showConfirmDialog({
+        message: '是否确认一键提交数据至总行终审？',
+        detail: `本次将提交 <strong>${ids.length}</strong> 笔记录，提交后审核状态将变为待审核，审核环节为总行终审。`
+      });
+      if (!ok) return;
+      const count = Store.bulkSubmitBranchApprovedToHq(taskId, ids);
+      toast(count ? `已提交 ${count} 笔至总行终审` : '没有可提交的记录', count ? 'success' : 'warning');
+      route();
+    });
   }
 
   if (base === '#/manager-tasks') {
@@ -1087,6 +1167,7 @@ function bindPageEvents(base, ctx) {
     bindSupplementMethodTabs(!editable, root);
     SUPPLEMENT_FIELDS.bindFileUpload(root, sid, !editable);
     SUPPLEMENT_FIELDS.bindReportAttachmentRule(root, !editable);
+    SUPPLEMENT_FIELDS.bindProjectInfoChoice(root, !editable);
     if (!editable) return;
     const save = (complete) => {
       const s = Store.get().supplements.find(x => x.id === sid);
@@ -1150,6 +1231,7 @@ function bindPageEvents(base, ctx) {
       bindSupplementMethodTabs(false, root);
       SUPPLEMENT_FIELDS.bindFileUpload(root, sid, false);
       SUPPLEMENT_FIELDS.bindReportAttachmentRule(root, false);
+      SUPPLEMENT_FIELDS.bindProjectInfoChoice(root, false);
 
       const saveAuditEdit = (complete) => {
         const s = Store.get().supplements.find(x => x.id === sid);
@@ -1178,31 +1260,28 @@ function bindPageEvents(base, ctx) {
           return;
         }
         const finishAuditEdit = (extra) => {
-          const ok = Store.submitSupplementAfterAuditEdit(approvalId, extra || {});
-          const tid = approval?.taskId || taskId;
-          if (!ok) {
-            toast('提交失败，请刷新后重试', 'warning');
-            return;
-          }
-          if (approval?.reviewLevel === 'branch') {
-            const task = Store.getTask(approval?.taskId || taskId);
-            toast(
-              task?.initiatorOrg === 'branch'
-                ? '数据已提交，分行审核通过'
-                : '数据已提交，分行审核通过，已提交总行审批',
-              'success'
-            );
-          } else {
-            toast('数据已提交，审核通过', 'success');
-          }
-          location.hash = '#/approvals?taskId=' + tid;
+          const proceed = () => {
+            const ok = Store.submitSupplementAfterAuditEdit(approvalId, extra || {});
+            const tid = approval?.taskId || taskId;
+            if (!ok) {
+              toast('提交失败，请刷新后重试', 'warning');
+              return;
+            }
+            if (approval?.reviewLevel === 'branch') {
+              toast('数据已提交，分行审核通过', 'success');
+            } else {
+              toast('数据已提交，审核通过', 'success');
+            }
+            location.hash = '#/approvals?taskId=' + tid;
+          };
+          beginSupplementApprovalPass(approval, extra, proceed);
         };
         if (approval?.reviewLevel === 'branch') {
           openSupplementMethodApprovalConfirm(approval, (approved, _reason, extra) => {
             if (approved) finishAuditEdit(extra);
           });
         } else {
-          finishAuditEdit();
+          finishAuditEdit({});
         }
       };
 
@@ -1250,10 +1329,25 @@ function bindPageEvents(base, ctx) {
     });
     qs('#approvalApproveBtn')?.addEventListener('click', () => {
       const approval = (Store.get().approvals || []).find(a => a.id === approvalId);
+      const runApprove = (approved, rejectReason, extra) => finishReview(approved, rejectReason, extra);
       if (approval?.docType === 'supplement' && approval?.reviewLevel === 'branch') {
-        openSupplementMethodApprovalConfirm(approval, finishReview);
+        openSupplementMethodApprovalConfirm(approval, (approved, reason, extra) => {
+          if (!approved) {
+            finishReview(false, reason, extra);
+            return;
+          }
+          beginSupplementApprovalPass(approval, extra, () => finishReview(true, undefined, extra));
+        });
+      } else if (approval?.docType === 'supplement') {
+        openApprovalActionConfirm('approve', (approved, reason, extra) => {
+          if (!approved) {
+            finishReview(false, reason, extra);
+            return;
+          }
+          beginSupplementApprovalPass(approval, extra || {}, () => finishReview(true, undefined, extra));
+        });
       } else {
-        openApprovalActionConfirm('approve', finishReview);
+        openApprovalActionConfirm('approve', runApprove);
       }
     });
     qs('#approvalRejectBtn')?.addEventListener('click', () => {
@@ -1345,15 +1439,19 @@ function bindPageEvents(base, ctx) {
       route();
     });
     qsa('.ca-account-status-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const accountId = btn.dataset.id;
         const nextStatus = btn.dataset.action;
         const label = CarbonAccount.ACCOUNT_STATUS_LABEL[nextStatus] || nextStatus;
         const acc = Store.getCarbonAccount(accountId);
         const curLabel = CarbonAccount.ACCOUNT_STATUS_LABEL[acc?.status || 'active'] || '正常';
         const subCount = CarbonAccount.getProjectSubAccountCount(acc);
-        const subTip = subCount > 0 ? `\n\n将同步影响 ${subCount} 个项目子账户。` : '';
-        if (!confirm(`确认将「${acc?.customerName || accountId}」从【${curLabel}】变更为【${label}】？${subTip}\n\n操作将记入账户日志。`)) return;
+        const subTip = subCount > 0 ? `<br>将同步影响 <strong>${subCount}</strong> 个项目子账户。` : '';
+        const ok = await showConfirmDialog({
+          message: `是否确认将「${acc?.customerName || accountId}」从【${curLabel}】变更为【${label}】？`,
+          detail: `${subTip}操作将记入账户日志。`.replace(/^<br>/, '')
+        });
+        if (!ok) return;
         const r = Store.setCarbonAccountStatus(accountId, nextStatus, Store.get().currentRole);
         if (!r?.ok) {
           toast(r?.message || '状态变更失败', 'warning');
@@ -1371,6 +1469,7 @@ function bindPageEvents(base, ctx) {
       bindSupplementMethodTabs(!!caSupplementRoot.classList.contains('is-readonly'), caSupplementRoot);
       const isCaEdit = !!qs('#caProfileForm');
       SUPPLEMENT_FIELDS.bindReportAttachmentRule(caSupplementRoot, !isCaEdit);
+      if (isCaEdit) SUPPLEMENT_FIELDS.bindProjectInfoChoice(caSupplementRoot, false);
     }
     const navigateCaAccountView = (accountId, year, sub, tab) => {
       const p = new URLSearchParams({ id: accountId, tab: tab || 'profile' });
@@ -1379,6 +1478,10 @@ function bindPageEvents(base, ctx) {
       location.hash = '#/carbon-account?' + p.toString();
     };
     const saveCaProfile = () => {
+      if (!canEditCarbonAccount(Store.get().currentRole)) {
+        toast('仅总行可编辑企业碳账户', 'warning');
+        return;
+      }
       const form = qs('#caProfileForm');
       if (!form) return;
       const supplementRoot = qs('.ca-profile-supplement');
@@ -1501,8 +1604,12 @@ function bindPageEvents(base, ctx) {
       };
     });
     qsa('.ic-del-btn').forEach(btn => {
-      btn.onclick = () => {
-        if (!confirm('确定删除该行业分类？')) return;
+      btn.onclick = async () => {
+        const ok = await showConfirmDialog({
+          message: '是否确认删除该行业分类？',
+          danger: true
+        });
+        if (!ok) return;
         if (Store.deleteIndustryConfigRow(btn.dataset.id)) {
           toast('已删除', 'success');
           route();
@@ -1518,8 +1625,12 @@ function bindPageEvents(base, ctx) {
       toast('菜单权限已保存', 'success');
       route();
     });
-    qs('#menuPermResetBtn')?.addEventListener('click', () => {
-      if (!confirm('恢复为默认菜单配置？（基础配置默认不展示）')) return;
+    qs('#menuPermResetBtn')?.addEventListener('click', async () => {
+      const ok = await showConfirmDialog({
+        message: '是否确认恢复为默认菜单配置？',
+        detail: '基础配置默认不展示。'
+      });
+      if (!ok) return;
       MenuPermissions.resetVisibility();
       toast('已恢复默认', 'success');
       route();
@@ -1527,23 +1638,61 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/factors') {
-    qs('#ff_search')?.addEventListener('click', () => {
-      const f = readFactorFilterInputsFromDom();
-      saveFactorFilters(f);
-      setListPage('factors', 1);
-      route();
+    qsa('[data-factor-version-rank]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rank = Number(btn.dataset.factorVersionRank);
+        if (!rank) return;
+        setFactorListVersionRank(rank);
+        setListPage('factors', 1);
+        route();
+      });
     });
-    qs('#ff_reset')?.addEventListener('click', () => {
-      saveFactorFilters({});
+    qsa('[data-factor-category-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const raw = btn.dataset.factorCategoryKey || 'all';
+        const key = raw === 'all' ? 'all' : decodeURIComponent(raw);
+        setFactorListCategoryKey(key);
+        setListPage('factors', 1);
+        route();
+      });
+    });
+    if (typeof bindFactorCategorySidebarToggle === 'function') {
+      bindFactorCategorySidebarToggle(qs('#viewRoot'));
+    }
+    qs('#factorVersionTabAdd')?.addEventListener('click', async () => {
+      const dialog = await openFactorVersionAddDialog(Store.get().factors);
+      if (!dialog?.ok) return;
+      if (dialog.mode === 'import') {
+        setFactorListVersionRank(dialog.nextRank);
+        setListPage('factors', 1);
+        route();
+        setTimeout(() => openFactorBatchImportModal(), 0);
+        return;
+      }
+      const result = createFactorLibraryNextVersion(Store.get().factors, {
+        methodIds: dialog.methodIds,
+        sourceRank: dialog.prevRank
+      });
+      if (!result.added) {
+        toast('未新增任何因子版本，可能所选方法在上一版本中均已存在下一版本', 'warning');
+        return;
+      }
+      setFactorListVersionRank(result.nextRank);
       setListPage('factors', 1);
+      toast(`已新增 ${result.added} 条因子版本${result.skipped ? `，跳过 ${result.skipped} 条` : ''}`, 'success');
       route();
     });
     qsa('.factor-del-group-btn').forEach(btn => {
-      btn.onclick = () => {
-        const key = decodeURIComponent(btn.dataset.groupKey || '');
+      btn.onclick = async () => {
+        const key = decodeFactorGroupKeyAttr(btn.dataset.groupKey || '');
         const g = typeof findFactorGroup === 'function' ? findFactorGroup(Store.get().factors, key) : null;
-        const tip = g?.isBuiltin && !g?.isCustom ? '\n\n含人行/指引内置因子，删除后不可恢复。' : '';
-        if (!confirm(`确定删除该因子？${tip}`)) return;
+        const tip = g?.isBuiltin && !g?.isCustom ? '含人行/指引内置因子，删除后不可恢复。' : '';
+        const ok = await showConfirmDialog({
+          message: '是否确认删除该因子？',
+          detail: tip,
+          danger: true
+        });
+        if (!ok) return;
         if (Store.deleteFactorGroup(key)) {
           toast('已删除', 'success');
           route();
@@ -1557,22 +1706,11 @@ function bindPageEvents(base, ctx) {
     });
     qsa('.factor-view-btn').forEach(btn => {
       btn.onclick = () => {
-        const key = decodeURIComponent(btn.dataset.groupKey || '');
+        const key = decodeFactorGroupKeyAttr(btn.dataset.groupKey || '');
         if (key) openFactorGroupViewModal(key, Store.get().factors);
         else {
           const f = Store.getFactor(btn.dataset.id);
           if (f) openFactorViewModal(f);
-        }
-      };
-    });
-    qsa('.factor-del-btn').forEach(btn => {
-      btn.onclick = () => {
-        const f = Store.getFactor(btn.dataset.id);
-        const tip = f?.isBuiltin ? '\n\n该因子为人行/指引内置，删除后不可恢复。' : '';
-        if (!confirm(`确定删除因子「${f ? factorDisplayName(f) : btn.dataset.id}」？${tip}`)) return;
-        if (Store.deleteFactor(btn.dataset.id)) {
-          toast('已删除', 'success');
-          route();
         }
       };
     });
@@ -1623,21 +1761,34 @@ function bindPageEvents(base, ctx) {
       setListPage('ledger_tasks', 1);
       route();
     });
-    qs('#ledgerExportBtn')?.addEventListener('click', () => {
-      const filters = getLedgerFilters();
-      const tasks = filterLedgerTasks(Store.get().tasks, filters, Store.get().currentRole);
-      if (!tasks.length) {
-        toast('没有可导出的台账数据', 'warning');
-        return;
-      }
-      exportLedgerDetailCsv(tasks, filters);
-      toast(`已导出 ${tasks.length} 个任务的排放计算清单`, 'success');
-    });
   }
 
   if (base === '#/ledger/detail') {
     bindCollectGroupExpandRows(qs('#viewRoot'));
     const taskId = new URLSearchParams((location.hash.split('?')[1] || '')).get('taskId') || ctx?.task?.id || '';
+    const runLedgerDetailExport = (bucket) => {
+      const t = Store.getTask(taskId);
+      const filters = getLedgerFilters();
+      const groups = getLedgerDetailGroups(taskId, filters);
+      const { nonProject, project } = splitLedgerDetailGroupsByBucket(groups);
+      const hasData = bucket === 'non_project' ? nonProject.length
+        : bucket === 'project' ? project.length
+          : groups.length;
+      if (!hasData) {
+        toast('当前筛选无数据可导出', 'warning');
+        return;
+      }
+      const ok = exportLedgerDetailGroupCsv(t, filters, { bucket });
+      if (!ok) {
+        toast('导出失败，请重试', 'warning');
+        return;
+      }
+      const label = bucket === 'non_project' ? '非项目' : bucket === 'project' ? '项目' : '全部';
+      toast(`已导出${label}排放计算清单`, 'success');
+    };
+    qs('#ledgerExportNonProjectBtn')?.addEventListener('click', () => runLedgerDetailExport('non_project'));
+    qs('#ledgerExportProjectBtn')?.addEventListener('click', () => runLedgerDetailExport('project'));
+    qs('#ledgerExportAllBtn')?.addEventListener('click', () => runLedgerDetailExport('all'));
     qs('#ledgerDetailFilterBtn')?.addEventListener('click', () => {
       saveLedgerFilters({
         branch: qs('#ldf_branch')?.value || '',
@@ -1655,69 +1806,31 @@ function bindPageEvents(base, ctx) {
       location.hash = '#/ledger/detail?taskId=' + encodeURIComponent(taskId);
       route();
     });
-    qs('#ledgerDetailExportBtn')?.addEventListener('click', () => {
-      const t = Store.getTask(taskId);
-      const filters = getLedgerFilters();
-      const groups = getLedgerDetailGroups(taskId, filters);
-      if (!groups.length) {
-        toast('当前筛选无数据可导出', 'warning');
-        return;
-      }
-      exportLedgerDetailGroupCsv(t, filters);
-      toast('已导出排放计算清单', 'success');
-    });
   }
 
   if (base === '#/method-config/params') {
-    qs('#paramFilterForm')?.addEventListener('submit', e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const q = new URLSearchParams();
-      ['kw', 'category', 'industry', 'status'].forEach(k => {
-        const v = (fd.get(k) || '').toString().trim();
-        if (v) q.set(k, v);
+    const paramFilterForm = qs('#paramFilterForm');
+    if (paramFilterForm && paramFilterForm.dataset.bound !== '1') {
+      paramFilterForm.dataset.bound = '1';
+      paramFilterForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const q = new URLSearchParams();
+        ['kw', 'category', 'industry', 'status'].forEach(k => {
+          const v = (fd.get(k) || '').toString().trim();
+          if (v) q.set(k, v);
+        });
+        location.hash = `#/method-config/params${q.toString() ? `?${q}` : ''}`;
       });
-      location.hash = `#/method-config/params${q.toString() ? `?${q}` : ''}`;
-    });
-    qs('#paramFilterResetBtn')?.addEventListener('click', () => {
-      location.hash = '#/method-config/params';
-    });
+    }
+    const paramFilterResetBtn = qs('#paramFilterResetBtn');
+    if (paramFilterResetBtn && paramFilterResetBtn.dataset.bound !== '1') {
+      paramFilterResetBtn.dataset.bound = '1';
+      paramFilterResetBtn.addEventListener('click', () => {
+        location.hash = '#/method-config/params';
+      });
+    }
     qs('#paramBatchImportBtn')?.addEventListener('click', () => openParamBatchImportModal());
-    qs('#viewRoot')?.addEventListener('click', e => {
-      const copyBtn = e.target.closest('[data-param-copy]');
-      if (copyBtn) {
-        const id = copyBtn.dataset.paramCopy;
-        if (!id) return;
-        const result = METHOD_CONFIG.copyParam(id);
-        if (!result.ok) {
-          toast(result.message, 'error');
-          return;
-        }
-        toast(`已复制为「${result.param?.name || '副本'}」`, 'success');
-        route();
-        return;
-      }
-      const delBtn = e.target.closest('[data-param-delete]');
-      if (delBtn) {
-        const id = delBtn.dataset.paramDelete;
-        if (!id) return;
-        if (!confirm(`确定删除参数「${id}」？\n\n若已被模板引用将无法删除。`)) return;
-        const result = METHOD_CONFIG.deleteParam(id);
-        if (!result.ok) {
-          alert(result.message);
-          return;
-        }
-        toast(result.message, 'success');
-        route();
-        return;
-      }
-      const toggleBtn = e.target.closest('[data-param-toggle]');
-      if (toggleBtn) {
-        const result = METHOD_CONFIG.toggleParamStatus(toggleBtn.dataset.paramToggle);
-        toast(result.message, result.ok ? 'success' : 'error');
-        if (result.ok) route();
-      }
-    });
   }
 
   if (base === '#/method-config/params/new' || base === '#/method-config/params/edit') {
@@ -1738,48 +1851,32 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/method-config/templates') {
-    qs('#tplFilterForm')?.addEventListener('submit', e => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const q = new URLSearchParams();
-      if (fd.get('kw')) q.set('kw', fd.get('kw'));
-      if (fd.get('industry')) q.set('industry', fd.get('industry'));
-      if (fd.get('method')) q.set('method', fd.get('method'));
-      if (fd.get('status')) q.set('status', fd.get('status'));
-      location.hash = `#/method-config/templates${q.toString() ? `?${q}` : ''}`;
-    });
-    qs('#tplFilterResetBtn')?.addEventListener('click', () => {
-      location.hash = '#/method-config/templates';
-    });
-    qs('#viewRoot')?.addEventListener('click', e => {
-      const copyBtn = e.target.closest('[data-tpl-copy]');
-      if (copyBtn) {
-        const result = METHOD_CONFIG.copyTemplateAsDraft(copyBtn.dataset.tplCopy);
-        toast(result.message, result.ok ? 'success' : 'error');
-        if (result.ok) {
-          location.hash = `#/method-config/templates/edit?id=${encodeURIComponent(result.id)}&step=1`;
-        }
-        return;
-      }
-      const delBtn = e.target.closest('[data-tpl-delete]');
-      if (delBtn) {
-        if (!confirm('确定删除该草稿模板？')) return;
-        const result = METHOD_CONFIG.deleteTemplate(delBtn.dataset.tplDelete);
-        toast(result.message, result.ok ? 'success' : 'error');
-        if (result.ok) route();
-        return;
-      }
-      const toggleBtn = e.target.closest('[data-tpl-toggle]');
-      if (toggleBtn) {
-        const result = METHOD_CONFIG.toggleTemplateEnabled(toggleBtn.dataset.tplToggle);
-        toast(result.message, result.ok ? 'success' : 'error');
-        if (result.ok) route();
-      }
-    });
+    const tplFilterForm = qs('#tplFilterForm');
+    if (tplFilterForm && tplFilterForm.dataset.bound !== '1') {
+      tplFilterForm.dataset.bound = '1';
+      tplFilterForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const q = new URLSearchParams();
+        if (fd.get('kw')) q.set('kw', fd.get('kw'));
+        if (fd.get('industry')) q.set('industry', fd.get('industry'));
+        if (fd.get('method')) q.set('method', fd.get('method'));
+        if (fd.get('status')) q.set('status', fd.get('status'));
+        location.hash = `#/method-config/templates${q.toString() ? `?${q}` : ''}`;
+      });
+    }
+    const tplFilterResetBtn = qs('#tplFilterResetBtn');
+    if (tplFilterResetBtn && tplFilterResetBtn.dataset.bound !== '1') {
+      tplFilterResetBtn.dataset.bound = '1';
+      tplFilterResetBtn.addEventListener('click', () => {
+        location.hash = '#/method-config/templates';
+      });
+    }
   }
 
   if (base === '#/method-config/templates/new') {
     bindMethodCombo();
+    bindTemplateIndustryCombo();
     qs('#tplCreateBtn')?.addEventListener('click', () => {
       const form = qs('#tplCreateForm');
       if (!form?.reportValidity()) return;
@@ -1789,14 +1886,20 @@ function bindPageEvents(base, ctx) {
         toast('请至少选择一个适用场景', 'warning');
         return;
       }
+      const industries = METHOD_CONFIG.parseIndustriesCombined(fd.get('industryCombined'));
+      if (!industries.length) {
+        toast('请至少选择一个适用行业', 'warning');
+        return;
+      }
       const result = METHOD_CONFIG.createTemplate({
         templateName: (fd.get('templateName') || '').toString().trim(),
-        industry: (fd.get('industry') || '').toString().trim(),
+        industries,
         subCategory: (fd.get('subCategory') || '').toString().trim(),
         methodId: resolveMethodIdFromName((fd.get('methodId') || '').toString().trim()),
         priority: fd.get('priority'),
         applyScene,
-        description: (fd.get('description') || '').toString().trim()
+        description: (fd.get('description') || '').toString().trim(),
+        factorVersionRank: fd.get('factorVersionRank')
       });
       if (!result.ok) {
         toast(result.message, result.id ? 'warning' : 'error');
@@ -1815,6 +1918,7 @@ function bindPageEvents(base, ctx) {
   if (base === '#/method-config/templates/edit') {
     MethodConfigEditor.bindTemplateEdit();
     bindMethodCombo();
+    bindTemplateIndustryCombo();
   }
 
   bindListPagination(paginationHook);
@@ -1823,14 +1927,24 @@ function bindPageEvents(base, ctx) {
 function bindFactorForm(base) {
   const form = qs('#factorForm');
   if (!form) return;
-  bindFactorGbIndustrySearch(form.closest('.card-body') || qs('#viewRoot'));
+  bindFactorUnitCombo(form.closest('.card-body') || form);
+  bindIndustryCombo({
+    prefix: 'factor',
+    multiple: false,
+    includeOther: true
+  });
 
-  qs('#factorEditDelBtn')?.addEventListener('click', () => {
+  qs('#factorEditDelBtn')?.addEventListener('click', async () => {
     const editId = form.dataset.factorId;
     if (!editId) return;
     const f = Store.getFactor(editId);
-    const tip = f?.isBuiltin ? '\n\n该因子为人行/指引内置，删除后不可恢复。' : '';
-    if (!confirm(`确定删除因子「${f ? factorDisplayName(f) : editId}」？${tip}`)) return;
+    const tip = f?.isBuiltin ? '该因子为人行/指引内置，删除后不可恢复。' : '';
+    const ok = await showConfirmDialog({
+      message: `是否确认删除因子「${f ? factorDisplayName(f) : editId}」？`,
+      detail: tip,
+      danger: true
+    });
+    if (!ok) return;
     if (Store.deleteFactor(editId)) {
       toast('已删除', 'success');
       location.hash = '#/factors';
@@ -1840,48 +1954,44 @@ function bindFactorForm(base) {
   qs('#factorMethodSelect')?.addEventListener('change', () => {
     if (form.dataset.factorId) return;
     const m = qs('#factorMethodSelect').value;
-    const ind = qs('#factorIndustrySelect')?.value || '';
-    location.hash = '#/factors/new?method=' + encodeURIComponent(m) + (ind ? '&industry=' + encodeURIComponent(ind) : '');
-  });
-
-  qs('#factorIndustrySelect')?.addEventListener('change', () => {
-    const m = qs('#factorMethodSelect')?.value || 'energy';
-    const ind = qs('#factorIndustrySelect')?.value || '';
-    if (form.dataset.factorId) {
-      if (m === 'economy') route();
-      return;
-    }
-    location.hash = '#/factors/new?method=' + encodeURIComponent(m) + (ind ? '&industry=' + encodeURIComponent(ind) : '');
+    const code = qs('#factorIndustryCombined')?.value || '';
+    location.hash = '#/factors/new?method=' + encodeURIComponent(m) + (code ? '&code=' + encodeURIComponent(code) : '');
   });
 
   form.addEventListener('submit', e => {
     e.preventDefault();
     if (!form.reportValidity()) return;
     const payload = readFactorFormPayload(form);
-    if (!payload.sourceNote) {
-      toast('请填写来源说明', 'warning');
+    if (!payload.factorName) {
+      toast('请填写因子名称', 'warning');
       return;
     }
-    if (payload.methodId === 'economy' && !payload.gbCode) {
-      toast('请选择 GB/T 4754 四级行业', 'warning');
+    if (payload.value == null || Number.isNaN(payload.value)) {
+      toast('请填写因子数值', 'warning');
+      return;
+    }
+    if (!payload.unit) {
+      toast('请填写因子单位', 'warning');
       return;
     }
     if (!payload.industryMajor) {
-      toast('请选择行业大类', 'warning');
+      toast('请选择行业', 'warning');
       return;
     }
     const editId = form.dataset.factorId;
     const formMode = form.dataset.formMode || 'create';
     if (editId) {
-      if (!Store.updateFactor(editId, payload)) {
-        toast('保存失败，请刷新后重试', 'warning');
+      const result = Store.saveFactorVersion(editId, payload);
+      if (!result.ok) {
+        if (result.reason === 'duplicate_year') toast('该适用年度版本已存在，请更换年度或编辑对应版本', 'warning');
+        else toast('保存失败，请刷新后重试', 'warning');
         return;
       }
-      toast('已保存', 'success');
+      toast(result.mode === 'create' ? '已保存为新版本' : '已保存', 'success');
     } else {
       const added = Store.addFactor(payload);
       if (!added) {
-        toast('已存在相同因子，请直接编辑或调整口径/名称', 'warning');
+        toast('该因子在此适用年度已存在，请通过版本管理编辑', 'warning');
         return;
       }
       toast('已新增自定义因子', 'success');
@@ -2060,6 +2170,7 @@ function openCaHistoryModal(accountId) {
     ...(d.carbonAccountRecords || []).filter(r => r.accountId === acc.id).map(r => String(r.year))
   ]);
   const allYears = [...yearSet].filter(Boolean).sort((a, b) => b.localeCompare(a));
+  const canEdit = canEditCarbonAccount(Store.get().currentRole);
 
   const tbody = allYears.map(yearStr => {
     const metrics = CarbonAccount.resolveYearMetrics(d, acc, yearStr);
@@ -2075,7 +2186,7 @@ function openCaHistoryModal(accountId) {
       <td>${statusBadge}</td>
       <td>
         <a href="${viewHref}" class="btn-link" onclick="hideModal('reviewModal')">查看</a>
-        ${isActive ? `<a href="${editHref}" class="btn-link" onclick="hideModal('reviewModal')" style="margin-left:6px">编辑</a>` : ''}
+        ${isActive && canEdit ? `<a href="${editHref}" class="btn-link" onclick="hideModal('reviewModal')" style="margin-left:6px">编辑</a>` : ''}
       </td>
     </tr>`;
   }).join('') || `<tr><td colspan="5" style="text-align:center;padding:24px;color:#909399">暂无历年记录</td></tr>`;

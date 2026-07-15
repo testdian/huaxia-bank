@@ -577,17 +577,31 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
   const roleScoped = filterApprovalsForRole(Store.get().approvals || [], roleKey, ctx.role, task.id);
   const all = filterApprovalList(roleScoped, filters);
   const view = paginateData(listKey, all);
+  const canBatchBranch = roleKey === 'branch' && twoLevel;
+  const batchableApprovals = canBatchBranch
+    ? all.filter(a => a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canUserReviewApproval(a, roleKey))
+    : [];
+  const submittableApprovals = canBatchBranch
+    ? all.filter(a => isBranchApprovedReadyForHqSubmit(a, ctx.data))
+    : [];
   return `
     <h1 class="page-title">数据审核</h1>
     <div class="card">
       <div class="card-header"><h3>筛选条件</h3></div>
       ${renderApprovalFilterPanel(filters)}
-      <div class="card-body table-wrap"><table class="data-table">
-    <thead><tr><th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th><th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
+      <div class="card-body table-wrap${canBatchBranch ? ' approval-table-body' : ''}">
+      ${canBatchBranch ? `<div class="toolbar approval-batch-toolbar">
+        <button type="button" class="btn btn-primary" id="branchBatchApproveBtn" ${batchableApprovals.length ? '' : 'disabled'}>批量审核通过</button>
+        <button type="button" class="btn btn-primary" id="branchSubmitToHqBtn" ${submittableApprovals.length ? '' : 'disabled'}>一键提交数据</button>
+      </div>` : ''}
+      <table class="data-table">
+    <thead><tr>${canBatchBranch ? '<th class="col-select col-no-resize"><input type="checkbox" id="approvalBatchSelectAll" title="选择当前页待分行初审"></th>' : ''}<th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th><th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
     ${twoLevel ? '<th>当前审批人</th><th>下一节点审批人</th>' : '<th>审批人</th><th>审批时间</th>'}
     <th>操作</th></tr></thead>
     <tbody>${view.rows.map((a, i) => {
       const canReview = canUserReviewApproval(a, roleKey);
+      const canBatchRow = canBatchBranch && a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canReview;
+      const canSubmitRow = canBatchBranch && isBranchApprovedReadyForHqSubmit(a, ctx.data);
       const ops = [];
       if (canReview) ops.push(`<a href="#/approval-review?approvalId=${a.id}&mode=review" class="btn-link">审核</a>`);
       ops.push(`<a href="#/approval-review?approvalId=${a.id}&mode=view" class="btn-link">查看</a>`);
@@ -596,6 +610,7 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
         : `<td>${a.approver || approvalCurrentApproverLabel(a, task) || '-'}</td><td>${a.approveTime || '-'}</td>`;
       const reviewStage = a.reviewLevel ? reviewLevelLabel(a.reviewLevel) : approvalDocTypeLabel(a.docType);
       return `<tr>
+      ${canBatchBranch ? `<td class="col-select"><input type="checkbox" class="approval-batch-check" value="${a.id}" data-batch-kind="${canBatchRow ? 'approve' : (canSubmitRow ? 'submit' : '')}" ${(canBatchRow || canSubmitRow) ? '' : 'disabled'}></td>` : ''}
       <td>${view.startIndex + i + 1}</td>
       <td>${approvalTaskName(a)}</td>
       <td>${approvalTaskYear(a)}</td>
@@ -607,33 +622,53 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
       ${approverCols}
       <td>${ops.join(' · ')}</td>
     </tr>`;
-    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${twoLevel ? 12 : 11}" style="text-align:center;padding:32px;color:#909399">${roleScoped.length ? '无符合筛选条件的审核记录' : '当前角色下无可见审核记录'}</td></tr>` : ''}</tbody></table></div>
+    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${(twoLevel ? 12 : 11) + (canBatchBranch ? 1 : 0)}" style="text-align:center;padding:32px;color:#909399">${roleScoped.length ? '无符合筛选条件的审核记录' : '当前角色下无可见审核记录'}</td></tr>` : ''}</tbody></table></div>
     ${renderPagination(listKey, view)}</div>`;
 };
 
 SPA_VIEWS['#/factors'] = function(ctx) {
-  const filters = getFactorFilters();
   const all = ctx.data.factors || [];
-  const groups = filterFactorGroups(all, filters);
+  const versionRanks = collectFactorLibraryVersionRanks(all);
+  const activeRank = Math.min(getFactorListVersionRank(), versionRanks.length || 1);
+  if (activeRank !== getFactorListVersionRank()) setFactorListVersionRank(activeRank);
+  let versionGroups = groupFactorRecords(all);
+  versionGroups = applyFactorListVersionRank(versionGroups, activeRank);
+  const categoryTabs = collectFactorCategoryTabs(versionGroups);
+  let categoryKey = getFactorListCategoryKey();
+  if (categoryKey !== 'all' && !categoryTabs.some(t => t.key === categoryKey)) {
+    categoryKey = 'all';
+    setFactorListCategoryKey('all');
+  }
+  const groups = filterFactorGroupsByCategory(versionGroups, categoryKey);
   const listKey = 'factors';
   const view = paginateData(listKey, groups);
+  const latestRank = versionRanks.length ? versionRanks[versionRanks.length - 1] : 1;
+  let versionLabel = formatFactorVersionNo(activeRank);
+  if (activeRank === latestRank) versionLabel += '（最新版本）';
   return `
     <h1 class="page-title">排放因子库</h1>
-    <div class="toolbar">
-      <a href="#/factors/new" class="btn btn-primary">新增因子</a>
-      <button type="button" class="btn" id="factorBatchImportBtn">批量导入</button>
-    </div>
-    <div class="card">
-      <div class="card-header"><h3>筛选条件</h3></div>
-      ${renderFactorFilterPanel(filters, all)}
-      <div class="card-body" style="padding-top:0">
-      <div class="table-wrap"><table class="data-table">
-        <thead>${renderFactorTableHead('unified')}</thead>
-        <tbody>${view.rows.length
-          ? view.rows.map(g => renderFactorGroupTableRow(g)).join('')
-          : `<tr><td colspan="8" style="text-align:center;padding:24px;color:#909399">暂无匹配的因子</td></tr>`}
-        </tbody></table></div>
-      ${renderPagination(listKey, view)}
+    <div class="card factor-library-card">
+      ${renderFactorVersionTabBar(all, activeRank)}
+      <div class="factor-library-body${isFactorCategorySidebarCollapsed() ? ' is-category-sidebar-collapsed' : ''}" id="factorLibraryBody">
+        ${renderFactorCategoryTabBar(versionGroups, categoryKey)}
+        <div class="factor-library-main">
+          <div class="card-body" style="padding-top:0">
+          <div class="factor-library-main-toolbar">
+            <span class="factor-library-version-ops-label">当前版本：${escapeHtml(versionLabel)}</span>
+            <div class="factor-library-version-ops">
+              <a href="#/factors/new" class="btn btn-primary">新增因子</a>
+              <button type="button" class="btn" id="factorBatchImportBtn">批量导入</button>
+            </div>
+          </div>
+          <div class="table-wrap"><table class="data-table">
+            <thead>${renderFactorTableHead('unified')}</thead>
+            <tbody>${view.rows.length
+              ? view.rows.map(g => renderFactorGroupTableRow(g)).join('')
+              : `<tr><td colspan="9" style="text-align:center;padding:24px;color:#909399">当前版本暂无匹配的因子</td></tr>`}
+            </tbody></table></div>
+          ${renderPagination(listKey, view)}
+          </div>
+        </div>
       </div>
     </div>`;
 };
@@ -680,19 +715,32 @@ SPA_VIEWS['#/factors/new'] = function(ctx) {
   const copyId = params.get('copy');
   const methodParam = params.get('method') || 'energy';
   const industryParam = params.get('industry') || '';
+  const codeParam = params.get('code') || '';
   let seed = null;
   if (copyId) {
     seed = Store.getFactor(copyId);
     if (seed) {
-      seed = { ...seed, id: undefined, isBuiltin: false, sourceNote: '' };
+      const g = typeof findFactorGroup === 'function'
+        ? findFactorGroup(Store.get().factors || [], factorGroupKey(seed))
+        : null;
+      const years = g?.versionYears?.length ? g.versionYears : [normalizeFactorVersionYear(seed)];
+      const nextYear = Math.max(...years, new Date().getFullYear()) + 1;
+      seed = {
+        ...seed,
+        id: undefined,
+        isBuiltin: false,
+        sourceNote: '',
+        factorName: typeof getFactorName === 'function' ? getFactorName(seed) : seed.factorName,
+        versionYear: nextYear
+      };
     }
   }
   return `
     <h1 class="page-title">新增排放因子</h1>
-    <p class="page-desc">${copyId ? '基于已有因子复制为新因子' : '自定义因子需填写来源说明；报告法无因子表，不在此维护'}</p>
+    <p class="page-desc">${copyId ? '基于已有因子复制为新版本' : '字段：因子口径、计算方法、行业、适用年度、因子名称、因子数值、因子单位、因子来源（选填）'}</p>
     <div class="card"><div class="card-body">
       <form id="factorForm" novalidate data-form-mode="create">
-        ${renderFactorFormFields(seed?.methodId || methodParam, seed?.industryMajor || industryParam, seed, {
+        ${renderFactorFormFields(seed?.methodId || methodParam, seed?.industryMajor || industryParam, seed || (codeParam ? { gbCode: codeParam, industryMajor: industryParam } : null), {
           formMode: 'create'
         })}
         <div class="toolbar" style="margin-top:16px">
@@ -710,17 +758,12 @@ SPA_VIEWS['#/factors/edit'] = function(ctx) {
     return `<h1 class="page-title">编辑排放因子</h1><p class="page-desc">未找到因子 <code>${id || ''}</code></p>
       <a href="#/factors" class="btn">返回列表</a>`;
   }
-  const typeHint = f.isBuiltin ? '人行/指引内置因子，修改后将影响后续匹配（已完成的核算任务仍使用锁定快照）' : '自定义因子需填写来源说明';
   return `
     <h1 class="page-title">编辑排放因子</h1>
-    <p class="page-desc">${factorDisplayName(f)} · ${f.id}${f.isBuiltin ? ' · 人行口径' : ''}</p>
-    ${f.isBuiltin ? '<div class="demo-tip" style="margin-bottom:12px">' + typeHint + '</div>' : ''}
+    <p class="page-desc">字段：因子口径、计算方法、行业、适用年度、因子名称、因子数值、因子单位、因子来源（选填）</p>
     <div class="card"><div class="card-body">
       <form id="factorForm" data-factor-id="${f.id}" novalidate data-form-mode="edit">
-        ${renderFactorFormFields(f.methodId, f.industryMajor, f, {
-          identityReadonly: true,
-          formMode: 'edit'
-        })}
+        ${renderFactorFormFields(f.methodId, f.industryMajor, f, { formMode: 'edit' })}
         <div class="toolbar" style="margin-top:16px">
           <a href="#/factors" class="btn">取消</a>
           <button type="submit" class="btn btn-primary">保存</button>
@@ -1118,7 +1161,7 @@ function renderCaTrendTable(trend) {
   if (!trend.length) return '<p style="color:#909399">暂无年度数据</p>';
   return `<table class="data-table"><thead><tr>
     <th>年度</th><th>笔数</th><th>核算方法</th><th>主体排放(tCO₂e)</th>
-    <th>营业收入(元)</th><th>碳强度(tCO₂e/元收入)</th>
+    <th>营业收入(元)</th><th>碳强度(tCO₂e/万元)</th>
   </tr></thead>
   <tbody>${trend.map(t => `<tr>
     <td>${t.year}</td><td>${t.count || '—'}</td><td>${t.method || '—'}</td><td>${t.entity != null ? formatNum(t.entity) : '—'}</td>
@@ -1190,25 +1233,32 @@ function renderCaAccountActions(row, roleKey, accountingYear, options = {}) {
   const yearQ = rowYear ? `&year=${encodeURIComponent(rowYear)}` : (accountingYear ? `&year=${encodeURIComponent(accountingYear)}` : '');
   const subQ = row.isSubAccount && row.projectNo ? `&sub=${encodeURIComponent(row.projectNo)}` : '';
   const isActive = CarbonAccount.isAccountActive(acc);
+  const isCancelled = CarbonAccount.isAccountCancelled(acc);
+  const canEdit = canEditCarbonAccount(roleKey);
+  const canManageStatus = canManageCarbonAccountStatus(roleKey);
   const view = `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&tab=profile" class="btn-link">查看</a>`;
-  const edit = isActive
-    ? `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&mode=edit" class="btn-link">编辑</a>`
-    : `<span class="btn-link is-disabled" title="仅正常状态可编辑" style="color:#c0c4cc;cursor:not-allowed">编辑</span>`;
+  const edit = !canEdit || isCancelled
+    ? ''
+    : (isActive
+      ? `<a href="#/carbon-account?id=${encodeURIComponent(accountId)}${yearQ}${subQ}&mode=edit" class="btn-link">编辑</a>`
+      : `<span class="btn-link is-disabled" title="仅正常状态可编辑" style="color:#c0c4cc;cursor:not-allowed">编辑</span>`);
   const historyBtn = showHistory
     ? `<button type="button" class="btn-link ca-history-btn" data-id="${accountId}">历年记录</button>`
     : '';
+  const statusBtns = canManageStatus && !row.isSubAccount
+    ? CarbonAccount.getAccountStatusActions(acc.status).map(o =>
+      `<button type="button" class="btn-link ca-account-status-btn" data-id="${acc.id}" data-action="${o.next}">${o.label}</button>`
+    ).join('')
+    : '';
 
   if (row.isSubAccount) {
-    return `<span class="actions">${view} ${edit}</span>`;
+    return `<span class="actions">${view}${edit ? ' ' + edit : ''}</span>`;
   }
-  if (roleKey !== 'hq') {
-    return `<span class="actions">${view} ${edit}${historyBtn ? ' ' + historyBtn : ''}</span>`;
-  }
-  const ops = CarbonAccount.getAccountStatusActions(acc.status);
-  const btns = ops.map(o =>
-    `<button type="button" class="btn-link ca-account-status-btn" data-id="${acc.id}" data-action="${o.next}">${o.label}</button>`
-  ).join('');
-  return `<span class="actions">${view} ${edit} ${historyBtn}${btns ? ' ' + btns : ''}</span>`;
+  const parts = [view];
+  if (edit) parts.push(edit);
+  if (historyBtn) parts.push(historyBtn);
+  if (statusBtns) parts.push(statusBtns);
+  return `<span class="actions">${parts.join(' ')}</span>`;
 }
 
 function renderCaStatusHistoryPanel(acc) {
@@ -1250,7 +1300,7 @@ function renderCaAccountPageFooter(isEditMode) {
 
 SPA_VIEWS['#/ledger'] = function(ctx) {
   const roleKey = Store.get().currentRole;
-  const filters = getLedgerFilters();
+  const filters = getRoleScopedLedgerFilters(getLedgerFilters(), roleKey);
   const filtered = filterLedgerTasks(ctx.data.tasks, filters, roleKey);
   const listKey = 'ledger_tasks';
   const view = paginateData(listKey, filtered);
@@ -1259,17 +1309,16 @@ SPA_VIEWS['#/ledger'] = function(ctx) {
     <div class="card">
       <div class="card-header"><h3>查询条件</h3></div>
       <div class="filter-panel">
-        <div class="filter-extra task-list-filter-grid">
+        <div class="filter-extra ledger-list-filter-grid">
           <div class="form-item"><label>任务名称</label><input id="lf_task_name" placeholder="模糊搜索" value="${escapeHtml(filters.taskName || '')}"></div>
           <div class="form-item"><label>核算年度</label>${renderTaskYearFilterField(filters.year, 'lf_year')}</div>
           <div class="form-item"><label>数据行业范围</label>
             ${renderTaskIndustryScopeFilterSelect('lf_data_industry', filters.dataIndustryScope || filters.investIndustryScope || filters.industryScope)}
           </div>
-          <div class="form-item"><label>&nbsp;</label>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="form-item filter-action-cell"><label>&nbsp;</label>
+            <div class="filter-action-btns">
               <button type="button" class="btn btn-primary" id="ledgerFilterBtn">查询</button>
               <button type="button" class="btn" id="ledgerFilterResetBtn">重置</button>
-              <button type="button" class="btn" id="ledgerExportBtn">导出</button>
             </div>
           </div>
         </div>
@@ -1301,27 +1350,32 @@ SPA_VIEWS['#/ledger'] = function(ctx) {
 SPA_VIEWS['#/ledger/detail'] = function(ctx) {
   const taskId = getQuery('taskId') || ctx.task.id;
   const t = Store.getTask(taskId) || ctx.task;
-  const filters = getLedgerFilters();
+  const roleKey = Store.get().currentRole;
+  const filters = getRoleScopedLedgerFilters(getLedgerFilters(), roleKey);
   const d = Store.get();
   const sections = renderLedgerDetailGroupSections(taskId, filters, d);
   normalizeTaskIndustryFields(t);
   return `
-    <div class="toolbar" style="margin-bottom:12px">
+    <div class="toolbar ledger-detail-toolbar">
       <a href="#/ledger" class="btn">← 返回台账列表</a>
+      <div class="ledger-export-actions">
+        <span class="ledger-export-label">导出清单</span>
+        <button type="button" class="btn" id="ledgerExportNonProjectBtn">非项目</button>
+        <button type="button" class="btn" id="ledgerExportProjectBtn">项目</button>
+        <button type="button" class="btn btn-primary" id="ledgerExportAllBtn">全部</button>
+      </div>
     </div>
     <h1 class="page-title">排放计算清单</h1>
+    <p class="page-desc">${escapeHtml(t.name || '')} · ${t.year}年 · ${renderTaskDataIndustryScopeCell(t)}</p>
     <div class="card">
-      <div class="card-header">
-        <h3>筛选</h3>
-        <button type="button" class="btn btn-sm" id="ledgerDetailExportBtn">导出</button>
-      </div>
+      <div class="card-header"><h3>筛选</h3></div>
       <div class="filter-panel">
-        <div class="filter-extra task-list-filter-grid">
-          <div class="form-item"><label>一级分行</label>${renderLedgerBranchFilterSelect('ldf_branch', filters.branch)}</div>
+        <div class="filter-extra ledger-detail-filter-grid">
+          <div class="form-item"><label>一级分行</label>${renderLedgerBranchFilterSelect('ldf_branch', filters.branch, roleKey === 'branch')}</div>
           <div class="form-item"><label>经办行</label>${renderLedgerHandlingBranchFilterSelect('ldf_handling', filters.handlingBranch)}</div>
           <div class="form-item"><label>客户名称</label><input id="ldf_customer" placeholder="模糊搜索" value="${escapeHtml(filters.customer || '')}"></div>
-          <div class="form-item"><label>&nbsp;</label>
-            <div style="display:flex;gap:8px">
+          <div class="form-item filter-action-cell"><label>&nbsp;</label>
+            <div class="filter-action-btns">
               <button type="button" class="btn btn-primary" id="ledgerDetailFilterBtn">查询</button>
               <button type="button" class="btn" id="ledgerDetailFilterResetBtn">重置</button>
             </div>
@@ -1456,7 +1510,10 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
     return `<h1 class="page-title">企业碳账户</h1><p class="page-desc">未找到账户</p>
       <a href="#/carbon-accounts" class="btn">返回列表</a>`;
   }
-  const isEditMode = params.get('mode') === 'edit' && CarbonAccount.isAccountActive(acc);
+  const roleKey = Store.get().currentRole;
+  const isEditMode = params.get('mode') === 'edit'
+    && CarbonAccount.isAccountActive(acc)
+    && canEditCarbonAccount(roleKey);
   const activeTab = isEditMode ? 'profile' : normalizedTab;
   const scopeYear = params.get('year') || getCaListFilters().accountingYear || null;
   const trendRecords = CarbonAccount.collectTrendRecordsForAccount(d, acc);
@@ -1473,7 +1530,7 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
       (!isEditMode ? renderCaStatusHistoryPanel(acc) : '');
   } else if (activeTab === 'trend') {
     const entitySeries = [{ key: 'entity', label: '主体排放 (tCO₂e)', color: '#2d8f4e' }];
-    const intensitySeries = [{ key: 'intensity', label: '碳强度 (tCO₂e/元收入)', color: '#d48806' }];
+    const intensitySeries = [{ key: 'intensity', label: '碳强度 (tCO₂e/万元)', color: '#d48806' }];
     panel = `<div class="ca-trend-grid">
       <div class="card ca-trend-chart-card">
         <div class="card-header ca-trend-chart-header">
@@ -1488,7 +1545,6 @@ SPA_VIEWS['#/carbon-account'] = function(ctx) {
           ${renderCaChartLegend(intensitySeries)}
         </div>
         <div class="card-body">
-          <p class="ca-chart-hint">碳强度 = 主体碳排放 ÷ 营业收入，单位：tCO₂e / 元收入；营收为 0 时无法计算，图中以 — 标示</p>
           ${renderCaLineChart(trend, intensitySeries, { hideLegend: true })}
         </div>
       </div>

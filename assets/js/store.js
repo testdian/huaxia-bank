@@ -67,10 +67,21 @@ const Store = {
     try {
       const d = JSON.parse(raw);
       let changed = false;
+      const supplementCompleted = (formalId, groupId) => (d.supplements || []).some(s =>
+        s.status === 'completed' && (s.formalId === formalId || (groupId && s.collectGroupId === groupId))
+      );
       (d.candidates || []).forEach(c => {
         if (c.accountingType === 'project_pending') {
           c.accountingType = null;
           changed = true;
+        }
+        const relatedFormal = (d.formalList || []).find(f => f.customerId === c.id);
+        const collectDone = relatedFormal && supplementCompleted(relatedFormal.id, relatedFormal.collectGroupId);
+        if (candidateIsProjectType(c) && !collectDone
+          && (c.accountingType === 'project_as_project' || c.accountingType === 'project_as_non_project')) {
+          c.accountingType = null;
+          changed = true;
+          return;
         }
         const next = resolveAccountingType(c);
         if (next && c.accountingType !== next) {
@@ -82,6 +93,13 @@ const Store = {
         if (f.accountingType === 'project_pending') {
           f.accountingType = null;
           changed = true;
+        }
+        const collectDone = supplementCompleted(f.id, f.collectGroupId);
+        if (candidateIsProjectType(f) && !collectDone
+          && (f.accountingType === 'project_as_project' || f.accountingType === 'project_as_non_project')) {
+          f.accountingType = null;
+          changed = true;
+          return;
         }
         const next = resolveAccountingType(f);
         if (next && f.accountingType !== next) {
@@ -107,6 +125,16 @@ const Store = {
       productType: f.productType ?? cand?.productType,
       bizType: f.bizType ?? cand?.bizType
     };
+    const sup = (d.supplements || []).find(s =>
+      s.formalId === f.id || (f.collectGroupId && s.collectGroupId === f.collectGroupId)
+    );
+    const task = d.tasks.find(t => t.id === taskId);
+    const inCalculation = task && typeof WORKFLOW_STEP !== 'undefined'
+      && task.workflowStep >= WORKFLOW_STEP.CALCULATION;
+    if (typeof candidateIsProjectType === 'function' && candidateIsProjectType(row)
+      && !inCalculation && sup?.status !== 'completed') {
+      return;
+    }
     const next = finalizeAccountingType(row);
     if (!next) return;
     if (f.accountingType !== next) f.accountingType = next;
@@ -171,6 +199,7 @@ const Store = {
         ...seed,
         currentRole: 'hq',
         currentUser: '张明',
+        currentManagerUser: '王磊',
         currentTaskId: 'T2025001',
         _carbonPersistedV3: true
       };
@@ -193,6 +222,7 @@ const Store = {
     this._migrateFactorMeta();
     this._migrateFactorSourceSheet();
     this._migrateFactorDedupe();
+    this._migrateFactorVersions();
     this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
     this._fixTaskBranchDeadlineOrder();
@@ -296,6 +326,58 @@ const Store = {
 
   /** @deprecated 保留空实现，兼容旧 localStorage 标记 */
   _migrateFactorVersionHistory() {},
+
+  /** 排放因子库：补全适用年度，同组同年度去重，演示多版本样本 */
+  _migrateFactorVersions() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof factorGroupKey !== 'function' || typeof normalizeFactorVersionYear !== 'function') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._factorVersionsMigrated) return;
+      let changed = false;
+      (d.factors || []).forEach(f => {
+        const prev = f.versionYear;
+        f.versionYear = normalizeFactorVersionYear(f);
+        if (prev !== f.versionYear) changed = true;
+      });
+      const map = new Map();
+      (d.factors || []).forEach(f => {
+        const key = `${factorGroupKey(f)}\u001e${normalizeFactorVersionYear(f)}`;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(f);
+      });
+      const kept = [];
+      map.forEach(candidates => {
+        const picked = typeof pickFactorRecord === 'function' ? pickFactorRecord(candidates) : candidates[0];
+        if (picked) kept.push(picked);
+      });
+      if (kept.length !== (d.factors || []).length) {
+        d.factors = kept;
+        changed = true;
+      }
+      const cf2026 = (d.factors || []).find(f => f.id === 'CF001');
+      const hasCf2027 = (d.factors || []).some(f =>
+        f.id !== 'CF001'
+        && typeof factorGroupKey === 'function'
+        && cf2026
+        && factorGroupKey(f) === factorGroupKey(cf2026)
+        && normalizeFactorVersionYear(f) === 2027
+      );
+      if (cf2026 && !hasCf2027) {
+        d.factors.unshift({
+          ...cf2026,
+          id: 'CF001-2027',
+          versionYear: 2027,
+          value: 2.71,
+          sourceNote: '2027年度更新版（演示）',
+          updatedAt: '2026-07-01 10:00:00'
+        });
+        changed = true;
+      }
+      d._factorVersionsMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
 
   /** 排放因子库：补全口径标签 */
   _migrateFactorMeta() {
@@ -717,6 +799,7 @@ const Store = {
     }
     const data = JSON.parse(raw);
     data.interfaces = this._getInterfacesRaw();
+    if (!data.currentManagerUser) data.currentManagerUser = '王磊';
     this._cache = data;
     return data;
   },
@@ -1142,17 +1225,45 @@ const Store = {
     if (r.regionScope && r.regionScope !== 'all') {
       list = list.filter(c => candidateMatchesRegionScope(c, r.regionScope));
     }
-    if (r.balanceMin !== '' && r.balanceMin != null) {
-      const min = Number(r.balanceMin);
-      if (!Number.isNaN(min)) {
-        list = list.filter(c => candidateBalanceAmountWan(c, task?.year, task) >= min);
-      }
+    const min = r.balanceMin !== '' && r.balanceMin != null ? Number(r.balanceMin) : null;
+    const max = r.balanceMax !== '' && r.balanceMax != null ? Number(r.balanceMax) : null;
+    const hasMin = min != null && !Number.isNaN(min);
+    const hasMax = max != null && !Number.isNaN(max);
+    if (hasMin || hasMax) {
+      const nonProjectBalanceByCustomer = new Map();
+      list.forEach(c => {
+        if (candidateIsProjectType(c)) return;
+        const customerKey = String(c.creditCode || c.customerName || c.id || '').trim().toUpperCase();
+        const balanceWan = computeCandidateAvgMonthlyBalance(c, task?.year);
+        nonProjectBalanceByCustomer.set(
+          customerKey,
+          (nonProjectBalanceByCustomer.get(customerKey) || 0) + (Number(balanceWan) || 0)
+        );
+      });
+      list = list.filter(c => {
+        if (candidateIsProjectType(c)) return true;
+        const customerKey = String(c.creditCode || c.customerName || c.id || '').trim().toUpperCase();
+        const customerBalanceWan = nonProjectBalanceByCustomer.get(customerKey) || 0;
+        if (hasMin && customerBalanceWan < min) return false;
+        if (hasMax && customerBalanceWan > max) return false;
+        return true;
+      });
     }
-    if (r.balanceMax !== '' && r.balanceMax != null) {
-      const max = Number(r.balanceMax);
-      if (!Number.isNaN(max)) {
-        list = list.filter(c => candidateBalanceAmountWan(c, task?.year, task) <= max);
-      }
+    const projMin = r.projectBalanceMin !== '' && r.projectBalanceMin != null ? Number(r.projectBalanceMin) : null;
+    const projMax = r.projectBalanceMax !== '' && r.projectBalanceMax != null ? Number(r.projectBalanceMax) : null;
+    const hasProjMin = projMin != null && !Number.isNaN(projMin);
+    const hasProjMax = projMax != null && !Number.isNaN(projMax);
+    if (hasProjMin || hasProjMax) {
+      list = list.filter(c => {
+        if (!candidateIsProjectType(c)) return true;
+        const balanceWan = typeof computeCandidateProjectAvgLoanBalanceWan === 'function'
+          ? computeCandidateProjectAvgLoanBalanceWan(c, task?.year)
+          : null;
+        if (balanceWan == null) return false;
+        if (hasProjMin && balanceWan < projMin) return false;
+        if (hasProjMax && balanceWan > projMax) return false;
+        return true;
+      });
     }
     return list;
   },
@@ -1330,6 +1441,8 @@ const Store = {
           tier1Branch: c.tier1Branch || c.branch,
           handlingBranch: c.handlingBranch,
           branch: c.tier1Branch || c.branch,
+          creditRefNo: c.creditRefNo || (typeof candidateCreditReferenceNo === 'function' ? candidateCreditReferenceNo(c) : ''),
+          creditNo: c.creditNo || (typeof candidateCreditNo === 'function' ? candidateCreditNo(c) : ''),
           loanAccount: c.loanAccount,
           disbursementAmount: c.disbursementAmount,
           disbursementDate: c.disbursementDate,
@@ -1594,9 +1707,9 @@ const Store = {
           item.auditStage = 'approved';
           item.approvalStatus = 'approved';
         } else {
-          item.auditStage = 'hq_review';
-          item.hqReviewStatus = 'pending';
-          this._createSupplementApproval(d, item, task, 'hq', a.round || item.reviewRound);
+          item.auditStage = 'branch_approved';
+          item.approvalStatus = 'approved';
+          item.hqReviewStatus = 'none';
         }
       } else {
         item.hqReviewStatus = 'approved';
@@ -1630,6 +1743,162 @@ const Store = {
       submitted = true;
     });
     return submitted;
+  },
+
+  bulkApproveBranchSupplements(taskId, approvalIds = []) {
+    let count = 0;
+    this.update(d => {
+      const ids = new Set(approvalIds);
+      const now = new Date().toLocaleString('zh-CN');
+      const operator = d.currentUser;
+      const rows = (d.approvals || []).filter(a =>
+        ids.has(a.id) &&
+        a.taskId === taskId &&
+        a.docType === 'supplement' &&
+        a.reviewLevel === 'branch' &&
+        a.status === 'pending'
+      );
+      rows.forEach(a => {
+        a.status = 'approved';
+        a.approver = operator;
+        a.approveTime = now;
+        this._applyDocApproval(d, a, true, '', {});
+        count++;
+      });
+      if (count) this.syncTaskWorkflowAfterApprovals(d, taskId);
+    });
+    return count;
+  },
+
+  bulkSubmitBranchApprovedToHq(taskId, approvalIds = []) {
+    let count = 0;
+    this.update(d => {
+      const ids = new Set(approvalIds);
+      const task = d.tasks.find(t => t.id === taskId);
+      if (!task || task.initiatorOrg === 'branch') return;
+      const rows = (d.approvals || []).filter(a =>
+        ids.has(a.id) &&
+        a.taskId === taskId &&
+        a.docType === 'supplement' &&
+        a.reviewLevel === 'branch' &&
+        a.status === 'approved' &&
+        typeof isBranchApprovedReadyForHqSubmit === 'function' &&
+        isBranchApprovedReadyForHqSubmit(a, d)
+      );
+      rows.forEach(a => {
+        const item = d.supplements.find(x => x.id === a.docId);
+        if (!item) return;
+        item.auditStage = 'hq_review';
+        item.hqReviewStatus = 'pending';
+        item.approvalStatus = 'pending';
+        // 沿用同一条审核记录，仅更新环节与状态，不新增总行待审行
+        a.reviewLevel = 'hq';
+        a.status = 'pending';
+        a.approver = null;
+        a.approveTime = null;
+        a.submitTime = new Date().toLocaleString('zh-CN');
+        count++;
+      });
+      if (count) this.syncTaskWorkflowAfterApprovals(d, taskId);
+    });
+    return count;
+  },
+
+  applyCreditCodeEmissionResolution({ taskId, currentSupplementId, chosenSupplementId, reviewLevel, methodExtra }) {
+    let ok = false;
+    this.update(d => {
+      const current = d.supplements.find(s => s.id === currentSupplementId);
+      if (!current) return;
+      const creditCode = typeof getSupplementCreditCode === 'function'
+        ? getSupplementCreditCode(current, d)
+        : '';
+      if (!creditCode) return;
+
+      const chosen = d.supplements.find(s => s.id === chosenSupplementId);
+      let snapshot;
+      if (chosenSupplementId === currentSupplementId) {
+        snapshot = typeof buildSupplementEmissionSnapshot === 'function'
+          ? buildSupplementEmissionSnapshot(current, taskId, d, methodExtra)
+          : null;
+      } else {
+        snapshot = chosen && typeof buildSupplementEmissionSnapshot === 'function'
+          ? buildSupplementEmissionSnapshot(chosen, taskId, d)
+          : null;
+      }
+      if (!snapshot) return;
+
+      const sourceMeta = {
+        branch: chosen?.branch || '—',
+        manager: chosen?.manager || '—',
+        sourceSupplementId: chosenSupplementId,
+        overwrittenAt: new Date().toLocaleString('zh-CN')
+      };
+
+      const syncTargets = (d.supplements || []).filter(s =>
+        s.taskId === taskId &&
+        typeof getSupplementCreditCode === 'function' &&
+        getSupplementCreditCode(s, d) === creditCode &&
+        (
+          s.id === currentSupplementId ||
+          (typeof isSupplementAuditApproved === 'function' && isSupplementAuditApproved(s, reviewLevel))
+        )
+      );
+
+      syncTargets.forEach(s => {
+        if (typeof applySupplementEmissionSnapshot === 'function') {
+          applySupplementEmissionSnapshot(s, snapshot);
+        }
+        if (s.id !== chosenSupplementId) {
+          s.emissionOverwritten = true;
+          s.emissionOverwriteMeta = { ...sourceMeta };
+        } else {
+          delete s.emissionOverwritten;
+          delete s.emissionOverwriteMeta;
+        }
+        if (s.formalId) this._refreshFormalCalculationFromSupplement(d, taskId, s.formalId);
+      });
+      ok = true;
+    });
+    return ok;
+  },
+
+  _refreshFormalCalculationFromSupplement(d, taskId, formalId) {
+    const f = (d.formalList || []).find(x => x.id === formalId && x.taskId === taskId);
+    const s = (d.supplements || []).find(x => x.formalId === formalId && x.taskId === taskId);
+    if (!f || !s) return;
+    let calc = (d.calculations || []).find(c => c.formalId === formalId && c.taskId === taskId);
+    const method = this.matchMethod(s);
+    const entityEmission = this.calcEntityEmission(s);
+    const avgBalance = s.avgLoanBalance
+      || (d.candidates || []).find(c => c.id === f.customerId)?.avgMonthlyBalance * 12
+      || 5000;
+    const payload = {
+      taskId,
+      formalId,
+      customerName: f.customerName,
+      bizType: f.bizType,
+      method: method.name,
+      methodId: s.approvedMethodId || method.id,
+      entityEmission,
+      avgBalance,
+      totalAssets: s.totalAssets || (d.candidates || []).find(c => c.id === f.customerId)?.totalAssets || 50000,
+      totalInvestment: s.totalInvestment || 50000,
+      industryFactor: s.economyFactor || 2.46,
+      qualityGrade: method.qualityGrade,
+      status: 'done',
+      approvalStatus: calc?.approvalStatus || 'none'
+    };
+    payload.attributedEmission = this.calcAttributedEmission(payload, s);
+    payload.totalEmission = payload.entityEmission;
+    if (typeof applyCalculationEmissionSplit === 'function') {
+      applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d);
+    }
+    if (!calc) {
+      calc = { id: 'CAL' + formalId, ...payload };
+      d.calculations.push(calc);
+    } else {
+      Object.assign(calc, payload);
+    }
   },
 
   submitCutoffToHq(taskId) {
@@ -1679,30 +1948,43 @@ const Store = {
   },
 
   _buildEconomyFactorLookup(d) {
-    const factors = (d.factors || []).filter(x =>
-      x.methodId === 'economy' && x.valueType === 'default' && x.value != null
-    );
-    const byGb = new Map();
-    const byMajor = new Map();
-    factors.forEach(f => {
-      if (f.gbCode) byGb.set(f.gbCode, this._pickPreferredEconomyFactor(byGb.get(f.gbCode), f));
-      if (f.industryMajor) byMajor.set(f.industryMajor, this._pickPreferredEconomyFactor(byMajor.get(f.industryMajor), f));
-    });
-    this._economyFactorLookup = { factors, byGb, byMajor, factorLen: (d.factors || []).length };
+    this._economyFactorLookup = {
+      factorLen: (d.factors || []).length,
+      taskYear: null
+    };
+  },
+
+  _pickEconomyFactorFromPool(pool, taskYear) {
+    if (!pool.length) return null;
+    if (typeof groupFactorRecords === 'function' && typeof pickFactorVersion === 'function') {
+      const groups = groupFactorRecords(pool);
+      const picked = groups.map(g => pickFactorVersion(g.versions, taskYear)).filter(Boolean);
+      if (!picked.length) return null;
+      return picked.reduce((a, b) => this._pickPreferredEconomyFactor(a, b));
+    }
+    return pool[0];
   },
 
   _getIndustryFactor(d, industryMajor, gbCode, taskYear) {
-    if (!this._economyFactorLookup || this._economyFactorLookup.factorLen !== (d.factors || []).length) {
-      this._buildEconomyFactorLookup(d);
-    }
-    const { factors, byGb, byMajor } = this._economyFactorLookup;
+    const factors = (d.factors || []).filter(x =>
+      x.methodId === 'economy' && x.valueType === 'default' && x.value != null
+    );
     if (!factors.length) return 2.35;
-    if (gbCode && byGb.has(gbCode)) return Number(byGb.get(gbCode).value);
-    if (industryMajor === '钢铁') {
-      const steel = byGb.get('C3120') || factors.find(x => x.gbCode === 'C3120');
-      if (steel) return Number(steel.value);
+    if (gbCode) {
+      const pool = factors.filter(f => f.gbCode === gbCode);
+      const hit = this._pickEconomyFactorFromPool(pool, taskYear);
+      if (hit) return Number(hit.value);
     }
-    if (industryMajor && byMajor.has(industryMajor)) return Number(byMajor.get(industryMajor).value);
+    if (industryMajor === '钢铁') {
+      const pool = factors.filter(x => x.gbCode === 'C3120');
+      const hit = this._pickEconomyFactorFromPool(pool, taskYear);
+      if (hit) return Number(hit.value);
+    }
+    if (industryMajor) {
+      const pool = factors.filter(f => f.industryMajor === industryMajor);
+      const hit = this._pickEconomyFactorFromPool(pool, taskYear);
+      if (hit) return Number(hit.value);
+    }
     return 2.35;
   },
 
@@ -1729,6 +2011,13 @@ const Store = {
           changed = true;
         }
       });
+      if (!d._menuBasicVisibleMigrated) {
+        ['method-params', 'method-templates', 'industry-config'].forEach(k => {
+          d.menuVisibility[k] = true;
+        });
+        d._menuBasicVisibleMigrated = true;
+        changed = true;
+      }
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -1918,6 +2207,14 @@ const Store = {
     return `${f.methodId}|${f.industryMajor || ''}`;
   },
 
+  _factorVersionKey(f) {
+    const gk = this._factorGroupKey(f);
+    const year = typeof normalizeFactorVersionYear === 'function'
+      ? normalizeFactorVersionYear(f)
+      : (Number(f.versionYear) || 0);
+    return `${gk}\u001e${year}`;
+  },
+
   addFactor(payload, options) {
     let added = null;
     this.update(d => {
@@ -1927,11 +2224,15 @@ const Store = {
         id: payload.id || nextCustomFactorId(d.factors),
         isBuiltin: false,
         status: 'active',
-        sourceSheet: payload.sourceSheet || '自定义'
+        sourceSheet: payload.sourceSheet || '自定义',
+        versionYear: typeof normalizeFactorVersionYear === 'function'
+          ? normalizeFactorVersionYear(payload)
+          : (Number(payload.versionYear) || new Date().getFullYear()),
+        createdAt: payload.createdAt || new Date().toLocaleString('zh-CN')
       };
       if (!(options && options.allowDuplicate)) {
-        const gk = this._factorGroupKey(item);
-        if (d.factors.some(x => this._factorGroupKey(x) === gk)) return;
+        const vk = this._factorVersionKey(item);
+        if (d.factors.some(x => this._factorVersionKey(x) === vk)) return;
       }
       d.factors.unshift(item);
       added = item;
@@ -1949,13 +2250,35 @@ const Store = {
         ...prev,
         ...payload,
         id,
-        isBuiltin: prev.isBuiltin,
+        isBuiltin: false,
+        sourceSheet: payload.sourceSheet || prev.sourceSheet || '自定义',
+        versionYear: typeof normalizeFactorVersionYear === 'function'
+          ? normalizeFactorVersionYear({ ...prev, ...payload })
+          : (Number(payload.versionYear) || prev.versionYear),
         updatedAt: new Date().toLocaleString('zh-CN'),
         updatedBy: d.currentUser || '—'
       };
       ok = true;
     });
     return ok;
+  },
+
+  saveFactorVersion(id, payload) {
+    const prev = this.getFactor(id);
+    if (!prev) return { ok: false, reason: 'missing' };
+    const nextYear = typeof normalizeFactorVersionYear === 'function'
+      ? normalizeFactorVersionYear({ ...prev, ...payload })
+      : Number(payload.versionYear);
+    const sameYear = typeof normalizeFactorVersionYear === 'function'
+      ? normalizeFactorVersionYear(prev) === nextYear
+      : Number(prev.versionYear) === nextYear;
+    if (sameYear) {
+      const ok = this.updateFactor(id, payload);
+      return ok ? { ok: true, mode: 'update', id } : { ok: false, reason: 'update_failed' };
+    }
+    const added = this.addFactor({ ...payload, versionYear: nextYear });
+    if (!added) return { ok: false, reason: 'duplicate_year' };
+    return { ok: true, mode: 'create', id: added.id };
   },
 
   deleteFactor(id) {
@@ -2099,10 +2422,13 @@ const Store = {
           id: typeof nextCustomFactorId === 'function' ? nextCustomFactorId(d.factors) : ('EF-C' + Date.now()),
           isBuiltin: false,
           status: 'active',
-          sourceSheet: parsed.payload.sourceSheet || '导入'
+          sourceSheet: parsed.payload.sourceSheet || '导入',
+          versionYear: typeof normalizeFactorVersionYear === 'function'
+            ? normalizeFactorVersionYear(parsed.payload)
+            : (Number(parsed.payload.versionYear) || new Date().getFullYear())
         };
-        const gk = typeof factorGroupKey === 'function' ? factorGroupKey(item) : `${item.methodId}|${item.industryMajor}`;
-        if (d.factors.some(x => (typeof factorGroupKey === 'function' ? factorGroupKey(x) : `${x.methodId}|${x.industryMajor}`) === gk)) {
+        const vk = this._factorVersionKey(item);
+        if (d.factors.some(x => this._factorVersionKey(x) === vk)) {
           result.skipped++;
           return;
         }
@@ -2447,9 +2773,9 @@ const Store = {
           item.auditStage = 'approved';
           item.approvalStatus = 'approved';
         } else {
-          item.auditStage = 'hq_review';
-          item.hqReviewStatus = 'pending';
-          this._createSupplementApproval(d, item, task, 'hq', approval.round || item.reviewRound);
+          item.auditStage = 'branch_approved';
+          item.approvalStatus = 'approved';
+          item.hqReviewStatus = 'none';
         }
       } else if (approval.reviewLevel === 'hq') {
         item.hqReviewStatus = 'approved';
@@ -2613,20 +2939,7 @@ const Store = {
         });
       }
       if (s.bizType === 'project') {
-        const hasSyncedProject = (Array.isArray(candidate?.projectDetails) && candidate.projectDetails.length > 0)
-          || (Array.isArray(formal?.projectDetails) && formal.projectDetails.length > 0);
         const hasSupplementProject = Array.isArray(s.projectDetails) && s.projectDetails.length > 0;
-        let accountingType = null;
-        if (hasSyncedProject || hasSupplementProject || s.projectInfoAvailable === true) {
-          accountingType = 'project_as_project';
-        } else if (s.projectInfoAvailable === false && payload.complete) {
-          accountingType = 'project_as_non_project';
-        }
-        if (accountingType) {
-          s.accountingType = accountingType;
-          if (formal) formal.accountingType = accountingType;
-          if (candidate) candidate.accountingType = accountingType;
-        }
         if (hasSupplementProject) {
           if (formal) formal.projectDetails = s.projectDetails;
           if (candidate) candidate.projectDetails = s.projectDetails;
@@ -2637,6 +2950,27 @@ const Store = {
         }
         if (formal && s.projectInfoAvailable != null) formal.projectInfoAvailable = s.projectInfoAvailable;
         if (candidate && s.projectInfoAvailable != null) candidate.projectInfoAvailable = s.projectInfoAvailable;
+        if (payload.complete) {
+          let accountingType = null;
+          if (s.projectInfoAvailable === false) {
+            accountingType = 'project_as_non_project';
+          } else {
+            const row = {
+              ...(candidate || {}),
+              ...(formal || {}),
+              projectDetails: s.projectDetails ?? formal?.projectDetails ?? candidate?.projectDetails,
+              projectInfoAvailable: s.projectInfoAvailable
+            };
+            accountingType = (Array.isArray(row.projectDetails) && row.projectDetails.length > 0
+              && typeof candidateProjectFinancialMissing === 'function'
+              && !candidateProjectFinancialMissing(row))
+              ? 'project_as_project'
+              : 'project_as_non_project';
+          }
+          s.accountingType = accountingType;
+          if (formal) formal.accountingType = accountingType;
+          if (candidate) candidate.accountingType = accountingType;
+        }
       }
       const formalForSync = d.formalList.find(f => f.id === s.formalId);
       if (formalForSync) {
@@ -2907,16 +3241,16 @@ const Store = {
           customerId: primary.customerId,
           customerName: g.customerName || primary.customerName,
           loanType: members.length > 1 ? `归集${members.length}笔` : (primary.loanType || cand?.loanType),
-          bizType: g.bucket === 'project' ? 'project' : 'non_project',
+          bizType: g.bucket === 'non_project' ? 'non_project' : 'project',
           industryMajor: primary.industryMajor || cand?.industryMajor,
-          accountingType: g.bucket === 'project'
-            ? (resolveAccountingType(primary) || 'project_as_project')
-            : 'non_project',
+          accountingType: typeof resolveAccountingType === 'function'
+            ? (resolveAccountingType(primary) || null)
+            : (g.bucket === 'non_project' ? 'non_project' : null),
           accountingIndustryCode: g.accountingIndustryCode,
           accountingIndustryLabel: g.accountingIndustryLabel,
           accountingIndustrySource: g.accountingIndustrySource,
-          projectInfoAvailable: g.bucket === 'project' ? true : primary.projectInfoAvailable,
-          projectDetails: g.projectDetails || primary.projectDetails || [],
+          projectInfoAvailable: primary.projectInfoAvailable ?? null,
+          projectDetails: primary.projectDetails || g.projectDetails || [],
           creditRefNo: g.creditRefNo || g.projectNo || '',
           projectNo: g.creditRefNo || g.projectNo || '',
           projectName: g.projectName || '',

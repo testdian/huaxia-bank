@@ -103,7 +103,7 @@ window.GUIDE = {
     D4417: '生物质能发电'
   },
   EXCLUSIONS: [
-    { code: 'LOW_BALANCE', label: '报告期内月均融资额少于500万元' },
+    { code: 'LOW_BALANCE', label: '非项目客户月均融资余额合计少于500万元' },
     { code: 'SME', label: '小型、微型企业' },
     { code: 'INDIVIDUAL', label: '个人、个体工商户' },
     { code: 'OVERSEAS', label: '融资主体在境外' },
@@ -212,6 +212,6 @@ window.GUIDE = {
     attribution_project: 'E业务 = E项目 × (项目融资日均余额 / 项目总投资额)',
     attribution_fallback: 'E业务 = 投融资日均余额 × 行业排放因子',
     dqr: 'DQR = Σ(单笔排放量 × 质量得分) / Σ(单笔排放量)',
-    financing_intensity: '投融资碳排放强度 = 归因排放量 ÷ 投融资余额 × 10000（tCO₂e/万元余额）'
+    financing_intensity: '投融资碳排放强度 = 归因排放量 ÷ 投融资余额（万元），单位：tCO₂e/万元余额'
   }
 };

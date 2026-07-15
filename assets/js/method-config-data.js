@@ -2,11 +2,32 @@
 window.METHOD_CONFIG = {
   EIGHT_INDUSTRIES: ['电力', '建材', '钢铁', '有色', '石化', '化工', '造纸', '民航'],
   PARAM_CATEGORIES: ['基础信息类', '活动水平类', '结果计算类'],
+  DEFAULT_ATTACH_ACCEPT: '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg',
+  DEFAULT_ATTACH_MAX_COUNT: 3,
+  DEFAULT_ATTACH_MAX_MB: 20,
+  PARAM_CATEGORY_HINTS: {
+    '基础信息类': '说明性、佐证性填报字段（如数据来源、碳数据年份），不参与排放公式计算，可加入模板供客户经理填写。',
+    '活动水平类': '反映生产/消耗活动的填报数据（如燃料消耗量、产量），可加入模板并参与因子绑定与排放公式计算。',
+    '结果计算类': '由公式或系统直算输出的核算结果（如温室气体排放总量），系统内置、不可手动新增；模板中仅作只读展示。'
+  },
+  METHOD_COLLECT_HINTS: {
+    economy: {
+      title: '数据采集特殊说明 · 经济活动法',
+      text: '正式清单为经济法直算路径时，营业收入、行业因子与主体排放由系统接口/直算预填，客户经理仅可查看、不可编辑。模板仍用于定义该 Tab 的展示结构与字段说明；与能源法/产品法不同，核心数值不由客户经理手工填报。'
+    },
+    economy_fallback: {
+      title: '数据采集特殊说明 · 其他计算法',
+      text: '派发后系统按企业行业自动匹配行业排放因子并预填，客户经理仅可查看、不可编辑。模板用于定义兜底计算 Tab 的展示字段；实际因子取值走因子库匹配逻辑，无需在模板中手工绑定每条因子。'
+    }
+  },
   APPLY_SCENES: [
     { value: 'entity', label: '企业核算' },
     { value: 'project_loan', label: '项目贷款核算' }
   ],
   BUILTIN_RESULT_PARAM_IDS: ['P_ghg_total'],
+  /** 模板适用行业：除人行八大高碳与我行主要行业外的兜底枚举 */
+  INDUSTRY_OTHER_ALL: '__OTHER_ALL__',
+  INDUSTRY_OTHER_ALL_LABEL: '其他全部行业通用',
   PARAM_UNIT_OPTIONS: ['t', 'kg', '万m³', 'm³', 'MWh', 'kWh', 'GJ', 'tCO₂e', 'tCO₂/t', 'tCO₂/万m³', '万元'],
   FACTOR_CATEGORIES: [
     { code: 'flat_glass_fossil', label: '平板玻璃-化石燃料' },
@@ -29,7 +50,8 @@ window.METHOD_CONFIG = {
     { id: 'P_clinker_output', paramCode: 'PARAM_0008', name: '水泥熟料产量', format: 'number', paramType: '数值型', category: '活动水平类', unit: 't', decimalPlaces: 2, scope: 'custom', showInTemplate: true, status: 'active', applyIndustry: ['建材'] },
     { id: 'P_carbon_data_year', paramCode: 'PARAM_0009', name: '碳数据年份', format: 'date', paramType: '日期型', category: '基础信息类', unit: '—', scope: 'global', showInTemplate: true, status: 'active', applyIndustry: [] },
     { id: 'P_fuel_variety', paramCode: 'PARAM_0010', name: '燃料品种', format: 'option', paramType: '选项型', category: '活动水平类', unit: '—', scope: 'global', showInTemplate: true, status: 'active', enumValues: ['烟煤', '褐煤', '无烟煤', '焦炭', '原油', '燃料油', '汽油', '柴油', '天然气', '液化石油气'], applyIndustry: [] },
-    { id: 'P_fuel_amount', paramCode: 'PARAM_0011', name: '燃料消耗量', format: 'number', paramType: '数值型', category: '活动水平类', unit: 't', decimalPlaces: 4, scope: 'global', showInTemplate: true, status: 'active', applyIndustry: [] }
+    { id: 'P_fuel_amount', paramCode: 'PARAM_0011', name: '燃料消耗量', format: 'number', paramType: '数值型', category: '活动水平类', unit: 't', decimalPlaces: 4, scope: 'global', showInTemplate: true, status: 'active', applyIndustry: [] },
+    { id: 'P_report_attach', paramCode: 'PARAM_0012', name: '报告佐证材料', format: 'attachment', paramType: '附件型', category: '基础信息类', unit: '—', scope: 'global', showInTemplate: true, status: 'active', applyIndustry: [], attachAccept: '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg', attachMaxCount: 3, attachMaxMb: 20 }
   ],
 
   templateVersions: [],
@@ -55,7 +77,7 @@ window.METHOD_CONFIG = {
     { id: 'tpl_np_铜铅锌原煤_energy', templateName: '有色-铜铅锌原煤开采-能源法', industry: '有色', subCategory: '铜铅锌原煤开采和洗选', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'published', enabled: true, version: 'V1.0', fieldCount: 21, formulaCount: 6, updatedAt: '2026-06-29', updatedBy: '张明', highlight: true },
     { id: 'tpl_np_电力_energy', templateName: '电力-能源法', industry: '电力', subCategory: '', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'published', enabled: true, version: 'V1.0', fieldCount: 18, formulaCount: 4, updatedAt: '2026-06-20', updatedBy: '王丽' },
     { id: 'tpl_np_电力_product', templateName: '电力-产品法', industry: '电力', subCategory: '', bizType: 'non_project', methodId: 'product', priority: 2, applyScene: ['entity'], status: 'published', enabled: true, version: 'V1.0', fieldCount: 12, formulaCount: 2, updatedAt: '2026-06-18', updatedBy: '王丽' },
-    { id: 'tpl_np_水泥_energy', templateName: '建材-水泥-能源法', industry: '建材', subCategory: '水泥', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'published', enabled: false, version: 'V1.0', fieldCount: 16, formulaCount: 3, updatedAt: '2026-06-15', updatedBy: '李强' },
+    { id: 'tpl_np_水泥_energy', templateName: '建材-水泥-能源法', industry: '建材', subCategory: '水泥', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'published', enabled: true, version: 'V1.0', fieldCount: 16, formulaCount: 3, updatedAt: '2026-06-15', updatedBy: '李强' },
     { id: 'tpl_p_电力_energy', templateName: '电力-能源法（项目贷款）', industry: '电力', subCategory: '', bizType: 'project', methodId: 'energy', priority: 1, applyScene: ['project_loan'], status: 'draft', enabled: true, version: '—', fieldCount: 17, formulaCount: 4, updatedAt: '2026-06-24', updatedBy: '张明' },
     { id: 'tpl_np_钢铁_energy', templateName: '钢铁-能源法', industry: '钢铁', subCategory: '', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'draft', enabled: true, version: '—', fieldCount: 8, formulaCount: 0, updatedAt: '2026-06-22', updatedBy: '陈静' }
   ],
@@ -71,6 +93,7 @@ window.METHOD_CONFIG = {
   _registerSeedTemplate(seed) {
     if (!seed?.templateId) return;
     const detail = JSON.parse(JSON.stringify(seed));
+    if (detail.meta) this.syncMetaIndustries(detail.meta);
     this._seedTemplateDetails[detail.templateId] = detail;
     this.templateDetails[detail.templateId] = JSON.parse(JSON.stringify(detail));
     (detail.params || []).forEach(p => {
@@ -115,6 +138,7 @@ window.METHOD_CONFIG = {
       }
     });
     Object.entries(data.templateDetails || {}).forEach(([id, detail]) => {
+      if (detail?.meta) this.syncMetaIndustries(detail.meta);
       this.templateDetails[id] = detail;
     });
     (data.templates || []).forEach(t => {
@@ -145,6 +169,203 @@ window.METHOD_CONFIG = {
     }
   },
 
+  getIndustryOptionGroups() {
+    const pboRows = [];
+    const bankRows = [];
+    const hasCfg = typeof IndustryConfig !== 'undefined' && IndustryConfig.getRows().length > 0;
+    if (hasCfg) {
+      IndustryConfig.getRows().forEach(r => {
+        const code = r.code || r.cascadeCode || '';
+        const name = r.level4Name || r.name || '';
+        if (!code) return;
+        const label = `${code} ${name}`;
+        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_PBO_EIGHT)) pboRows.push({ code, label });
+        if (IndustryConfig.hasTag(r, IndustryConfig.TAG_BANK_MAJOR)) bankRows.push({ code, label });
+      });
+    }
+    if (!pboRows.length && typeof INDUSTRY_TABLE !== 'undefined') {
+      INDUSTRY_TABLE.forEach(r => pboRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    if (!bankRows.length && typeof INDUSTRY_BANK_MAJOR_TABLE !== 'undefined') {
+      INDUSTRY_BANK_MAJOR_TABLE.forEach(r => bankRows.push({ code: r.code, label: `${r.code} ${r.name}` }));
+    }
+    return [
+      { groupLabel: '人行八大高碳行业', rows: pboRows },
+      { groupLabel: '我行主要行业', rows: bankRows }
+    ];
+  },
+
+  getTaggedIndustryCodeSet() {
+    const set = new Set();
+    this.getIndustryOptionGroups().forEach(g => {
+      g.rows.forEach(r => set.add(r.code));
+    });
+    return set;
+  },
+
+  parseIndustriesCombined(raw) {
+    const text = (raw || '').toString().trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map(v => String(v).trim()).filter(Boolean);
+    } catch (_) { /* fall through */ }
+    return text.split(/[,，、;；\s]+/).map(s => s.trim()).filter(Boolean);
+  },
+
+  normalizeTemplateIndustries(meta) {
+    const m = meta || {};
+    if (Array.isArray(m.industries) && m.industries.length) {
+      return [...new Set(m.industries.map(v => String(v).trim()).filter(Boolean))];
+    }
+    if (Array.isArray(m.gbCodes) && m.gbCodes.length) {
+      return [...new Set(m.gbCodes.map(v => String(v).trim()).filter(Boolean))];
+    }
+    const legacy = String(m.industry || '').trim();
+    if (!legacy) return [];
+    if (legacy === this.INDUSTRY_OTHER_ALL_LABEL) return [this.INDUSTRY_OTHER_ALL];
+    if (/^[A-Z]\d{4}$/.test(legacy)) return [legacy];
+    return [legacy];
+  },
+
+  formatIndustryCodeLabel(code, context) {
+    const c = String(code || '').trim();
+    if (!c) return '';
+    if (c === this.INDUSTRY_OTHER_ALL) return this.INDUSTRY_OTHER_ALL_LABEL;
+    if (/^[A-Z]\d{4}\s+\S/.test(c)) return c;
+
+    const groups = this.getIndustryOptionGroups();
+    if (/^[A-Z]\d{4}$/.test(c)) {
+      for (const g of groups) {
+        const row = g.rows.find(r => r.code === c);
+        if (row) return row.label;
+      }
+      const row = typeof INDUSTRY_TABLE !== 'undefined' ? INDUSTRY_TABLE.find(r => r.code === c) : null;
+      return row ? `${row.code} ${row.name}` : c;
+    }
+
+    const sub = String((context && context.subCategory) || '').trim();
+    if (sub) {
+      const subRow = this._findIndustryRowByNameOrMajor(sub);
+      if (subRow) return `${subRow.code} ${subRow.name}`;
+    }
+
+    for (const g of groups) {
+      const row = g.rows.find(r => r.code === c || r.label === c || r.label.endsWith(` ${c}`));
+      if (row) return row.label;
+    }
+
+    const row = this._findIndustryRowByNameOrMajor(c);
+    if (row) return `${row.code} ${row.name}`;
+    return c;
+  },
+
+  _findIndustryRowByNameOrMajor(text) {
+    const t = String(text || '').trim();
+    if (!t || typeof INDUSTRY_TABLE === 'undefined') return null;
+    const norm = s => String(s || '').replace(/制造$|业$/, '').trim();
+    let row = INDUSTRY_TABLE.find(r =>
+      r.name === t || r.name.includes(t) || t.includes(r.name) || norm(r.name) === norm(t)
+    );
+    if (row) return row;
+    row = INDUSTRY_TABLE.find(r => r.major === t);
+    if (row) return row;
+    if (typeof GUIDE !== 'undefined' && Array.isArray(GUIDE.INDUSTRIES)) {
+      const ind = GUIDE.INDUSTRIES.find(x => x.major === t);
+      const code = ind?.codes?.[0];
+      if (code) {
+        return INDUSTRY_TABLE.find(r => r.code === code)
+          || { code, name: ind.names?.[0] || t };
+      }
+    }
+    return null;
+  },
+
+  formatTemplateIndustriesDisplay(meta) {
+    const industries = this.normalizeTemplateIndustries(meta);
+    if (!industries.length) {
+      const legacy = String(meta?.industry || '').trim();
+      return legacy ? this.formatIndustryCodeLabel(legacy, meta) : '—';
+    }
+    if (industries.length === 1 && industries[0] === this.INDUSTRY_OTHER_ALL) {
+      return this.INDUSTRY_OTHER_ALL_LABEL;
+    }
+    const labels = industries.map(c => this.formatIndustryCodeLabel(c, meta));
+    if (labels.length <= 2) return labels.join('、');
+    return `${labels.slice(0, 2).join('、')} 等${labels.length}项`;
+  },
+
+  syncMetaIndustries(meta) {
+    const m = meta || {};
+    const industries = this.normalizeTemplateIndustries(m);
+    m.industries = industries;
+    m.gbCodes = industries.filter(c => c !== this.INDUSTRY_OTHER_ALL);
+    if (industries.includes(this.INDUSTRY_OTHER_ALL) && industries.length === 1) {
+      m.industry = this.INDUSTRY_OTHER_ALL_LABEL;
+    } else if (industries.length === 1) {
+      m.industry = this.formatIndustryCodeLabel(industries[0], m) || industries[0];
+    } else if (industries.length > 1) {
+      const named = industries
+        .filter(c => c !== this.INDUSTRY_OTHER_ALL)
+        .map(c => this.formatIndustryCodeLabel(c, m));
+      if (industries.includes(this.INDUSTRY_OTHER_ALL)) named.unshift(this.INDUSTRY_OTHER_ALL_LABEL);
+      m.industry = named.join('、');
+    } else {
+      m.industry = '';
+    }
+    return m;
+  },
+
+  templateMatchesIndustryFilter(meta, filterCode) {
+    const code = String(filterCode || '').trim();
+    if (!code) return true;
+    const industries = this.normalizeTemplateIndustries(meta);
+    if (industries.includes(code)) return true;
+    if (code === this.INDUSTRY_OTHER_ALL && industries.includes(this.INDUSTRY_OTHER_ALL)) return true;
+    return industries.some(c => this.formatIndustryCodeLabel(c) === code || c === code);
+  },
+
+  isOtherAllIndustryGbCode(gbCode) {
+    const code = String(gbCode || '').trim();
+    if (!code) return false;
+    return !this.getTaggedIndustryCodeSet().has(code);
+  },
+
+  resolveTemplateForSubject({ gbCode, bizType, methodId, applyScene } = {}) {
+    const code = String(gbCode || '').trim();
+    const tagged = this.getTaggedIndustryCodeSet();
+    const candidates = this.templates
+      .filter(t => t.status === 'published')
+      .filter(t => !bizType || t.bizType === bizType)
+      .filter(t => !methodId || t.methodId === methodId)
+      .filter(t => !applyScene || (t.applyScene || []).includes(applyScene))
+      .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+
+    const matchByIndustries = (tpl) => {
+      const detail = this.getTemplateDetail(tpl.id);
+      const meta = { ...(detail?.meta || {}), ...tpl };
+      const industries = this.normalizeTemplateIndustries(meta);
+      if (code && industries.includes(code)) return detail || tpl;
+      if (code && (meta.gbCodes || []).includes(code)) return detail || tpl;
+      return null;
+    };
+
+    for (const tpl of candidates) {
+      const hit = matchByIndustries(tpl);
+      if (hit) return hit;
+    }
+
+    if (code && !tagged.has(code)) {
+      for (const tpl of candidates) {
+        const detail = this.getTemplateDetail(tpl.id);
+        const meta = { ...(detail?.meta || {}), ...tpl };
+        const industries = this.normalizeTemplateIndustries(meta);
+        if (industries.includes(this.INDUSTRY_OTHER_ALL)) return detail || tpl;
+      }
+    }
+    return null;
+  },
+
   paramTypeFromFormat(format) {
     return { number: '数值型', text: '文本型', option: '选项型', date: '日期型', attachment: '附件型' }[format] || '数值型';
   },
@@ -159,7 +380,7 @@ window.METHOD_CONFIG = {
     const paramType = p.paramType || this.paramTypeFromFormat(format);
     const category = p.category || (p.id === 'P_ghg_total' ? '结果计算类' : '活动水平类');
     const units = this.normalizeUnitsList(p.units ?? p.unit);
-    return {
+    const normalized = {
       ...p,
       format,
       paramType,
@@ -172,6 +393,34 @@ window.METHOD_CONFIG = {
       units,
       unit: units.length ? units[0] : (p.unit || '—')
     };
+    if (format === 'attachment') {
+      normalized.attachAccept = (p.attachAccept || this.DEFAULT_ATTACH_ACCEPT).trim();
+      normalized.attachMaxCount = Math.min(20, Math.max(1, Number(p.attachMaxCount) || this.DEFAULT_ATTACH_MAX_COUNT));
+      normalized.attachMaxMb = Math.min(2048, Math.max(1, Number(p.attachMaxMb) || this.DEFAULT_ATTACH_MAX_MB));
+    }
+    return normalized;
+  },
+
+  resolveAttachConstraints(p) {
+    return {
+      accept: (p?.attachAccept || this.DEFAULT_ATTACH_ACCEPT).trim(),
+      maxCount: Math.min(20, Math.max(1, Number(p?.attachMaxCount) || this.DEFAULT_ATTACH_MAX_COUNT)),
+      maxMb: Math.min(2048, Math.max(1, Number(p?.attachMaxMb) || this.DEFAULT_ATTACH_MAX_MB))
+    };
+  },
+
+  formatAttachAcceptDisplay(accept) {
+    return String(accept || this.DEFAULT_ATTACH_ACCEPT).replace(/\./g, '').replace(/,/g, '、');
+  },
+
+  formatAttachMetaText(p) {
+    const { accept, maxCount, maxMb } = this.resolveAttachConstraints(p);
+    return `支持 ${this.formatAttachAcceptDisplay(accept)}；最多 ${maxCount} 个，单文件 ≤ ${maxMb}MB`;
+  },
+
+  getMethodCollectHint(methodId) {
+    const id = String(methodId || '').trim();
+    return this.METHOD_COLLECT_HINTS[id] || null;
   },
 
   parseUnitsInput(raw) {
@@ -237,14 +486,13 @@ window.METHOD_CONFIG = {
   assessParamUnitConversion(param, factorUnitFull) {
     const units = this.getParamUnits(param);
     if (!units.length) return this.assessUnitConversion(param?.unit, factorUnitFull);
-    let best = null;
-    units.forEach(u => {
-      const assess = this.assessUnitConversion(u, factorUnitFull);
-      if (assess.match) best = assess;
-      else if (!best) best = assess;
-      else if (!best.match && assess.match) best = assess;
-    });
-    return best || this.assessUnitConversion(units[0], factorUnitFull);
+    if (units.length > 1) {
+      const assessments = units.map(u => this.assessUnitConversion(u, factorUnitFull));
+      if (assessments.every(a => a.match)) return assessments[0];
+      const needConv = assessments.find(a => a.needsConversion) || assessments[0];
+      return { ...needConv, match: false, needsConversion: true };
+    }
+    return this.assessUnitConversion(units[0], factorUnitFull);
   },
 
   generateParamCode() {
@@ -367,10 +615,36 @@ window.METHOD_CONFIG = {
     return { detailLabel, valueText, unit, displayLabel, searchText };
   },
 
-  getFactorLibraryOptions() {
+  formatFactorLibraryOptionWithYear(f) {
+    const fmt = this.formatFactorLibraryOption(f);
+    const year = typeof normalizeFactorVersionYear === 'function'
+      ? normalizeFactorVersionYear(f)
+      : f.versionYear;
+    const versionLabel = typeof formatFactorVersionLabelForRecord === 'function'
+      ? formatFactorVersionLabelForRecord(f)
+      : 'v1.0';
+    return {
+      ...fmt,
+      versionYear: year,
+      versionLabel,
+      displayLabel: `${fmt.displayLabel} · ${versionLabel}`
+    };
+  },
+
+  getFactorLibraryOptions(versionRank) {
     if (typeof Store === 'undefined') return [];
-    return (Store.get()?.factors || []).map(f => {
-      const fmt = this.formatFactorLibraryOption(f);
+    const factors = Store.get()?.factors || [];
+    if (!factors.length) return [];
+    const rank = this.resolveTemplateFactorVersionRank(versionRank);
+    let list = factors;
+    if (typeof factorGroupKey === 'function'
+      && typeof groupFactorRecords === 'function'
+      && typeof applyFactorListVersionRank === 'function') {
+      const groups = groupFactorRecords(factors);
+      list = applyFactorListVersionRank(groups, rank).map(g => g.factor).filter(Boolean);
+    }
+    return list.map(f => {
+      const fmt = this.formatFactorLibraryOptionWithYear(f);
       return {
         id: f.id,
         name: fmt.detailLabel,
@@ -379,9 +653,26 @@ window.METHOD_CONFIG = {
         valueText: fmt.valueText,
         unit: fmt.unit,
         displayLabel: fmt.displayLabel,
-        searchText: fmt.searchText
+        searchText: `${fmt.searchText} ${fmt.versionYear} ${fmt.versionLabel || ''}`.toLowerCase(),
+        versionYear: fmt.versionYear
       };
     });
+  },
+
+  getDefaultFactorVersionRank() {
+    const opts = this.getFactorLibraryVersionOptions();
+    return opts.length ? opts[opts.length - 1].rank : 1;
+  },
+
+  resolveTemplateFactorVersionRank(metaOrRank) {
+    let rank;
+    if (typeof metaOrRank === 'number' || typeof metaOrRank === 'string') {
+      rank = Number(metaOrRank);
+    } else {
+      rank = Number(metaOrRank?.factorVersionRank);
+    }
+    if (!Number.isNaN(rank) && rank >= 1) return Math.floor(rank);
+    return this.getDefaultFactorVersionRank();
   },
 
   UNIT_ALIAS_MAP: {
@@ -421,6 +712,81 @@ window.METHOD_CONFIG = {
     if (!factorId || typeof Store === 'undefined') return '';
     const f = Store.getFactor(factorId);
     return f?.unit || f?.factorUnit || '';
+  },
+
+  /** 因子库中当前最高适用年度（用于模板一键更新默认值等） */
+  getLatestFactorLibraryYear() {
+    if (typeof Store === 'undefined') return new Date().getFullYear();
+    const factors = Store.get()?.factors || [];
+    const years = factors.map(f =>
+      typeof normalizeFactorVersionYear === 'function'
+        ? normalizeFactorVersionYear(f)
+        : (Number(f.versionYear) || 0)
+    ).filter(y => y >= 2000 && y <= 2100);
+    return years.length ? Math.max(...years) : new Date().getFullYear();
+  },
+
+  /** 因子库可选版本号列表（v1.0、v2.0…，取各因子组最大版本数） */
+  getFactorLibraryVersionOptions() {
+    if (typeof Store === 'undefined') {
+      return [{ rank: 1, label: 'v1.0' }];
+    }
+    const factors = Store.get()?.factors || [];
+    if (!factors.length || typeof factorGroupKey !== 'function') {
+      return [{ rank: 1, label: 'v1.0' }];
+    }
+    const map = new Map();
+    factors.forEach(f => {
+      const gk = factorGroupKey(f);
+      if (!map.has(gk)) map.set(gk, []);
+      map.get(gk).push(f);
+    });
+    let maxRank = 1;
+    map.forEach(list => { maxRank = Math.max(maxRank, list.length); });
+    return Array.from({ length: maxRank }, (_, i) => {
+      const rank = i + 1;
+      const label = typeof formatFactorVersionNo === 'function'
+        ? formatFactorVersionNo(rank)
+        : `v${rank}.0`;
+      return { rank, label };
+    });
+  },
+
+  /** 将因子 ID 解析为指定年度的版本 ID；无匹配时返回原 ID */
+  resolveFactorVersionUpgrade(factorId, taskYear) {
+    if (!factorId || typeof Store === 'undefined') return factorId || '';
+    const factors = Store.get()?.factors || [];
+    const current = factors.find(f => f.id === factorId);
+    if (!current || typeof factorGroupKey !== 'function' || typeof pickFactorVersion !== 'function') {
+      return factorId;
+    }
+    const gk = factorGroupKey(current);
+    const versions = factors.filter(f => factorGroupKey(f) === gk);
+    const picked = pickFactorVersion(versions, taskYear);
+    return picked?.id || factorId;
+  },
+
+  /** 按版本序号（1=v1.0）解析因子 ID；组内不足该序号时取该组最新可用版本 */
+  resolveFactorVersionUpgradeByRank(factorId, versionRank) {
+    if (!factorId || typeof Store === 'undefined') return factorId || '';
+    const rank = Math.max(1, Number(versionRank) || 1);
+    const factors = Store.get()?.factors || [];
+    const current = factors.find(f => f.id === factorId);
+    if (!current || typeof factorGroupKey !== 'function') return factorId;
+    const versions = factors.filter(f => factorGroupKey(f) === factorGroupKey(current));
+    if (typeof sortFactorVersionsAsc === 'function') {
+      const asc = sortFactorVersionsAsc(versions);
+      const idx = Math.min(rank - 1, asc.length - 1);
+      return asc[idx]?.id || factorId;
+    }
+    if (typeof pickFactorVersion === 'function') {
+      const sorted = [...versions].sort((a, b) =>
+        (Number(a.versionYear) || 0) - (Number(b.versionYear) || 0)
+      );
+      const idx = Math.min(rank - 1, sorted.length - 1);
+      return sorted[idx]?.id || factorId;
+    }
+    return factorId;
   },
 
   findUnitConversionPreset(fromUnit, toUnit) {
@@ -597,7 +963,9 @@ window.METHOD_CONFIG = {
         status: 'active',
         applyIndustry,
         enumValues: format === 'option' ? enumValues : undefined,
-        attachAccept: format === 'attachment' ? '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg' : undefined
+        attachAccept: format === 'attachment' ? this.DEFAULT_ATTACH_ACCEPT : undefined,
+        attachMaxCount: format === 'attachment' ? this.DEFAULT_ATTACH_MAX_COUNT : undefined,
+        attachMaxMb: format === 'attachment' ? this.DEFAULT_ATTACH_MAX_MB : undefined
       };
       this.applyParamUnits(payload, units, unitType);
       const result = this.saveParam(payload, true);
@@ -787,18 +1155,25 @@ window.METHOD_CONFIG = {
   },
 
   /** 新建核算模板（对齐需规 Tab1 基础信息） */
-  createTemplate({ templateName, industry, subCategory, methodId, priority, applyScene, description, copyFromId, isNewIndustry, bizType }) {
-    const ensured = isNewIndustry ? this.ensureIndustry(industry) : { ok: true, industry: this.getIndustryConfig(industry) || { key: industry, methods: this.DEFAULT_INDUSTRY_METHODS.slice() } };
-    if (!ensured.ok) return ensured;
-    const ind = ensured.industry;
-    if (!industry) return { ok: false, message: '请选择有效行业' };
+  createTemplate({ templateName, industry, industries, subCategory, methodId, priority, applyScene, description, copyFromId, isNewIndustry, bizType, factorVersionRank }) {
+    const resolvedIndustries = this.parseIndustriesCombined(
+      Array.isArray(industries) ? JSON.stringify(industries) : industries
+    );
+    if (!resolvedIndustries.length && industry) resolvedIndustries.push(String(industry).trim());
+    if (!resolvedIndustries.length) return { ok: false, message: '请选择适用行业' };
+
+    const primaryIndustry = resolvedIndustries.find(c => c !== this.INDUSTRY_OTHER_ALL)
+      || (resolvedIndustries.includes(this.INDUSTRY_OTHER_ALL) ? 'other_all' : '');
+    const industryKey = primaryIndustry === 'other_all' ? 'other_all' : primaryIndustry;
+
+    if (isNewIndustry && industryKey !== 'other_all') {
+      const ensured = this.ensureIndustry(industryKey);
+      if (!ensured.ok) return ensured;
+    }
     const scenes = Array.isArray(applyScene) ? applyScene : ['entity', 'project_loan'];
     if (!scenes.length) return { ok: false, message: '请至少选择一个适用场景' };
     const resolvedBiz = bizType || (scenes.includes('project_loan') && !scenes.includes('entity') ? 'project' : 'non_project');
-    if (!ind.methods.includes(methodId)) {
-      return { ok: false, message: `${industry} 不支持该核算方法` };
-    }
-    const id = this.makeTemplateId(industry, resolvedBiz, methodId);
+    const id = this.makeTemplateId(industryKey, resolvedBiz, methodId);
     const meta = this.templates.find(t => t.id === id);
     if (meta) {
       return { ok: false, message: '该行业·核算方法·适用场景组合已有模板，请直接编辑', id };
@@ -806,16 +1181,19 @@ window.METHOD_CONFIG = {
 
     let detail;
     if (copyFromId) {
-      detail = this.copyTemplateDetail(copyFromId, id, industry, resolvedBiz, methodId);
+      detail = this.copyTemplateDetail(copyFromId, id, industryKey, resolvedBiz, methodId);
       if (!detail) return { ok: false, message: '复制来源模板不存在' };
     } else {
-      detail = this.createEmptyTemplate(id, industry, resolvedBiz, methodId);
+      detail = this.createEmptyTemplate(id, industryKey, resolvedBiz, methodId);
     }
     detail.meta.templateName = templateName || detail.meta.templateName;
     detail.meta.subCategory = subCategory || '';
     detail.meta.priority = Number(priority) || 3;
     detail.meta.applyScene = scenes;
     detail.meta.description = (description || '').trim();
+    detail.meta.industries = resolvedIndustries;
+    detail.meta.factorVersionRank = this.resolveTemplateFactorVersionRank(factorVersionRank);
+    this.syncMetaIndustries(detail.meta);
     return this.saveTemplateDetail(detail);
   },
 
@@ -843,7 +1221,8 @@ window.METHOD_CONFIG = {
         gbCodes: [],
         dataSourceCollect: '',
         dataSourceFactor: '',
-        entityFormulaSummary: ''
+        entityFormulaSummary: '',
+        factorVersionRank: this.getDefaultFactorVersionRank()
       },
       params: [],
       layout: [{ title: '默认分区', fields: [] }],
@@ -883,6 +1262,9 @@ window.METHOD_CONFIG = {
     } else {
       detail = JSON.parse(JSON.stringify(detail));
     }
+    if (detail.meta) {
+      detail.meta.factorVersionRank = this.resolveTemplateFactorVersionRank(detail.meta);
+    }
 
     let tpl = this.templates.find(t => t.id === id);
     if (!tpl) {
@@ -904,8 +1286,10 @@ window.METHOD_CONFIG = {
         subCategory: detail.meta.subCategory ?? tpl.subCategory,
         priority: detail.meta.priority ?? tpl.priority,
         applyScene: detail.meta.applyScene || tpl.applyScene,
-        enabled: detail.meta.enabled ?? tpl.enabled
+        enabled: detail.meta.enabled ?? tpl.enabled,
+        industries: detail.meta.industries?.length ? detail.meta.industries : (tpl.industries || [])
       };
+      this.syncMetaIndustries(detail.meta);
     }
 
     return { id, tpl, detail };
@@ -926,6 +1310,8 @@ window.METHOD_CONFIG = {
       version: '—',
       updatedAt: this._today()
     };
+    copy.meta.industries = this.normalizeTemplateIndustries(src.meta);
+    this.syncMetaIndustries(copy.meta);
     if (copy.designGaps) delete copy.designGaps;
     return copy;
   },
@@ -1980,20 +2366,30 @@ window.METHOD_CONFIG = {
     const applyScene = [];
     form.querySelectorAll('[name="applyScene"]:checked').forEach(cb => applyScene.push(cb.value));
     const bizType = applyScene.includes('project_loan') && !applyScene.includes('entity') ? 'project' : 'non_project';
-    return {
-      meta: {
-        templateName: form.querySelector('[name="meta_templateName"]')?.value?.trim() || '',
-        industry: form.querySelector('[name="meta_industry"]')?.value?.trim() || '',
-        subCategory: form.querySelector('[name="meta_subCategory"]')?.value?.trim() || '',
-        methodId: (typeof resolveMethodIdFromName === 'function'
-          ? resolveMethodIdFromName(form.querySelector('[name="meta_methodId"]')?.value?.trim() || '')
-          : form.querySelector('[name="meta_methodId"]')?.value?.trim()) || '',
-        priority: Number(form.querySelector('[name="meta_priority"]')?.value) || 3,
-        applyScene: applyScene.length ? applyScene : ['entity'],
-        bizType,
-        description: form.querySelector('[name="meta_description"]')?.value?.trim() || ''
-      }
+    const industries = this.parseIndustriesCombined(
+      form.querySelector('[name="meta_industryCombined"]')?.value || ''
+    );
+    if (!industries.length) {
+      const legacy = form.querySelector('[name="meta_industry"]')?.value?.trim() || '';
+      if (legacy) industries.push(legacy);
+    }
+    const meta = {
+      templateName: form.querySelector('[name="meta_templateName"]')?.value?.trim() || '',
+      industries,
+      subCategory: form.querySelector('[name="meta_subCategory"]')?.value?.trim() || '',
+      methodId: (typeof resolveMethodIdFromName === 'function'
+        ? resolveMethodIdFromName(form.querySelector('[name="meta_methodId"]')?.value?.trim() || '')
+        : form.querySelector('[name="meta_methodId"]')?.value?.trim()) || '',
+      priority: Number(form.querySelector('[name="meta_priority"]')?.value) || 3,
+      applyScene: applyScene.length ? applyScene : ['entity'],
+      bizType,
+      description: form.querySelector('[name="meta_description"]')?.value?.trim() || '',
+      factorVersionRank: this.resolveTemplateFactorVersionRank(
+        form.querySelector('[name="meta_factorVersionRank"]')?.value
+      )
     };
+    this.syncMetaIndustries(meta);
+    return { meta };
   },
 
   readTemplateStep1(form) {
@@ -2126,6 +2522,8 @@ window.METHOD_CONFIG = {
       id,
       templateName: detail.meta.templateName,
       industry: detail.meta.industry,
+      industries: detail.meta.industries || [],
+      gbCodes: detail.meta.gbCodes || [],
       subCategory: detail.meta.subCategory || '',
       bizType: detail.meta.bizType,
       methodId: detail.meta.methodId,
@@ -2187,7 +2585,7 @@ window.METHOD_CONFIG = {
     const errors = [];
     const m = detail.meta || {};
     if (!m.templateName) errors.push('基础信息：模板名称未填写');
-    if (!m.industry) errors.push('基础信息：所属行业未选择');
+    if (!this.normalizeTemplateIndustries(m).length) errors.push('基础信息：所属行业未选择');
     if (!m.methodId) errors.push('基础信息：核算方法未选择');
     if (!(m.applyScene || []).length) errors.push('基础信息：适用场景未选择');
     const isReport = m.methodId === 'report';
@@ -2266,12 +2664,14 @@ window.METHOD_CONFIG = {
     const methodId = filters.methodId || '';
     const status = filters.status || '';
     return this.templates.filter(t => {
-      if (kw && !(`${t.templateName || ''} ${t.industry || ''}`).toLowerCase().includes(kw)) return false;
-      if (industry && t.industry !== industry) return false;
+      const detail = this.getTemplateDetail(t.id);
+      const meta = { ...(detail?.meta || {}), ...t };
+      const industryText = `${t.templateName || ''} ${t.industry || ''} ${this.formatTemplateIndustriesDisplay(meta)}`.toLowerCase();
+      if (kw && !industryText.includes(kw)) return false;
+      if (industry && !this.templateMatchesIndustryFilter(meta, industry)) return false;
       if (methodId && t.methodId !== methodId) return false;
       if (status === 'draft' && t.status !== 'draft') return false;
-      if (status === 'published' && !(t.status === 'published' && t.enabled !== false)) return false;
-      if (status === 'disabled' && !(t.status === 'published' && t.enabled === false)) return false;
+      if (status === 'published' && t.status !== 'published') return false;
       return true;
     });
   },
@@ -2303,30 +2703,19 @@ window.METHOD_CONFIG = {
   deleteTemplate(templateId) {
     const tpl = this.templates.find(t => t.id === templateId);
     if (!tpl) return { ok: false, message: '模板不存在' };
-    if (tpl.status !== 'draft') return { ok: false, message: '仅草稿态模板可删除' };
+    const isDraft = tpl.status === 'draft';
+    const isPublished = tpl.status === 'published';
+    if (!isDraft && !isPublished) return { ok: false, message: '无法删除该模板' };
     this.templates = this.templates.filter(t => t.id !== templateId);
     delete this.templateDetails[templateId];
     const data = this._readStorage();
     data.templates = this.templates.map(t => ({ ...t }));
     if (data.templateDetails?.[templateId]) delete data.templateDetails[templateId];
     this._writeStorage(data);
-    return { ok: true, message: '模板已删除' };
-  },
-
-  toggleTemplateEnabled(templateId) {
-    const tpl = this.templates.find(t => t.id === templateId);
-    if (!tpl || tpl.status !== 'published') return { ok: false, message: '仅已发布模板可停用/启用' };
-    tpl.enabled = tpl.enabled === false;
-    const detail = this.getTemplateDetail(templateId);
-    if (detail) {
-      detail.meta.enabled = tpl.enabled;
-      this.saveTemplateDetail(detail);
-    } else {
-      const data = this._readStorage();
-      data.templates = this.templates.map(t => ({ ...t }));
-      this._writeStorage(data);
+    if (isPublished) {
+      return { ok: true, message: '模板已删除，历史数据采集仍绑定原发布版本，不受影响' };
     }
-    return { ok: true, message: tpl.enabled ? '模板已启用' : '模板已停用' };
+    return { ok: true, message: '草稿模板已删除' };
   },
 
   getParam(id) {
@@ -2380,14 +2769,11 @@ window.METHOD_CONFIG = {
   },
 
   templateStatusBadge(t) {
-    if (!t || t.status !== 'published') return this.statusBadge(t?.status || 'draft');
-    if (t.enabled === false) return '<span class="tag tag-info">已停用</span>';
-    return '<span class="tag tag-success">已发布</span>';
+    return this.statusBadge(t?.status || 'draft');
   },
 
   templateStatusLabel(t) {
-    if (!t || t.status !== 'published') return t?.status === 'published' ? '已发布' : '草稿';
-    return t.enabled === false ? '已停用' : '已发布';
+    return t?.status === 'published' ? '已发布' : '草稿';
   },
 
   versionStatusBadge(status) {

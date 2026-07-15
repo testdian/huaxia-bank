@@ -115,16 +115,29 @@ function invalidateSpaLayout() {
 
 function buildSpaContext() {
   const data = Store.get();
-  return { data, role: ROLES[data.currentRole] || ROLES.hq, task: Store.getCurrentTask() };
+  return { data, role: getRoleContext(data), task: Store.getCurrentTask() };
 }
 
 function bindSpaShellEvents() {
+  const changelogBtn = document.getElementById('changelogBtn');
+  if (changelogBtn && !changelogBtn.dataset.bound) {
+    changelogBtn.dataset.bound = '1';
+    changelogBtn.onclick = () => openUpdateChangelogDrawer();
+  }
+
   const roleSwitch = document.getElementById('roleSwitch');
   if (roleSwitch && !roleSwitch.dataset.bound) {
     roleSwitch.dataset.bound = '1';
     roleSwitch.onchange = e => {
       const roleKey = e.target.value;
-      Store.update(d => { d.currentRole = roleKey; d.currentUser = ROLES[roleKey].user; });
+      Store.update(d => {
+        d.currentRole = roleKey;
+        const r = getRoleContext({ ...d, currentRole: roleKey });
+        d.currentUser = r.user;
+        if (roleKey === 'manager' && !d.currentManagerUser) {
+          d.currentManagerUser = DEMO_MANAGERS[0].user;
+        }
+      });
       toast('已切换角色', 'success');
       invalidateSpaLayout();
       const base = (location.hash || '').split('?')[0];
@@ -133,6 +146,20 @@ function bindSpaShellEvents() {
       } else {
         route();
       }
+    };
+  }
+
+  const managerSwitch = document.getElementById('managerSwitch');
+  if (managerSwitch && !managerSwitch.dataset.bound) {
+    managerSwitch.dataset.bound = '1';
+    managerSwitch.onchange = e => {
+      const mgr = DEMO_MANAGERS.find(m => m.user === e.target.value) || DEMO_MANAGERS[0];
+      Store.update(d => {
+        d.currentManagerUser = mgr.user;
+        d.currentUser = mgr.user;
+      });
+      toast(`已切换客户经理：${mgr.user}（${mgr.branch}）`, 'success');
+      route();
     };
   }
 
@@ -177,7 +204,7 @@ function renderSideNav(data, hash) {
 
 function refreshSpaChrome(pageTitle) {
   const data = Store.get();
-  const role = ROLES[data.currentRole] || ROLES.hq;
+  const role = getRoleContext(data);
   const hash = location.hash || '#/tasks';
   document.body.classList.toggle('sidebar-collapsed', isSidebarCollapsed());
 
@@ -186,6 +213,23 @@ function refreshSpaChrome(pageTitle) {
 
   const roleSel = document.getElementById('roleSwitch');
   if (roleSel) roleSel.value = data.currentRole;
+
+  let managerSel = document.getElementById('managerSwitch');
+  if (data.currentRole === 'manager') {
+    if (!managerSel) {
+      const taskSel = document.getElementById('taskSwitch');
+      const html = `<select id="managerSwitch" title="切换客户经理">
+        ${DEMO_MANAGERS.map(m => `<option value="${m.user}" ${m.user === (data.currentManagerUser || DEMO_MANAGERS[0].user) ? 'selected' : ''}>${m.user} · ${m.branch}</option>`).join('')}
+      </select>`;
+      if (taskSel) taskSel.insertAdjacentHTML('beforebegin', html);
+      bindSpaShellEvents();
+      managerSel = document.getElementById('managerSwitch');
+    } else {
+      managerSel.value = data.currentManagerUser || DEMO_MANAGERS[0].user;
+    }
+  } else if (managerSel) {
+    managerSel.remove();
+  }
 
   const taskSel = document.getElementById('taskSwitch');
   if (taskSel) {
@@ -213,7 +257,7 @@ function refreshSpaChrome(pageTitle) {
 
 function mountSpaShell(pageTitle) {
   const data = Store.get();
-  const role = ROLES[data.currentRole] || ROLES.hq;
+  const role = getRoleContext(data);
   const hash = location.hash || '#/tasks';
   document.body.classList.toggle('sidebar-collapsed', isSidebarCollapsed());
 
@@ -222,11 +266,15 @@ function mountSpaShell(pageTitle) {
       <div class="logo">华夏银行 · 绿金系统</div>
       <div class="breadcrumb">投融资碳核算 <span>/</span> ${pageTitle}</div>
       <div class="header-actions">
+        <button type="button" class="btn-changelog" id="changelogBtn" title="查看页面更新说明">更新说明</button>
         <select id="roleSwitch">
           <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行绿金部</option>
           <option value="branch" ${data.currentRole === 'branch' ? 'selected' : ''}>分行负责人</option>
           <option value="manager" ${data.currentRole === 'manager' ? 'selected' : ''}>客户经理</option>
         </select>
+        ${data.currentRole === 'manager' ? `<select id="managerSwitch" title="切换客户经理">
+          ${DEMO_MANAGERS.map(m => `<option value="${m.user}" ${m.user === (data.currentManagerUser || DEMO_MANAGERS[0].user) ? 'selected' : ''}>${m.user} · ${m.branch}</option>`).join('')}
+        </select>` : ''}
         <select id="taskSwitch">
           ${(data.tasks || []).map(t => `<option value="${t.id}" ${t.id === data.currentTaskId ? 'selected' : ''}>${t.name}</option>`).join('')}
         </select>
