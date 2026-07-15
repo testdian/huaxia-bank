@@ -7,9 +7,9 @@ window.MenuPermissions = {
     ledger: true,
     'carbon-accounts': true,
     factors: true,
-    'method-params': false,
-    'method-templates': false,
-    'industry-config': false,
+    'method-params': true,
+    'method-templates': true,
+    'industry-config': true,
     'permission-mgmt': true
   },
 

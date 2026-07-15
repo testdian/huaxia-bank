@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "manual:screenshots": "node scripts/capture-manual-screenshots.mjs",
+    "changelog:screenshots": "node scripts/capture-changelog-screenshots.mjs",
     "manual:docx": "python3 scripts/generate-manual-docx.py",
     "manual:build": "npm run manual:screenshots && npm run manual:docx",
     "prd:docx": "python3 scripts/generate-prd-docx.py"

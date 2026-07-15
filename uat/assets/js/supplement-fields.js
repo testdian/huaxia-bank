@@ -19,7 +19,8 @@ window.SUPPLEMENT_FIELDS = {
   ],
 
   reqLabel(text, required = true) {
-    return required ? `<span class="req">*</span>${text}` : text;
+    if (!required) return `<span class="field-label-text">${escapeHtml(text)}</span>`;
+    return fieldLabel(text);
   },
 
   allTemplates() {
@@ -58,27 +59,43 @@ window.SUPPLEMENT_FIELDS = {
     if (typeof resolveAccountingType === 'function') {
       const resolved = resolveAccountingType(row);
       if (resolved) return resolved;
+      if (typeof isProjectAccountingPending === 'function' && isProjectAccountingPending(row)) return null;
     }
-    return (formal?.bizType || s?.bizType) === 'project' ? 'project_as_project' : 'non_project';
+    return (formal?.bizType || s?.bizType) === 'project' ? null : 'non_project';
   },
 
   getContext(s) {
     const formal = typeof getFormalForSupplement === 'function' ? getFormalForSupplement(s) : null;
+    const row = { ...(formal || {}), ...(s || {}) };
     const industryMajor = formal?.industryMajor || s.industryMajor || '-';
     const bizType = formal?.bizType || s.bizType || 'non_project';
-    const isProject = bizType === 'project';
+    const isProject = bizType === 'project'
+      || (typeof candidateIsProjectType === 'function' && candidateIsProjectType(row));
     const accountingType = this.getAccountingType(s);
     const template = this.resolveTemplate(s);
+    const projectInfoAvailable = s.projectInfoAvailable ?? formal?.projectInfoAvailable ?? null;
+    const hasSyncedProject = Array.isArray(row.projectDetails) && row.projectDetails.length > 0
+      && !(typeof candidateProjectFinancialMissing === 'function' && candidateProjectFinancialMissing(row));
+    const showProjectInfoChoice = isProject
+      && accountingType == null
+      && projectInfoAvailable == null
+      && !hasSyncedProject;
+    const needsProjectFinancials = accountingType === 'project_as_project'
+      || projectInfoAvailable === true
+      || hasSyncedProject;
     return {
       formal,
+      row,
       industryMajor,
       gbIndustryCode: formal?.gbIndustryCode || s.gbIndustryCode || '',
       gbIndustryName: formal?.gbIndustryName || s.gbIndustryName || '',
       bizType,
       isProject,
       accountingType,
+      projectInfoAvailable,
+      showProjectInfoChoice,
+      needsProjectFinancials,
       needsEntityFinancials: accountingType === 'non_project' || accountingType === 'project_as_non_project',
-      needsProjectFinancials: accountingType === 'project_as_project',
       isPowerIndustry: String(industryMajor).includes('电力'),
       template,
       templateKey: template?.id || 'default',
@@ -198,11 +215,8 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   reportAttachOptions(kind) {
-    if (kind === 'authority') {
-      return { required: false, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
-    }
-    if (kind === 'other') {
-      return { required: false, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
+    if (kind === 'authority' || kind === 'other') {
+      return { required: true, label: this.REPORT_ATTACH_LABEL, maxMb: this.ATTACH_MAX_MB_AUTHORITY };
     }
     return { required: false };
   },
@@ -331,13 +345,16 @@ window.SUPPLEMENT_FIELDS = {
     return rows;
   },
 
-  renderRepeatablePairRow(row, config, dis) {
-    const { typeLabel, amountLabel, typeOptions, amountStep } = config;
+  renderRepeatablePairRow(row, config, dis, options = {}) {
+    const { typeOptions, amountStep } = config;
+    const showLabels = !!options.showLabels;
     const removeBtn = dis === 'disabled' ? '' : `<div class="form-item repeatable-row-actions"><button type="button" class="btn btn-sm btn-link repeatable-remove-row">删除</button></div>`;
+    const typeLabel = showLabels ? `<label>${config.typeLabel}</label>` : '';
+    const amountLabel = showLabels ? `<label>${config.amountLabel}</label>` : '';
     return `<div class="repeatable-row">
-      <div class="repeatable-row-inner form-grid">
-        <div class="form-item"><label>${typeLabel}</label>${this.selectField(typeOptions, row.type, dis, '请选择', 'data-field="type"')}</div>
-        <div class="form-item"><label>${amountLabel}</label>${this.numField(row.amount, dis, amountStep, 'data-field="amount"')}</div>
+      <div class="repeatable-row-inner">
+        <div class="form-item repeatable-col">${typeLabel}${this.selectField(typeOptions, row.type, dis, '请选择', 'data-field="type"')}</div>
+        <div class="form-item repeatable-col">${amountLabel}${this.numField(row.amount, dis, amountStep, 'data-field="amount"')}</div>
         ${removeBtn}
       </div>
     </div>`;
@@ -349,7 +366,12 @@ window.SUPPLEMENT_FIELDS = {
     const rowHtml = rows.map(r => this.renderRepeatablePairRow(r, config, dis)).join('');
     const addBtn = dis === 'disabled' ? '' : `<button type="button" class="btn btn-sm repeatable-add-row" data-repeatable-id="${listId}">+ 添加一行</button>`;
     return `<div class="repeatable-list-wrap">
-      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}">
+      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}" data-cols="2">
+        <div class="repeatable-list-head">
+          <span class="repeatable-head-cell">${config.typeLabel}</span>
+          <span class="repeatable-head-cell">${config.amountLabel}</span>
+          <span class="repeatable-head-cell repeatable-col-actions">操作</span>
+        </div>
         ${rowHtml}
       </div>
       ${addBtn}
@@ -392,12 +414,13 @@ window.SUPPLEMENT_FIELDS = {
     const removeBtn = dis === 'disabled' ? '' : `<div class="form-item repeatable-row-actions"><button type="button" class="btn btn-sm btn-link repeatable-remove-row">删除</button></div>`;
     const cells = fields.map(f => {
       const val = row[f.key] == null ? '' : row[f.key];
+      const placeholder = f.placeholder || f.label || '';
       if (f.type === 'number') {
-        return `<div class="form-item"><label>${f.label}</label><input type="number" step="${f.step || '0.0001'}" data-field="${f.key}" value="${val}" ${dis}></div>`;
+        return `<div class="form-item repeatable-col"><input type="number" step="${f.step || '0.0001'}" data-field="${f.key}" value="${val}" ${dis} placeholder="${placeholder}" aria-label="${f.label}"></div>`;
       }
-      return `<div class="form-item"><label>${f.label}</label><input type="text" data-field="${f.key}" value="${val}" ${dis} placeholder="${f.placeholder || ''}"></div>`;
+      return `<div class="form-item repeatable-col"><input type="text" data-field="${f.key}" value="${val}" ${dis} placeholder="${placeholder}" aria-label="${f.label}"></div>`;
     }).join('');
-    return `<div class="repeatable-row"><div class="repeatable-row-inner form-grid">${cells}${removeBtn}</div></div>`;
+    return `<div class="repeatable-row"><div class="repeatable-row-inner">${cells}${removeBtn}</div></div>`;
   },
 
   renderRepeatableCustomSection(listId, rows, fieldDefs, dis, options = {}) {
@@ -405,8 +428,13 @@ window.SUPPLEMENT_FIELDS = {
     const maxRows = options.maxRows ?? 20;
     const rowHtml = rows.map(r => this.renderRepeatableCustomRow(r, fieldDefs, dis)).join('');
     const addBtn = dis === 'disabled' ? '' : `<button type="button" class="btn btn-sm repeatable-add-row" data-repeatable-id="${listId}">${options.addLabel || '+ 添加一行'}</button>`;
+    const headCells = fieldDefs.map(f => `<span class="repeatable-head-cell">${f.label}</span>`).join('');
     return `<div class="repeatable-list-wrap">
-      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}">
+      <div class="repeatable-list" data-repeatable-id="${listId}" data-min-rows="${minRows}" data-max-rows="${maxRows}" data-cols="${fieldDefs.length}">
+        <div class="repeatable-list-head">
+          ${headCells}
+          <span class="repeatable-head-cell repeatable-col-actions">操作</span>
+        </div>
         ${rowHtml}
       </div>
       ${addBtn}
@@ -484,6 +512,40 @@ window.SUPPLEMENT_FIELDS = {
     });
   },
 
+  renderProjectInfoChoice(s, dis, ctx) {
+    const val = s.projectInfoAvailable ?? ctx.formal?.projectInfoAvailable;
+    const selected = val === true ? 'yes' : (val === false ? 'no' : '');
+    return `
+      <div class="form-item full" data-project-info-choice>
+        <label class="field-label field-label--required">${this.reqLabel('是否可提供项目信息')}</label>
+        <select id="f_project_info_available" ${dis}>
+          <option value="" ${selected === '' ? 'selected' : ''}>请选择</option>
+          <option value="yes" ${selected === 'yes' ? 'selected' : ''}>是</option>
+          <option value="no" ${selected === 'no' ? 'selected' : ''}>否</option>
+        </select>
+        <small class="text-muted">项目类业务需先确认是否可提供项目信息。选「是」需填写项目字段；选「否」将按非项目方式核算。</small>
+      </div>`;
+  },
+
+  bindProjectInfoChoice(rootEl, readonly) {
+    if (readonly) return;
+    const root = rootEl || document;
+    qsa('#f_project_info_available', root).forEach(sel => {
+      if (sel._projectInfoBound) return;
+      sel._projectInfoBound = true;
+      const scope = sel.closest('.card-body') || sel.closest('.form-grid') || root;
+      const sync = () => {
+        const choice = sel.value;
+        const projectFields = qs('[data-project-info-fields]', scope);
+        const entityFields = qs('[data-entity-info-fields]', scope);
+        if (projectFields) projectFields.style.display = choice === 'yes' ? '' : 'none';
+        if (entityFields) entityFields.style.display = choice === 'no' ? '' : 'none';
+      };
+      sel.addEventListener('change', sync);
+      sync();
+    });
+  },
+
   renderBasicInfo(s, dis, basicEditable = false) {
     const ctx = this.getContext(s);
     const formal = ctx.formal;
@@ -494,52 +556,60 @@ window.SUPPLEMENT_FIELDS = {
     const projectInfo = s.projectInfo || {};
     const projectVal = (key, fallback = '') => this.val(projectInfo, key, projectSeed?.[key] ?? fallback);
     const accountingLabel = typeof candidateAccountingTypeLabel === 'function'
-      ? candidateAccountingTypeLabel({ accountingType: ctx.accountingType, bizType: ctx.bizType })
-      : ctx.accountingType;
+      ? candidateAccountingTypeLabel({ ...(formal || {}), ...(s || {}), accountingType: ctx.accountingType })
+      : (ctx.accountingType || '—');
     const avgAssetsVal = s.avgTotalAssets ?? formal?.avgTotalAssets ?? s.totalAssets ?? '';
     const revenueVal = s.revenue ?? formal?.operatingRevenue ?? s.operatingRevenue ?? '';
+    const showProjectFields = ctx.needsProjectFinancials || ctx.showProjectInfoChoice;
+    const projectFieldsHidden = ctx.showProjectInfoChoice && !ctx.needsProjectFinancials;
+    const entityFieldsHidden = ctx.showProjectInfoChoice && !ctx.needsEntityFinancials;
     return `
       <div class="form-item"><label>客户名称</label><input id="f_customer_name" value="${s.customerName || ''}" ${basicDis}></div>
       <div class="form-item"><label>所属行业</label><input id="f_industry_major" value="${ctx.industryMajor}" ${basicDis}></div>
       ${ctx.gbIndustryCode ? `<div class="form-item"><label>国民经济行业（4级）</label><input value="${ctx.gbIndustryCode} ${ctx.gbIndustryName || ''}" disabled></div>` : ''}
-      <div class="form-item"><label>业务种类</label><input value="${accountingLabel}" disabled></div>
+      <div class="form-item"><label>业务种类</label><input value="${accountingLabel || '项目（计算方法待定）'}" disabled></div>
       ${ctx.template ? `<div class="form-item"><label>采集模板</label><input value="${ctx.sheetName}（${ctx.isProject ? '项目' : '非项目'}）" disabled></div>` : ''}
-      ${ctx.needsProjectFinancials ? `<div class="form-item full project-info-fields" data-project-info-fields>
+      ${ctx.showProjectInfoChoice ? this.renderProjectInfoChoice(s, dis, ctx) : ''}
+      ${showProjectFields ? `<div class="form-item full project-info-fields" data-project-info-fields${projectFieldsHidden ? ' style="display:none"' : ''}>
         <div class="form-section-title">项目信息填报</div>
         <div class="form-grid">
-          <div class="form-item"><label>${this.reqLabel('项目号', false)}</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目名称', false)}</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目所在地区域（省）', false)}</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目所属行业', false)}</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('客户号', false)}</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('客户名称', false)}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('统一社会信用代码', false)}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('国民经济行业代码（4级）', false)}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
-          <div class="form-item"><label>${this.reqLabel('项目月均贷款余额（元）', false)}</label>${this.numInput('f_prj_avg_loan', this.projectAmountYuanInput(projectVal('projectAvgLoanBalanceWan', null), s.avgLoanBalance), dis, '0.01')}</div>
-          <div class="form-item"><label>${this.reqLabel('项目收入（元）')}</label>${this.numInput('f_prj_revenue', this.projectAmountYuanInput(projectVal('projectRevenueWan', null), s.revenue), dis, '0.01')}</div>
-          <div class="form-item"><label>${this.reqLabel('项目总投资（元）')}</label>${this.numInput('f_prj_total_invest', this.projectAmountYuanInput(projectVal('projectTotalInvestmentWan', null), formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('项目号', false)}</label><input id="f_prj_no" value="${projectVal('projectNo')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('项目名称', false)}</label><input id="f_prj_name" value="${projectVal('projectName')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('项目所在地区域（省）', false)}</label><input id="f_prj_province" value="${projectVal('projectProvince')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('项目所属行业', false)}</label><input id="f_prj_industry" value="${projectVal('projectIndustry', ctx.industryMajor)}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('客户号', false)}</label><input id="f_prj_customer_no" value="${projectVal('customerNo')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('客户名称', false)}</label><input id="f_prj_customer_name" value="${projectVal('customerName', s.customerName || '')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('统一社会信用代码', false)}</label><input id="f_prj_credit_code" value="${projectVal('creditCode', formal?.creditCode || '')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('国民经济行业代码（4级）', false)}</label><input id="f_prj_industry_code_lv4" value="${projectVal('nationalIndustryCodeLv4', formal?.gbIndustryCode || '')}" ${dis}></div>
+          <div class="form-item"><label class="field-label">${this.reqLabel('项目月均贷款余额（元）', false)}</label>${this.numInput('f_prj_avg_loan', this.projectAmountYuanInput(projectVal('projectAvgLoanBalanceWan', null), s.avgLoanBalance), dis, '0.01')}</div>
+          <div class="form-item"><label class="field-label field-label--required">${this.reqLabel('项目收入（元）')}</label>${this.numInput('f_prj_revenue', this.projectAmountYuanInput(projectVal('projectRevenueWan', null), s.revenue), dis, '0.01')}</div>
+          <div class="form-item"><label class="field-label field-label--required">${this.reqLabel('项目总投资（元）')}</label>${this.numInput('f_prj_total_invest', this.projectAmountYuanInput(projectVal('projectTotalInvestmentWan', null), formal?.projectTotalInvestmentWan), dis, '0.01')}</div>
         </div>
       </div>` : ''}
-      ${ctx.needsEntityFinancials ? `
-      <div class="form-item"><label>${this.reqLabel('营业收入（元）')}</label>${this.numInput('f_revenue', revenueVal, dis)}</div>
-      <div class="form-item"><label>${this.reqLabel('平均资产总额（元）')}</label>${this.numInput('f_avg_total_assets', avgAssetsVal, dis)}</div>
-      <div class="form-item"><label>${this.reqLabel('月均贷款余额（元）', false)}</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>` : ''}`;
+      ${(ctx.needsEntityFinancials || ctx.showProjectInfoChoice) ? `
+      <div class="entity-info-fields" data-entity-info-fields${entityFieldsHidden ? ' style="display:none"' : ''}>
+      <div class="form-item"><label class="field-label field-label--required">${this.reqLabel('营业收入（元）')}</label>${this.numInput('f_revenue', revenueVal, dis)}</div>
+      <div class="form-item"><label class="field-label field-label--required">${this.reqLabel('平均资产总额（元）')}</label>${this.numInput('f_avg_total_assets', avgAssetsVal, dis)}</div>
+      <div class="form-item"><label class="field-label">${this.reqLabel('月均贷款余额（元）', false)}</label>${this.numInput('f_avg_loan', s.avgLoanBalance, dis)}</div>
+      </div>` : ''}`;
   },
 
   renderAttachmentSection(tabId, attachments, dis, options = {}) {
     const required = !!options.required;
-    const reqHtml = required ? '<span class="req">*</span>' : '';
     const label = options.label || '报告附件';
+    const labelHtml = required
+      ? `<label class="field-label field-label--required">${fieldLabel(label)}</label>`
+      : `<label class="field-label"><span class="field-label-text">${escapeHtml(label)}</span></label>`;
     const maxMb = options.maxMb ?? this.ATTACH_MAX_MB;
     const inputId = `f_${tabId}_files`;
     const listId = `f_${tabId}_attach_list`;
     const wrapAttrs = (tabId === 'report_authority' || tabId === 'report_other')
       ? ` id="f_${tabId}_attach_wrap"` : '';
     const sizeHint = this.formatAttachMaxHint(maxMb);
-    const extraHint = required ? '；经政府/第三方核查时须上传佐证文件' : '';
+    const extraHint = required ? '；报告法提交时必须上传佐证材料' : '';
     return `
       <div class="form-item full"${wrapAttrs}>
-        <label>${reqHtml}${label}</label>
+        ${labelHtml}
         <input type="file" id="${inputId}" ${dis} multiple accept="${this.ATTACH_ACCEPT}" style="margin-top:6px">
         <small style="color:#909399;display:block;margin-top:4px">支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${sizeHint}${extraHint}</small>
         <ul class="attach-list" id="${listId}">${this.renderAttachList(attachments)}</ul>
@@ -788,27 +858,19 @@ window.SUPPLEMENT_FIELDS = {
   },
 
   syncReportAttachmentRequired(rootEl) {
-    const authWrap = qs('#f_report_authority_attach_wrap', rootEl);
-    if (authWrap) {
-      const label = authWrap.querySelector('label');
-      const hint = authWrap.querySelector('small');
-      label?.querySelector('.req')?.remove();
-      if (hint) {
-        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}`;
-      }
-    }
-    const otherWrap = qs('#f_report_other_attach_wrap', rootEl);
-    if (otherWrap) {
-      const label = otherWrap.querySelector('label');
-      const hint = otherWrap.querySelector('small');
-      if (label) {
-        const hasReq = label.querySelector('.req');
-        if (hasReq) hasReq.remove();
+    ['report_authority', 'report_other'].forEach(tabId => {
+      const wrap = qs(`#f_${tabId}_attach_wrap`, rootEl);
+      if (!wrap) return;
+      const label = wrap.querySelector('label');
+      const hint = wrap.querySelector('small');
+      if (label && !label.querySelector('.field-required-dot')) {
+        label.classList.add('field-label', 'field-label--required');
+        label.insertAdjacentHTML('afterbegin', renderRequiredDot());
       }
       if (hint) {
-        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}`;
+        hint.textContent = `支持 pdf、doc、docx、xls、xlsx、png、jpeg、jpg；最多 ${this.ATTACH_MAX_COUNT} 个，${this.formatAttachMaxHint(this.ATTACH_MAX_MB_AUTHORITY)}；提交时必须上传佐证材料`;
       }
-    }
+    });
   },
 
   bindReportAttachmentRule(rootEl, readonly) {
@@ -832,12 +894,29 @@ window.SUPPLEMENT_FIELDS = {
     return { ok: true };
   },
 
+  validateActiveReportAttachments(rootEl, supplement) {
+    const activeTab = qs('#methodTabs .tab.active', rootEl)?.dataset.tab || supplement?.activeMethodTab;
+    if (activeTab !== 'report_authority' && activeTab !== 'report_other') return { ok: true };
+    const attachments = this.getReportAttachments(supplement, activeTab);
+    if (!attachments.length) {
+      return { ok: false, tabId: activeTab, message: '报告法佐证材料为必填项，请先上传附件' };
+    }
+    return { ok: true };
+  },
+
   validateSupplementSubmit(rootEl, supplement) {
     const ctx = this.getContext(supplement);
-    if (ctx.needsProjectFinancials) {
+    const reportCheck = this.validateActiveReportAttachments(rootEl, supplement);
+    if (!reportCheck.ok) return reportCheck;
+    if (ctx.showProjectInfoChoice || (ctx.isProject && ctx.projectInfoAvailable == null && ctx.accountingType == null)) {
+      const choice = qs('#f_project_info_available', rootEl)?.value;
+      if (!choice) return { ok: false, message: '请选择是否可提供项目信息' };
+    }
+    const projectChoice = qs('#f_project_info_available', rootEl)?.value;
+    if (projectChoice === 'yes' || ctx.needsProjectFinancials) {
       return this._validateRequiredFields(rootEl, this.PROJECT_SUBMIT_REQUIRED);
     }
-    if (ctx.needsEntityFinancials) {
+    if (projectChoice === 'no' || ctx.needsEntityFinancials) {
       return this._validateRequiredFields(rootEl, this.ENTITY_SUBMIT_REQUIRED);
     }
     return { ok: true };
@@ -964,13 +1043,21 @@ window.SUPPLEMENT_FIELDS = {
       accountingType: ctx.accountingType,
       fieldData: { ...(supplement.fieldData || {}) }
     };
-    if (ctx.needsEntityFinancials) {
+    const choiceEl = qs('#f_project_info_available', rootEl);
+    if (choiceEl) {
+      const choice = choiceEl.value;
+      if (choice === 'yes') payload.projectInfoAvailable = true;
+      else if (choice === 'no') payload.projectInfoAvailable = false;
+      else payload.projectInfoAvailable = supplement.projectInfoAvailable ?? null;
+    }
+    const includeProjectFields = ctx.needsProjectFinancials || payload.projectInfoAvailable === true;
+    if (ctx.needsEntityFinancials && payload.projectInfoAvailable !== true) {
       payload.revenue = numVal('#f_revenue', rootEl);
       payload.avgTotalAssets = numVal('#f_avg_total_assets', rootEl);
       payload.totalAssets = payload.avgTotalAssets;
       payload.avgLoanBalance = numVal('#f_avg_loan', rootEl);
     }
-    if (ctx.needsProjectFinancials) {
+    if (includeProjectFields) {
       payload.projectInfo = {
         projectNo: txtVal('#f_prj_no', rootEl),
         projectName: txtVal('#f_prj_name', rootEl),

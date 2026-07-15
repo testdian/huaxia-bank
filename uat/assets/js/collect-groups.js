@@ -9,7 +9,7 @@ const CollectGroups = {
 
   BUCKET_LABELS: {
     non_project: '非项目',
-    project: '项目',
+    project: '项目（计算方法待定）',
     project_as_project: '项目（以项目方式计算）',
     project_as_non_project: '项目（以非项目方式计算）'
   },
@@ -231,14 +231,13 @@ const CollectGroups = {
           || leadRow.tier1Branch
           || leadRow.branch;
         const dispatchRule = branches.length > 1 ? 'first_disbursement' : 'single_branch';
-        const projectBucket = this.resolveProjectBucket(leadRow, leadCand);
         seq += 1;
         groups.push({
           id: `G${taskId}_${seq}`,
           taskId,
           creditCode: creditCode.startsWith('NAME:') ? '' : creditCode,
           customerName,
-          bucket: projectBucket,
+          bucket: 'project',
           creditRefNo: creditRef.startsWith('UNKNOWN_') ? '' : creditRef,
           loanType: loanType.startsWith('UNKNOWN_') ? '' : loanType,
           projectName: this.formalProjectName(leadRow) || creditRef,

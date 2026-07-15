@@ -227,8 +227,14 @@ if (manId) {
   assert(branchApr, '总行发起：先进分行初审');
   Store.resolveApproval(branchApr.id, true, '', { selectedMethodId: 'report' });
   assert(Store.get().supplements.find(s => s.id === supp.id).approvedMethodId === 'report', '分行审核可选定核算方法');
+  assert(Store.get().supplements.find(s => s.id === supp.id).auditStage === 'branch_approved', '分行通过后待提交总行');
+  const hqBefore = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'hq' && a.status === 'pending');
+  assert(!hqBefore, '分行通过后不立即生成总行待审');
+  const submitted = Store.bulkSubmitBranchApprovedToHq(taskId, [branchApr.id]);
+  assert(submitted === 1, '分行一键提交总行');
   const hqApr = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'hq' && a.status === 'pending');
-  assert(hqApr, '分行通过后进入总行终审');
+  assert(hqApr, '提交后进入总行终审');
+  assert(hqApr.id === branchApr.id, '一键提交沿用同一条审核记录');
   Store.resolveApproval(hqApr.id, true);
   assert(Store.get().supplements.find(s => s.id === supp.id).auditStage === 'approved', '必收数审核完成');
   const submitNode = Store.get().approvals.find(a => a.docId === supp.id && a.reviewLevel === 'submit');

@@ -81,7 +81,10 @@ const CandidateSync = {
       let borrowerType = borrowerTypes[idx % borrowerTypes.length];
 
       const bucket = idx % 20;
-      if (bucket === 0) { avgMonthlyBalance = 80 + (idx % 400); excludeReason = 'LOW_BALANCE'; }
+      if (bucket === 0) {
+        avgMonthlyBalance = 80 + (idx % 400);
+        if (bizType === 'non_project') excludeReason = 'LOW_BALANCE';
+      }
       else if (bucket === 1) { isSme = true; excludeReason = 'SME'; avgMonthlyBalance = 600; borrowerType = '小微客户'; }
       else if (bucket === 2) { isIndividual = true; excludeReason = 'INDIVIDUAL'; avgMonthlyBalance = 300; borrowerType = '个贷'; }
       else if (bucket === 3) { isOverseas = true; excludeReason = 'OVERSEAS'; avgMonthlyBalance = 2000; borrowerType = '上市公司'; }
@@ -158,6 +161,8 @@ const CandidateSync = {
         projectInfoAvailable: (bizType === 'project' && projectDetails.length) ? true : null,
         tier1Branch,
         handlingBranch,
+        creditRefNo: `CREF${year || 2024}${String(100000 + idx)}`,
+        creditNo: `CREDIT${year || 2024}${String(100000 + idx)}`,
         loanAccount: '622' + String(1000000000000 + idx * 7919).slice(0, 13),
         disbursementAmount,
         disbursementDate,
@@ -182,6 +187,133 @@ const CandidateSync = {
         accountingYear: year || null
       });
     }
+    this.injectAnsteelEmissionConflictDemo(rows, taskId, year);
+    return rows;
+  },
+
+  /**
+   * 接口同步演示数据：鞍钢炼钢有限公司 ×3，统一社会信用代码相同，
+   * 分别对应非项目、项目（计算方法待定）、项目（以项目方式计算），便于测试同主体排放冲突。
+   */
+  injectAnsteelEmissionConflictDemo(rows, taskId, year) {
+    const uscc = '91110100MA3ANSTEELX';
+    const customerName = '鞍钢炼钢有限公司';
+    if ((rows || []).some(r => r._ansteelConflictDemo && r.taskId === taskId)) return rows;
+    const major = '钢铁';
+    const code = 'C3120';
+    const accountingYear = year || 2024;
+    const taskNum = String(taskId || '').replace(/\D/g, '').slice(-6).padStart(6, '0');
+    const specs = [
+      {
+        suffix: '01',
+        bizType: 'non_project',
+        accountingType: 'non_project',
+        loanType: '短期流动资金贷款',
+        branch: '北京分行',
+        manager: '王磊',
+        balance: 5200,
+        projectDetails: [],
+        projectInfoAvailable: null,
+        bizLabel: '非项目'
+      },
+      {
+        suffix: '02',
+        bizType: 'project',
+        accountingType: null,
+        loanType: '一般性固定资产贷款',
+        branch: '北京分行',
+        manager: '陈静',
+        balance: 4800,
+        projectDetails: [],
+        projectInfoAvailable: null,
+        bizLabel: '项目（计算方法待定）'
+      },
+      {
+        suffix: '03',
+        bizType: 'project',
+        accountingType: 'project_as_project',
+        loanType: '一般性固定资产贷款',
+        branch: '北京分行',
+        manager: '刘洋',
+        balance: 6100,
+        projectDetails: [{
+          projectNo: 'PRJ-ANSTEEL-2024',
+          projectName: '鞍钢炼钢节能技改项目',
+          projectProvince: '辽宁',
+          projectIndustry: '钢铁',
+          customerNo: 'KHANSTEEL01',
+          customerName,
+          creditCode: uscc,
+          nationalIndustryCodeLv4: code,
+          projectAvgLoanBalanceWan: 6100,
+          projectRevenueWan: 36000,
+          projectTotalInvestmentWan: 480000
+        }],
+        projectInfoAvailable: true,
+        bizLabel: '项目（以项目方式计算）'
+      }
+    ];
+    const injected = specs.map((s, i) => {
+      const idx = 9000 + i;
+      const tier1Branch = s.branch;
+      const handlingBranch = tier1Branch.replace('分行', '') + '营业部';
+      const disbursementDate = `${accountingYear}-0${i + 3}-15`;
+      const huaxiaTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
+      const monthEndBalanceSum = Math.round(s.balance * huaxiaTenureMonths);
+      const avgMonthlyBalance = monthEndBalanceSum / huaxiaTenureMonths;
+      const operatingRevenue = Math.round(s.balance * 6 + idx * 10);
+      const totalAssets = avgMonthlyBalance * 80 + idx * 100;
+      const prevYearTotalAssets = avgMonthlyBalance * 75 + idx * 90;
+      return {
+        id: 'C' + taskNum + 'AS' + s.suffix,
+        taskId,
+        customerName,
+        testCaseLabel: `【冲突测试】${s.bizLabel}`,
+        customerScale: '大型企业',
+        enterpriseScale: '大型企业',
+        companyNature: '国有',
+        companyType: '有限责任公司',
+        creditCode: uscc,
+        gbIndustryCode: code,
+        gbIndustryName: '炼钢',
+        industryMajor: major,
+        industryLabel: `${code} 炼钢`,
+        borrowerType: '有限责任公司',
+        productType: s.loanType,
+        loanType: s.loanType,
+        bizType: s.bizType,
+        accountingType: s.accountingType,
+        projectInfoAvailable: s.projectInfoAvailable,
+        tier1Branch,
+        handlingBranch,
+        creditRefNo: `CREF${accountingYear}ANST${s.suffix}`,
+        creditNo: `CREDIT${accountingYear}ANST${s.suffix}`,
+        loanAccount: '622' + String(8800000000000 + idx).slice(0, 13),
+        disbursementAmount: Math.round(avgMonthlyBalance * 10000 * 9),
+        disbursementDate,
+        operatingRevenue,
+        projectTotalInvestmentWan: s.projectDetails[0]?.projectTotalInvestmentWan || null,
+        projectDetails: s.projectDetails,
+        monthEndBalanceSum,
+        huaxiaTenureMonths,
+        avgMonthlyBalance,
+        totalAssets,
+        prevYearTotalAssets,
+        avgTotalAssets: (totalAssets + prevYearTotalAssets) / 2,
+        branch: tier1Branch,
+        manager: s.manager,
+        isSme: false,
+        isIndividual: false,
+        isOverseas: false,
+        excludeReason: null,
+        excluded: false,
+        included: true,
+        syncedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        accountingYear,
+        _ansteelConflictDemo: true
+      };
+    });
+    rows.unshift(...injected);
     return rows;
   },
 

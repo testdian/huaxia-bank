@@ -12,6 +12,29 @@ const CarbonAccount = {
     return (acc?.status || 'active') === 'active';
   },
 
+  isAccountCancelled(acc) {
+    return (acc?.status || 'active') === 'cancelled';
+  },
+
+  /** 注销账户主体排放展示为 0，且不计入合计 */
+  normalizeEntityEmissionForAccount(account, entityEmission) {
+    if (this.isAccountCancelled(account)) return 0;
+    if (entityEmission == null || entityEmission === '') return entityEmission;
+    return entityEmission;
+  },
+
+  _zeroAccountEmissions(acc) {
+    if (!acc) return;
+    Object.keys(acc.annualProfiles || {}).forEach(year => {
+      if (acc.annualProfiles[year]) acc.annualProfiles[year].entityEmission = 0;
+    });
+    (acc.projectSubAccounts || []).forEach(sub => {
+      Object.keys(sub.annualProfiles || {}).forEach(year => {
+        if (sub.annualProfiles[year]) sub.annualProfiles[year].entityEmission = 0;
+      });
+    });
+  },
+
   getProjectSubAccountCount(acc) {
     const subs = acc?.projectSubAccounts?.length
       ? acc.projectSubAccounts
@@ -507,7 +530,8 @@ const CarbonAccount = {
       reportDetail,
       formal,
       methodLabel,
-      method: methodLabel
+      method: methodLabel,
+      entityEmission: this.normalizeEntityEmissionForAccount(account, metrics.entityEmission)
     };
   },
 
@@ -678,6 +702,10 @@ const CarbonAccount = {
       method: methodLabel,
       methodId: payload.methodId || 'report',
       methodLabel,
+      qualityGrade: payload.qualityGrade ?? this.trendRecordQualityGrade({
+        methodId: payload.methodId || 'report',
+        method: methodLabel
+      }),
       customerNo,
       source: payload.source || 'gelan',
       updatedAt: new Date().toLocaleString('zh-CN'),
@@ -723,6 +751,10 @@ const CarbonAccount = {
       method: methodLabel,
       methodLabel,
       methodId: payload.methodId || methodId,
+      qualityGrade: payload.qualityGrade ?? this.trendRecordQualityGrade({
+        methodId: payload.methodId || methodId,
+        method: methodLabel
+      }),
       customerNo: payload.customerNo,
       source: 'manual',
       updatedAt: new Date().toLocaleString('zh-CN'),
@@ -808,6 +840,7 @@ const CarbonAccount = {
     });
     acc.status = nextStatus;
     acc.statusChangedAt = at;
+    if (nextStatus === 'cancelled') this._zeroAccountEmissions(acc);
     (acc.projectSubAccounts || []).forEach(sub => {
       sub.status = nextStatus;
     });
@@ -872,7 +905,12 @@ const CarbonAccount = {
 
     (d.carbonAccountRecords || []).forEach(r => {
       if (r.accountId !== account.id && !matchRow(r)) return;
-      records.push(r);
+      const calc = r.calcId ? (d.calculations || []).find(c => c.id === r.calcId) : null;
+      records.push({
+        ...r,
+        methodId: r.methodId || calc?.methodId || this.mapMethodId(r.method),
+        qualityGrade: r.qualityGrade ?? calc?.qualityGrade
+      });
       if (r.calcId) calcIds.add(r.calcId);
     });
 
@@ -892,19 +930,8 @@ const CarbonAccount = {
 
     Object.keys(account.annualProfiles || {}).forEach(yearStr => {
       const p = account.annualProfiles[yearStr];
-      const idx = records.findIndex(r => String(r.year) === yearStr);
-      if (idx >= 0) {
-        const r = records[idx];
-        if ((r.entityEmission == null || r.entityEmission === 0) && p.entityEmission != null) {
-          records[idx] = {
-            ...r,
-            entityEmission: p.entityEmission,
-            operatingRevenue: r.operatingRevenue ?? p.operatingRevenue ?? p.revenue
-          };
-        }
-        return;
-      }
       records.push({
+        id: `PROFILE_${account.id}_${yearStr}`,
         accountId: account.id,
         creditCode: account.creditCode,
         loanAccount: account.loanAccount,
@@ -914,19 +941,22 @@ const CarbonAccount = {
         entityEmission: p.entityEmission,
         attributedEmission: p.attributedEmission ?? null,
         operatingRevenue: p.operatingRevenue ?? p.revenue,
-        method: p.methodLabel || p.method
+        method: p.methodLabel || p.method,
+        methodId: p.methodId || this.mapMethodId(p.methodLabel || p.method),
+        qualityGrade: p.qualityGrade,
+        updatedAt: p.updatedAt
       });
     });
 
     return records;
   },
 
-  /** 碳强度：tCO₂e / 元营业收入（营收为元） */
+  /** 碳强度：tCO₂e / 万元营业收入（营收原始值为元） */
   calcEntityIntensity(entity, revenueYuan) {
     const em = Number(entity);
     const rev = Number(revenueYuan);
     if (!Number.isFinite(em) || !rev || rev <= 0) return null;
-    return +(em / rev).toFixed(8);
+    return +((em * 10000) / rev).toFixed(4);
   },
 
   resolveYearRevenue(d, account, yearStr, metrics) {
@@ -942,23 +972,68 @@ const CarbonAccount = {
     return null;
   },
 
+  trendRecordQualityGrade(record) {
+    const explicit = Number(record?.qualityGrade);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const methodId = record?.methodId || this.mapMethodId(record?.method);
+    const methods = typeof GUIDE !== 'undefined' ? (GUIDE.METHODS || []) : [];
+    const exact = methods.find(m => m.id === methodId);
+    if (exact?.qualityGrade) return Number(exact.qualityGrade);
+    const methodName = String(record?.method || '');
+    const fuzzy = methods.find(m => methodName.includes(m.name) || m.name.includes(methodName));
+    return Number(fuzzy?.qualityGrade) || 5;
+  },
+
+  trendRecordTimestamp(record) {
+    const raw = record?.updatedAt || record?.confirmedAt || record?.mountedAt
+      || record?.completedAt || record?.calculatedAt || record?.createdAt || record?.submitTime || '';
+    const normalized = String(raw)
+      .replace(/年|月/g, '-')
+      .replace(/日/g, ' ')
+      .replace(/\//g, '-');
+    const parsed = Date.parse(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  },
+
+  selectPreferredTrendRecord(records) {
+    const candidates = (records || []).filter(r => r?.entityEmission != null);
+    const pool = candidates.length ? candidates : (records || []);
+    return pool.map((record, index) => ({
+      record,
+      index,
+      qualityGrade: this.trendRecordQualityGrade(record),
+      timestamp: this.trendRecordTimestamp(record)
+    })).sort((a, b) =>
+      a.qualityGrade - b.qualityGrade
+      || b.timestamp - a.timestamp
+      || b.index - a.index
+    )[0]?.record || null;
+  },
+
   trendByYear(records) {
-    const map = {};
-    records.forEach(r => {
-      const y = String(r.year || r.period || '-');
-      if (!map[y]) map[y] = { year: y, emission: 0, entity: 0, count: 0, revenue: 0 };
-      map[y].emission += Number(r.attributedEmission) || 0;
-      map[y].entity += Number(r.entityEmission) || 0;
-      map[y].count += 1;
-      map[y].revenue += Number(r.operatingRevenue ?? r.revenue) || 0;
+    const grouped = {};
+    (records || []).forEach(r => {
+      const year = String(r.year || r.period || '-');
+      if (!grouped[year]) grouped[year] = [];
+      grouped[year].push(r);
     });
-    return Object.values(map)
-      .map(row => ({
-        ...row,
-        label: row.year,
-        intensity: this.calcEntityIntensity(row.entity, row.revenue)
-      }))
-      .sort((a, b) => String(a.year).localeCompare(String(b.year)));
+    return Object.entries(grouped).map(([year, rows]) => {
+      const selected = this.selectPreferredTrendRecord(rows);
+      const entity = selected?.entityEmission ?? null;
+      const revenue = selected?.operatingRevenue ?? selected?.revenue ?? null;
+      return {
+        year,
+        label: year,
+        emission: selected?.attributedEmission ?? null,
+        entity,
+        count: rows.length,
+        revenue,
+        method: selected?.method || '-',
+        qualityGrade: this.trendRecordQualityGrade(selected),
+        selectedAt: selected?.updatedAt || selected?.confirmedAt || selected?.mountedAt || null,
+        intensity: this.calcEntityIntensity(entity, revenue)
+      };
+    }).sort((a, b) => String(a.year).localeCompare(String(b.year)));
   },
 
   /** 趋势分析：与账户档案同一口径，按年度解析主体排放与碳强度 */
@@ -981,15 +1056,17 @@ const CarbonAccount = {
           label: yearStr,
           emission: null,
           entity: null,
-          count: 0,
+          count: metrics.entityEmission != null ? 1 : 0,
           revenue: null,
-          intensity: null
+          intensity: null,
+          method: metrics.method
         };
         trendMap[yearStr] = row;
+        if (metrics.entityEmission != null) row.entity = metrics.entityEmission;
       }
-      if (metrics.entityEmission != null) row.entity = metrics.entityEmission;
-      if (metrics.method) row.method = metrics.method;
-      const rev = this.resolveYearRevenue(d, account, yearStr, metrics);
+      const rev = row.revenue != null
+        ? Number(row.revenue)
+        : this.resolveYearRevenue(d, account, yearStr, metrics);
       if (rev != null && rev > 0) row.revenue = rev;
       else if (row.revenue === 0) row.revenue = null;
       row.intensity = this.calcEntityIntensity(row.entity, row.revenue);
@@ -1001,7 +1078,7 @@ const CarbonAccount = {
     return this.fillTrendYearGaps(trend, years);
   },
 
-  /** 主体碳强度趋势 tCO₂e / 元营业收入（主体口径） */
+  /** 主体碳强度趋势 tCO₂e / 万元营业收入（主体口径） */
   trendIntensityByYear(records) {
     return this.trendByYear(records).filter(t => t.intensity != null);
   },
@@ -1073,7 +1150,7 @@ const CarbonAccount = {
     const bal = Number(r.avgBalance) || 0;
     const em = Number(r.attributedEmission) || 0;
     if (bal <= 0) return null;
-    return +((em / bal) * 10000).toFixed(4);
+    return +(em / bal).toFixed(4);
   },
 
   formatIntensity(n) {
@@ -1081,10 +1158,10 @@ const CarbonAccount = {
     return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
   },
 
-  /** 主体碳强度展示（tCO₂e / 元营收，数值较小需更高精度） */
+  /** 主体碳强度展示（tCO₂e / 万元营收） */
   formatEntityIntensity(n) {
     if (n == null || Number.isNaN(n)) return '—';
-    return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 8 });
+    return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
   },
 
   parseYearFromDateTime(s) {
@@ -1159,6 +1236,8 @@ const CarbonAccount = {
       year,
       period: String(year),
       method: calc.method,
+      methodId: calc.methodId || this.mapMethodId(calc.method),
+      qualityGrade: calc.qualityGrade,
       confirmedAt,
       status: 'confirmed'
     };
@@ -1324,11 +1403,12 @@ const CarbonAccount = {
   /** 项目子账户指定年度主体排放（非归因，不回落主账户） */
   resolveProjectYearMetrics(d, account, projectNo, year) {
     const yearStr = String(year || '');
+    const zeroIfCancelled = v => this.normalizeEntityEmissionForAccount(account, v);
     const sub = (account.projectSubAccounts || []).find(x => String(x.projectNo) === String(projectNo));
     const subProfile = sub?.annualProfiles?.[yearStr] || {};
     if (subProfile.entityEmission != null || subProfile.method || subProfile.methodLabel) {
       return {
-        entityEmission: subProfile.entityEmission,
+        entityEmission: zeroIfCancelled(subProfile.entityEmission),
         method: subProfile.methodLabel || subProfile.method || '-',
         methodLabel: subProfile.methodLabel || subProfile.method,
         customerNo: sub?.customerNo || subProfile.customerNo,
@@ -1337,13 +1417,13 @@ const CarbonAccount = {
       };
     }
     const projectFormal = this.resolveFormalForProject(d, account, projectNo);
-    if (!projectFormal) return { entityEmission: null, method: '-', nonAttributed: true };
+    if (!projectFormal) return { entityEmission: zeroIfCancelled(null), method: '-', nonAttributed: true };
     const task = (d.tasks || []).find(t => t.id === projectFormal.taskId);
     if (task && String(task.year) !== yearStr) {
-      return { entityEmission: null, method: '-', nonAttributed: true };
+      return { entityEmission: zeroIfCancelled(null), method: '-', nonAttributed: true };
     }
     return {
-      entityEmission: this.resolveEntityEmissionForFormal(d, projectFormal.taskId, projectFormal.id),
+      entityEmission: zeroIfCancelled(this.resolveEntityEmissionForFormal(d, projectFormal.taskId, projectFormal.id)),
       method: this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal),
       methodLabel: this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal),
       customerNo: sub?.customerNo,
@@ -1770,6 +1850,7 @@ const CarbonAccount = {
       a.status = 'cancelled';
       a.statusChangedAt = '2024-09-01 10:00:00';
       a.statusHistory = [{ from: 'active', to: 'cancelled', at: a.statusChangedAt, operator: '总行绿金部' }];
+      this._zeroAccountEmissions(a);
     });
 
     const dedupedAccounts = this.dedupeCarbonAccounts(accounts, records);
@@ -1833,6 +1914,9 @@ if (typeof Store !== 'undefined') {
       return this.update(d => CarbonAccount.syncTask(d, taskId));
     },
     setCarbonAccountStatus(accountId, nextStatus, operatorKey) {
+      if (operatorKey !== 'hq' && operatorKey !== 'branch') {
+        return { ok: false, message: '无权限变更账户状态' };
+      }
       let result = { ok: false, message: '状态变更失败' };
       this.update(d => {
         result = CarbonAccount.transitionAccountStatus(d, accountId, nextStatus, operatorKey);
@@ -1841,6 +1925,9 @@ if (typeof Store !== 'undefined') {
     },
     saveCarbonAccountProfile(accountId, year, subProjectNo, payload, operatorKey) {
       if (!accountId || !payload) return { ok: false, message: '缺少保存数据' };
+      if (operatorKey !== 'hq') {
+        return { ok: false, message: '仅总行可编辑企业碳账户' };
+      }
       const acc = this.getCarbonAccount(accountId);
       if (!acc) return { ok: false, message: '未找到碳账户' };
       if (!CarbonAccount.isAccountActive(acc)) {
@@ -1865,6 +1952,7 @@ if (typeof Store !== 'undefined') {
       );
       (d.carbonAccounts || []).forEach(acc => {
         if (!acc.status) acc.status = 'active';
+        if (CarbonAccount.isAccountCancelled(acc)) CarbonAccount._zeroAccountEmissions(acc);
         if (!acc.operationLogs?.length && acc.statusHistory?.length) {
           acc.operationLogs = acc.statusHistory.map(h => ({
             at: h.at,

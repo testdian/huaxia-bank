@@ -155,7 +155,7 @@ window.IndustryConfig = {
     const activeTags = Array.isArray(f.tags) ? f.tags.filter(Boolean)
       : (f.tag ? [f.tag] : []);
     if (activeTags.length) {
-      list = list.filter(r => activeTags.every(t => this.hasTag(r, t)));
+      list = list.filter(r => activeTags.some(t => this.hasTag(r, t)));
     }
     if (f.keyword) {
       const kw = f.keyword.trim().toLowerCase();
@@ -237,24 +237,24 @@ window.IndustryConfig = {
     ).join('');
     return `
       <div class="form-grid ic-form-grid">
-        <div class="form-item"><label>一级行业代码 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('一级行业代码', { required: true })}
           <input id="ic_form_l1_code" value="${escapeHtml(r.level1Code || '')}" placeholder="如 C" maxlength="10" required></div>
-        <div class="form-item"><label>一级行业名称 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('一级行业名称', { required: true })}
           <input id="ic_form_l1" value="${escapeHtml(r.level1Name || '')}" placeholder="如 制造业" maxlength="100" required></div>
 
-        <div class="form-item"><label>二级行业代码 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('二级行业代码', { required: true })}
           <input id="ic_form_l2_code" value="${escapeHtml(r.level2Code || '')}" placeholder="如 30" maxlength="10" required></div>
-        <div class="form-item"><label>二级行业名称 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('二级行业名称', { required: true })}
           <input id="ic_form_l2" value="${escapeHtml(r.level2Name || '')}" placeholder="如 非金属矿物制品业" maxlength="100" required></div>
 
-        <div class="form-item"><label>三级行业代码 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('三级行业代码', { required: true })}
           <input id="ic_form_l3_code" value="${escapeHtml(r.level3Code || '')}" placeholder="如 301" maxlength="10" required></div>
-        <div class="form-item"><label>三级行业名称 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('三级行业名称', { required: true })}
           <input id="ic_form_l3" value="${escapeHtml(r.level3Name || '')}" placeholder="如 水泥、石灰和石膏制造" maxlength="100" required></div>
 
-        <div class="form-item"><label>四级行业代码（GB/T） <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('四级行业代码（GB/T）', { required: true })}
           <input id="ic_form_cascade" value="${escapeHtml(cascade)}" placeholder="如 3011" maxlength="10" required></div>
-        <div class="form-item"><label>四级行业名称 <span class="req">*</span></label>
+        <div class="form-item">${renderFormLabel('四级行业名称', { required: true })}
           <input id="ic_form_l4" value="${escapeHtml(r.level4Name || r.name || '')}" placeholder="如 水泥制造" maxlength="100" required></div>
 
         <div class="form-item full"><label>标识</label>

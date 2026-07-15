@@ -436,8 +436,27 @@ const DemoSeed = {
       versionYear: 2026,
       caliberTag: 'bank',
       sourceNote: '验收演示用自定义因子，可编辑/删除'
+    }, {
+      id: 'CF001-2027',
+      methodId: 'energy',
+      industryMajor: '电力',
+      energyCategory: '固体燃料',
+      itemName: '验收测试-烟煤',
+      subIndustry: '火力发电',
+      unit: 'tCO2e/t',
+      value: 2.71,
+      valueType: 'default',
+      isBuiltin: false,
+      status: 'active',
+      sourceSheet: '自定义',
+      versionYear: 2027,
+      caliberTag: 'bank',
+      sourceNote: '2027年度更新版（演示）'
     }];
-    return custom.concat(guide.map(f => ({ ...f })));
+    return custom.concat(guide.map(f => ({
+      ...f,
+      versionYear: f.versionYear || 2026
+    })));
   },
 
   buildMappings() {
@@ -683,6 +702,7 @@ const DemoSeed = {
       { status: 'pending', auditStage: 'pending_fill', approvalStatus: 'none', branchReviewStatus: 'none', hqReviewStatus: 'none', dispatched: false },
       { status: 'in_progress', auditStage: 'pending_fill', approvalStatus: 'none', branchReviewStatus: 'none', hqReviewStatus: 'none', dispatched: true },
       { status: 'completed', auditStage: 'branch_review', approvalStatus: 'pending', branchReviewStatus: 'pending', hqReviewStatus: 'none', dispatched: true },
+      { status: 'completed', auditStage: 'branch_approved', approvalStatus: 'approved', branchReviewStatus: 'approved', hqReviewStatus: 'none', dispatched: true },
       { status: 'completed', auditStage: 'hq_review', approvalStatus: 'pending', branchReviewStatus: 'approved', hqReviewStatus: 'pending', dispatched: true },
       { status: 'completed', auditStage: 'approved', approvalStatus: 'approved', branchReviewStatus: 'approved', hqReviewStatus: 'approved', dispatched: true },
       { status: 'returned', auditStage: 'pending_fill', approvalStatus: 'none', branchReviewStatus: 'rejected', hqReviewStatus: 'none', dispatched: true, rejectReason: '排放数据与披露报告不一致' }
@@ -1323,6 +1343,22 @@ const DemoSeed = {
           status: 'pending',
           approver: null,
           approveTime: null
+        });
+      }
+      if (s.auditStage === 'branch_approved' && s.branchReviewStatus === 'approved') {
+        list.push({
+          id: 'APR' + seq++,
+          taskId,
+          docType: 'supplement',
+          docId: s.id,
+          docName: '数据采集-' + (s.customerName || s.id),
+          reviewLevel: 'branch',
+          round,
+          submitter: s.manager || '王磊',
+          submitTime: s.submittedAt || '2025-04-12 11:00',
+          status: 'approved',
+          approver: '王丽',
+          approveTime: '2025-04-13 15:20'
         });
       }
       if (s.auditStage === 'hq_review' && s.hqReviewStatus === 'pending') {

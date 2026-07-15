@@ -25,6 +25,12 @@ window.MethodConfigEditor = {
     const form = qs('#tplEditForm');
     if (!form) return;
     const ctx = this.getEditContext();
+    if (ctx.q.get('mode') === 'view') {
+      form.querySelectorAll('input:not([type="hidden"]), select, textarea, button').forEach(el => {
+        el.disabled = true;
+      });
+      return;
+    }
 
     qs('#tplSaveDraftBtn')?.addEventListener('click', () => this.saveDraft(ctx.step));
     qs('#tplNextBtn')?.addEventListener('click', e => {
@@ -54,6 +60,7 @@ window.MethodConfigEditor = {
     qs('#tplExtractFactorsBtn')?.addEventListener('click', () => this.extractFactorsFromFormulas());
     qs('#tplAddPartitionBtn')?.addEventListener('click', () => this.addPartition());
     qs('#tplGenFormulasBtn')?.addEventListener('click', () => this.generateFormulasFromStructure());
+    qs('#tplUpdateAllFactorVersionsBtn')?.addEventListener('click', () => this.updateAllFactorVersions());
 
     this.bindBlockEditor(form);
     this.bindInlineFactorPickers(form);
@@ -168,7 +175,7 @@ window.MethodConfigEditor = {
         <span class="structure-dynamic-variety-name">${escapeHtml(row.label || '—')}</span>
       </td>
       <td class="structure-dynamic-factor-cell">
-        ${this.inlineFactorPickerHtml(refKey, factorSource).replace('class="inline-factor-search"', `class="inline-factor-search"${disabledAttr}`)}
+        ${this.inlineFactorPickerHtml(refKey, factorSource, detail?.meta?.factorVersionRank).replace('class="inline-factor-search"', `class="inline-factor-search"${disabledAttr}`)}
         ${this.inlineUnitConversionHtml(refKey, block.amountParamId, amountP, binding, { saved })}
       </td>
     </tr>`;
@@ -252,10 +259,8 @@ window.MethodConfigEditor = {
     // 单单位模式
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = presetRowEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
-    const okBar = presetRowEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
     if (!libId) {
       if (panel) panel.hidden = true;
-      if (okBar) okBar.hidden = true;
       return;
     }
     if (panel) {
@@ -267,17 +272,14 @@ window.MethodConfigEditor = {
         if (facEl) facEl.textContent = assess.factorDenominator;
         const cfInput = qs(`[name="inline_unit_factor_${refKey}"]`, panel);
         const noteInput = qs(`[name="inline_unit_note_${refKey}"]`, panel);
-        const hint = qs('.unit-conv-hint', panel);
         if (cfInput && cfInput.value === '' && assess.suggestedFactor !== '') {
           cfInput.value = assess.suggestedFactor;
         }
         if (noteInput && !noteInput.value && assess.suggestedLabel) {
           noteInput.value = assess.suggestedLabel;
-          if (hint) hint.textContent = assess.suggestedLabel + '；系数将自动写入核算公式';
         }
       }
     }
-    if (okBar) okBar.hidden = !assess.match;
   },
 
   dynamicBlockBodyHtml(section, pIndex, sIndex, detail, options = {}) {
@@ -381,8 +383,21 @@ window.MethodConfigEditor = {
     return (detail?.factorBindings || []).find(b => b.refKey === refKey) || {};
   },
 
-  inlineFactorPickerHtml(refKey, selectedId) {
-    const opts = METHOD_CONFIG.getFactorLibraryOptions();
+  getTemplateFactorVersionRank(form) {
+    const formEl = form || qs('#tplEditForm');
+    const fromHidden = formEl?.querySelector('[name="tpl_factor_version_rank"]')?.value;
+    if (fromHidden != null && fromHidden !== '') {
+      return METHOD_CONFIG.resolveTemplateFactorVersionRank(fromHidden);
+    }
+    const { detail } = this.getEditContext();
+    return METHOD_CONFIG.resolveTemplateFactorVersionRank(detail?.meta || {});
+  },
+
+  inlineFactorPickerHtml(refKey, selectedId, versionRank) {
+    const rank = versionRank != null
+      ? METHOD_CONFIG.resolveTemplateFactorVersionRank(versionRank)
+      : METHOD_CONFIG.getDefaultFactorVersionRank();
+    const opts = METHOD_CONFIG.getFactorLibraryOptions(rank);
     const selected = opts.find(f => f.id === selectedId);
     const display = selected?.displayLabel || '';
     const listItems = opts.length
@@ -422,7 +437,6 @@ window.MethodConfigEditor = {
     // 单单位模式（原有逻辑）
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const showConvert = hasFactor && assess.needsConversion;
-    const showOk = hasFactor && assess.match;
     const cf = binding?.conversionFactor ?? assess.suggestedFactor ?? '';
     const note = binding?.unitConversion || assess.suggestedLabel || '';
     const presetOpts = [{ factor: '', label: '常用换算…' }]
@@ -451,11 +465,6 @@ window.MethodConfigEditor = {
           </div>
         </div>
         <input type="hidden" name="inline_unit_note_${escapeHtml(refKey)}" value="${escapeHtml(note)}">
-        <p class="structure-unit-conversion-hint unit-conv-hint">${escapeHtml(note || '活动量 × 换算系数 × 因子；系数将自动写入核算公式')}</p>
-      </div>
-      <div class="structure-unit-ok" data-ref-key="${escapeHtml(refKey)}" ${showOk ? '' : 'hidden'}>
-        <span class="tag tag-success">单位一致</span>
-        <span class="text-muted">活动单位与因子分母均为 ${escapeHtml(assess.activityUnit)}，无需换算</span>
       </div>`;
   },
 
@@ -478,14 +487,14 @@ window.MethodConfigEditor = {
       if (!hasFactor) {
         return `<tr>${hiddenInputs}
           <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
-          <td colspan="3" class="text-muted" style="font-size:12px">请先选择排放因子</td></tr>`;
+          <td colspan="2" class="text-muted" style="font-size:12px">请先选择排放因子</td></tr>`;
       }
       if (assess?.match) {
         return `<tr>${hiddenInputs}
           <input type="hidden" name="inline_unit_factor_${escapeHtml(refKey)}_u${i}" value="1">
           <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
           <td><span class="unit-conv-arrow">→</span> 因子分母 <strong>${escapeHtml(assess.factorDenominator)}</strong></td>
-          <td colspan="2"><span class="tag tag-success">单位一致，无需换算</span></td></tr>`;
+          <td><span class="tag tag-success">单位一致，无需换算</span></td></tr>`;
       }
       return `<tr class="unit-conv-multi-row">${hiddenInputs}
         <td><span class="structure-emission-unit">${escapeHtml(u)}</span></td>
@@ -499,15 +508,14 @@ window.MethodConfigEditor = {
             <select name="inline_unit_preset_${escapeHtml(refKey)}_u${i}"
               class="inline-unit-preset-select"${disabledAttr}>${presetOpts}</select>
           </div>
-        </td>
-        <td class="text-muted" style="font-size:12px">${escapeHtml(note || '活动量 × 系数 × 因子')}</td></tr>`;
+        </td></tr>`;
     }).join('');
 
     return `
       <div class="structure-unit-multi-conv" data-ref-key="${escapeHtml(refKey)}" ${hasFactor ? '' : 'hidden'}>
         <input type="hidden" name="inline_unit_count_${escapeHtml(refKey)}" value="${units.length}">
         <table class="unit-conv-multi-table">
-          <thead><tr><th>单位</th><th>换算关系</th><th>换算系数 / 快捷选择</th><th>说明</th></tr></thead>
+          <thead><tr><th>单位</th><th>换算关系</th><th>换算系数 / 快捷选择</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
@@ -542,10 +550,8 @@ window.MethodConfigEditor = {
     // 单单位模式
     const assess = METHOD_CONFIG.assessParamUnitConversion(param, factorUnit);
     const panel = sourceEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
-    const okBar = sourceEl.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
     if (!libId) {
       if (panel) panel.hidden = true;
-      if (okBar) okBar.hidden = true;
       return;
     }
     if (panel) {
@@ -557,17 +563,14 @@ window.MethodConfigEditor = {
         if (facEl) facEl.textContent = assess.factorDenominator;
         const cfInput = qs(`[name="inline_unit_factor_${refKey}"]`, panel);
         const noteInput = qs(`[name="inline_unit_note_${refKey}"]`, panel);
-        const hint = qs('.unit-conv-hint', panel);
         if (cfInput && cfInput.value === '' && assess.suggestedFactor !== '') {
           cfInput.value = assess.suggestedFactor;
         }
         if (noteInput && !noteInput.value && assess.suggestedLabel) {
           noteInput.value = assess.suggestedLabel;
-          if (hint) hint.textContent = assess.suggestedLabel + '；系数将自动写入核算公式';
         }
       }
     }
-    if (okBar) okBar.hidden = !assess.match;
     this.syncEmissionRowExpression(sourceEl, form);
   },
 
@@ -613,6 +616,98 @@ window.MethodConfigEditor = {
     hidden.value = METHOD_CONFIG.applyConversionFactorToExpr(base, primary, conversionFactor);
   },
 
+  setInlineFactorPickerValue(picker, factorId, form) {
+    if (!picker) return false;
+    const refKey = picker.dataset.refKey;
+    if (!refKey) return false;
+    const opts = METHOD_CONFIG.getFactorLibraryOptions(this.getTemplateFactorVersionRank(form));
+    const opt = opts.find(f => f.id === factorId);
+    const hidden = qs(`[name="inline_factor_lib_${refKey}"]`, picker);
+    const search = qs('.inline-factor-search', picker);
+    if (!hidden) return false;
+    hidden.value = factorId || '';
+    if (search) search.value = opt?.displayLabel || '';
+    const sourceEl = picker.closest('[data-emission-source]');
+    const presetRow = picker.closest('[data-preset-row]');
+    if (sourceEl) this.refreshUnitConversionPanel(sourceEl, form);
+    if (presetRow) this.refreshDynamicPresetUnitPanel(presetRow, form);
+    if (presetRow && !presetRow.closest('[data-section-type="dynamic_row"][data-dynamic-saved="1"]')) {
+      this.refreshPartitionFormulaBar(
+        presetRow.closest('[data-partition-row]'),
+        this.readInlineFormulaDetail(form)
+      );
+    }
+    return true;
+  },
+
+  updateAllFactorVersions() {
+    this._runUpdateAllFactorVersions();
+  },
+
+  async _runUpdateAllFactorVersions() {
+    const form = qs('#tplEditForm');
+    if (!form) return;
+    const { detail } = this.getEditContext();
+    if (detail.meta?.methodId === 'report') {
+      toast('报告法模板无需绑定排放因子', 'info');
+      return;
+    }
+    const bound = [...form.querySelectorAll('input[name^="inline_factor_lib_"]')]
+      .filter(h => h.value?.trim());
+    if (!bound.length) {
+      toast('当前模板暂无已绑定的排放因子', 'warning');
+      return;
+    }
+    const versionOptions = METHOD_CONFIG.getFactorLibraryVersionOptions();
+    const defaultRank = versionOptions.length
+      ? String(versionOptions[versionOptions.length - 1].rank)
+      : '1';
+    const dialogResult = await showConfirmDialog({
+      title: '更新因子版本',
+      message: `模板内共有 ${bound.length} 处因子绑定，确认按所选版本号批量更新吗？`,
+      detail: '系统将按排放因子库中各因子组对应版本重新匹配；已是该版本的绑定将自动跳过。',
+      confirmText: '确认更新',
+      select: {
+        label: '请选择将模板内因子更新为哪一个版本？',
+        options: versionOptions.map(o => ({ value: String(o.rank), label: o.label })),
+        defaultValue: defaultRank
+      }
+    });
+    const confirmed = dialogResult === true || dialogResult?.ok;
+    if (!confirmed) return;
+    const versionRank = Number(
+      (typeof dialogResult === 'object' && dialogResult?.value != null)
+        ? dialogResult.value
+        : defaultRank
+    );
+    const versionLabel = typeof formatFactorVersionNo === 'function'
+      ? formatFactorVersionNo(Math.max(1, versionRank))
+      : `v${versionRank}.0`;
+
+    let updated = 0;
+    let skipped = 0;
+    let failed = 0;
+    bound.forEach(hidden => {
+      const oldId = hidden.value.trim();
+      const newId = METHOD_CONFIG.resolveFactorVersionUpgradeByRank(oldId, versionRank);
+      if (!newId || newId === oldId) {
+        skipped++;
+        return;
+      }
+      const picker = hidden.closest('.inline-factor-picker');
+      if (!picker || !this.setInlineFactorPickerValue(picker, newId, form)) {
+        failed++;
+        return;
+      }
+      updated++;
+    });
+    const parts = [];
+    if (updated) parts.push(`已更新 ${updated} 处为 ${versionLabel}`);
+    if (skipped) parts.push(`${skipped} 处已是 ${versionLabel}`);
+    if (failed) parts.push(`${failed} 处更新失败`);
+    toast(parts.join('，') || '未发生变更', updated ? 'success' : 'info');
+  },
+
   bindInlineFactorPickers(form) {
     if (!form) return;
 
@@ -628,7 +723,7 @@ window.MethodConfigEditor = {
       const kw = qs('.inline-factor-search', picker)?.value.trim().toLowerCase() || '';
       const selectedId = qs(`[name="inline_factor_lib_${picker.dataset.refKey}"]`, picker)?.value || '';
       qsa('.inline-factor-option', picker).forEach(opt => {
-        const text = opt.dataset.factorText || opt.textContent.toLowerCase();
+        const text = (opt.dataset.factorText || opt.textContent || '').toLowerCase();
         const isSelected = opt.dataset.factorId === selectedId;
         opt.hidden = !!kw && !text.includes(kw) && !isSelected;
       });
@@ -662,21 +757,8 @@ window.MethodConfigEditor = {
       if (opt && form.contains(opt)) {
         const picker = opt.closest('.inline-factor-picker');
         if (!picker) return;
-        const hidden = qs(`[name="inline_factor_lib_${picker.dataset.refKey}"]`, picker);
-        const search = qs('.inline-factor-search', picker);
-        if (hidden) hidden.value = opt.dataset.factorId || '';
-        if (search) search.value = opt.dataset.factorLabel || '';
+        this.setInlineFactorPickerValue(picker, opt.dataset.factorId || '', form);
         closeAllPickers();
-        const sourceEl = picker.closest('[data-emission-source]');
-        const presetRow = picker.closest('[data-preset-row]');
-        if (sourceEl) this.refreshUnitConversionPanel(sourceEl, form);
-        if (presetRow) this.refreshDynamicPresetUnitPanel(presetRow, form);
-        if (presetRow && !presetRow.closest('[data-section-type="dynamic_row"][data-dynamic-saved="1"]')) {
-          this.refreshPartitionFormulaBar(
-            presetRow.closest('[data-partition-row]'),
-            this.readInlineFormulaDetail(form)
-          );
-        }
         e.preventDefault();
         return;
       }
@@ -709,14 +791,12 @@ window.MethodConfigEditor = {
         cfInput.dataset.touched = '1';
       }
       if (noteInput) noteInput.value = label;
-      const hint = scopeEl.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"] .unit-conv-hint`);
-      if (hint && label) hint.textContent = `${label}；系数将自动写入核算公式`;
       if (sourceEl) this.syncEmissionRowExpression(sourceEl, form);
     });
   },
 
-  inlineFactorSelectHtml(refKey, selectedId) {
-    return this.inlineFactorPickerHtml(refKey, selectedId);
+  inlineFactorSelectHtml(refKey, selectedId, versionRank) {
+    return this.inlineFactorPickerHtml(refKey, selectedId, versionRank);
   },
 
   renderFormulaChip(c, refKey) {
@@ -1045,7 +1125,7 @@ window.MethodConfigEditor = {
                     <p class="structure-emission-col-hint">搜索因子库并选择</p>
                   </div>
                 </div>
-                ${this.inlineFactorPickerHtml(refKey, binding.factorSource).replace('class="inline-factor-search"', `class="inline-factor-search"${disabledAttr}`)}
+                ${this.inlineFactorPickerHtml(refKey, binding.factorSource, detail?.meta?.factorVersionRank).replace('class="inline-factor-search"', `class="inline-factor-search"${disabledAttr}`)}
                 ${this.inlineUnitConversionHtml(refKey, primary, p, binding, { saved })}
               </div>
             </div>
@@ -1080,12 +1160,9 @@ window.MethodConfigEditor = {
 
     let inputPreview;
     if (isAttachment) {
-      const accept = p?.attachAccept || '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpeg,.jpg';
-      const maxCount = p?.attachMaxCount ?? 3;
-      const maxMb = p?.attachMaxMb ?? 20;
       inputPreview = `<div class="structure-attach-preview">
         <button type="button" class="btn btn-sm" disabled>选择文件</button>
-        <p class="text-muted attach-meta">支持 ${escapeHtml(accept.replace(/\./g, '').replace(/,/g, '、'))}；最多 ${maxCount} 个，单文件 ≤ ${maxMb}MB</p>
+        <p class="text-muted attach-meta">${escapeHtml(METHOD_CONFIG.formatAttachMetaText(p))}</p>
         <ul class="attach-list"><li class="attach-empty">暂无附件</li></ul>
       </div>`;
     } else if (isOption) {
@@ -1421,7 +1498,7 @@ window.MethodConfigEditor = {
     this._activePartitionIndex = 0;
     this._activeEmissionSourceEl = null;
 
-    form.addEventListener('click', e => {
+    form.addEventListener('click', async (e) => {
       const partitionEl = e.target.closest('[data-partition-row]');
       if (partitionEl) this._activePartitionIndex = Number(partitionEl.dataset.partitionIndex) || 0;
 
@@ -1486,7 +1563,12 @@ window.MethodConfigEditor = {
       }
 
       const rmSource = e.target.closest('[data-remove-emission-source]');
-      if (rmSource && confirm('删除此排放源及其公式配置？')) {
+      if (rmSource) {
+        const ok = await showConfirmDialog({
+          message: '是否确认删除此排放源及其公式配置？',
+          danger: true
+        });
+        if (!ok) return;
         const fixedSection = rmSource.closest('[data-section-type="fixed"]');
         const partitionEl2 = rmSource.closest('[data-partition-row]');
         rmSource.closest('[data-emission-source]')?.remove();
@@ -1515,7 +1597,11 @@ window.MethodConfigEditor = {
         const partitionEl2 = rmSourceParam.closest('[data-partition-row]');
         const pIndex = Number(partitionEl2?.dataset.partitionIndex) || 0;
         if (fields.length <= 1) {
-          if (!confirm('移除最后一个参数将删除整个排放源，继续？')) return;
+          const ok = await showConfirmDialog({
+            message: '移除最后一个参数将删除整个排放源，是否继续？',
+            danger: true
+          });
+          if (!ok) return;
           sourceEl2.remove();
         } else {
           rmSourceParam.closest('[data-source-param]')?.remove();
@@ -1532,7 +1618,12 @@ window.MethodConfigEditor = {
       }
 
       const rmPartition = e.target.closest('[data-remove-partition]');
-      if (rmPartition && confirm('删除该分区及其全部配置？')) {
+      if (rmPartition) {
+        const ok = await showConfirmDialog({
+          message: '是否确认删除该分区及其全部配置？',
+          danger: true
+        });
+        if (!ok) return;
         rmPartition.closest('[data-partition-row]')?.remove();
         this.reindexPartitions(form);
         this.persistStep2Draft({ silent: true });
@@ -1540,7 +1631,12 @@ window.MethodConfigEditor = {
       }
 
       const rmSection = e.target.closest('[data-remove-section]');
-      if (rmSection && confirm('删除该区块？')) {
+      if (rmSection) {
+        const ok = await showConfirmDialog({
+          message: '是否确认删除该区块？',
+          danger: true
+        });
+        if (!ok) return;
         const sectionEl = rmSection.closest('[data-section-row]');
         const partitionEl2 = sectionEl?.closest('[data-partition-row]');
         sectionEl?.remove();
@@ -1616,9 +1712,7 @@ window.MethodConfigEditor = {
         const refKey = e.target.closest('.inline-factor-picker')?.dataset.refKey;
         if (sourceEl2 && refKey) {
           const panel = sourceEl2.querySelector(`.structure-unit-conversion[data-ref-key="${refKey}"]`);
-          const okBar = sourceEl2.querySelector(`.structure-unit-ok[data-ref-key="${refKey}"]`);
           if (panel) panel.hidden = true;
-          if (okBar) okBar.hidden = true;
         }
       }
     });
@@ -1900,6 +1994,10 @@ window.MethodConfigEditor = {
       result = METHOD_CONFIG.saveTemplateDetail(detail);
     } else {
       const merged = METHOD_CONFIG.mergeTemplateStep(detail, step, form);
+      if (step === '1' && !METHOD_CONFIG.normalizeTemplateIndustries(merged.meta).length) {
+        toast('请至少选择一个适用行业', 'warning');
+        return;
+      }
       result = METHOD_CONFIG.saveTemplateDetail(merged);
     }
     if (!result.ok) {
@@ -1950,9 +2048,13 @@ window.MethodConfigEditor = {
     route();
   },
 
-  copyFromFlatGlass() {
+  async copyFromFlatGlass() {
     const { id, detail } = this.getEditContext();
-    if (!confirm('将用「平板玻璃·能源法」样例覆盖当前模板配置（草稿），确定？')) return;
+    const ok = await showConfirmDialog({
+      message: '是否确认用「平板玻璃·能源法」样例覆盖当前模板配置（草稿）？',
+      detail: '覆盖后当前草稿内容将被替换，请确认后再继续。'
+    });
+    if (!ok) return;
     const copy = METHOD_CONFIG.copyTemplateDetail(
       'tpl_np_平板玻璃_energy',
       id,
@@ -2021,8 +2123,11 @@ window.MethodConfigEditor = {
     return used.map(f => `${f.id} ${f.name || ''}`.trim()).join('、');
   },
 
-  factorLibrarySelectOptions(selectedId) {
-    const opts = METHOD_CONFIG.getFactorLibraryOptions();
+  factorLibrarySelectOptions(selectedId, versionRank) {
+    const rank = versionRank != null
+      ? METHOD_CONFIG.resolveTemplateFactorVersionRank(versionRank)
+      : this.getTemplateFactorVersionRank();
+    const opts = METHOD_CONFIG.getFactorLibraryOptions(rank);
     const head = '<option value="">— 从排放因子库选用 —</option>';
     const body = opts.slice(0, 80).map(f =>
       `<option value="${escapeHtml(f.id)}" ${f.id === selectedId ? 'selected' : ''}>${escapeHtml(f.displayLabel)}</option>`
@@ -2073,7 +2178,7 @@ window.MethodConfigEditor = {
         <div class="form-item"><label>显示名称</label><input name="factor_label" value="${escapeHtml(b.label || '')}" placeholder="如：煤炭排放因子"></div>
         <div class="form-item"><label>匹配方式</label><select name="factor_matchType">${matchOpts}</select></div>
         <div class="form-item" data-factor-depends-wrap ${showDep ? '' : 'hidden'}><label>依赖采集字段</label><input name="factor_dependsOn" value="${escapeHtml(b.dependsOn || '')}" placeholder="如 P_grid_region"></div>
-        <div class="form-item full"><label>从排放因子库选用</label><select name="factor_libraryId">${this.factorLibrarySelectOptions(libId)}</select></div>
+        <div class="form-item full"><label>从排放因子库选用</label><select name="factor_libraryId">${this.factorLibrarySelectOptions(libId, detail?.meta?.factorVersionRank)}</select></div>
         <div class="form-item"><label>缺省因子值</label><input name="factor_defaultValue" value="${escapeHtml(b.defaultValue ?? '')}" placeholder="未匹配时的默认值"></div>
         <div class="form-item"><label>因子单位</label><input name="factor_unitFactor" value="${escapeHtml(b.unitFactor || '')}" placeholder="tCO₂/t"></div>
         <div class="form-item full">
