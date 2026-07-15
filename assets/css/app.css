@@ -905,6 +905,13 @@ body.drawer-open { overflow: hidden; }
   align-items: end;
   gap: 12px 16px;
 }
+.calculation-filter-hint {
+  margin: 0;
+  padding: 0 16px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #909399;
+}
 .filter-action-cell .filter-action-btns { justify-content: flex-start; }
 .ledger-detail-toolbar {
   display: flex;

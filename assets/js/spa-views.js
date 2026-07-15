@@ -822,12 +822,13 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
             </div>
           </div>
         </div>
+        <p class="calculation-filter-hint">项目总投资筛选仅作用于业务种类为「项目类」的归集单元；非项目类数据不受筛选影响，默认全部纳入统计与提交范围。</p>
         </fieldset>
       </div>
     </div>
     <div class="card"><div class="card-header"><h3>排放计算清单</h3></div><div class="card-body table-wrap"><table class="data-table">
     <thead><tr>${renderCalculationGroupTableHead()}</tr></thead>
-    <tbody>${view.rows.length ? view.rows.map(g => renderCalculationGroupTableRow(g, taskId, d)).join('') : `<tr><td colspan="${calculationGroupTableColCount()}" style="text-align:center;padding:32px;color:#909399">${allGroups.length && hasInvestFilter ? '无符合项目总投资筛选条件的归集单元' : '暂无排放计算清单数据'}</td></tr>`}</tbody></table></div>
+    <tbody>${view.rows.length ? view.rows.map(g => renderCalculationGroupTableRow(g, taskId, d)).join('') : `<tr><td colspan="${calculationGroupTableColCount()}" style="text-align:center;padding:32px;color:#909399">${allGroups.length && hasInvestFilter ? '无符合项目总投资筛选条件的项目类归集单元（非项目类不受筛选影响）' : '暂无排放计算清单数据'}</td></tr>`}</tbody></table></div>
     ${groups.length ? renderPagination(listKey, view) : ''}</div>`;
 };
 
