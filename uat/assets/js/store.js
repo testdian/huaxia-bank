@@ -3439,7 +3439,7 @@ const Store = {
       ? filterCalculationGroupsByInvestment(allGroups, filters, taskId, d)
       : allGroups;
     if (hasInvestFilter && !filteredGroups.length) {
-      return { ok: false, message: '当前项目总投资筛选条件下无排放计算清单，请调整筛选范围后再提交' };
+      return { ok: false, message: '当前项目总投资筛选条件下无项目类排放计算清单，请调整筛选范围后再提交' };
     }
     const groupsForLock = hasInvestFilter ? filteredGroups : allGroups;
     const scopedFormalIds = typeof getFormalIdsFromCalculationGroups === 'function'

@@ -291,6 +291,50 @@ async function main() {
     await clickTab(page, '#methodTabs .tab[data-tab="economy"]');
     await shotSelector(page, '.tab-panel.active .form-grid', 'data-collect-economy-label');
 
+    // 排放数据 DEV 填报说明（卡片标题 + 侧栏）
+    await go(page, `#/supplement-fill?id=${suppId}`, 'manager');
+    await page.evaluate(() => {
+      document.getElementById('changelog-shot-style')?.remove();
+      const style = document.createElement('style');
+      style.id = 'changelog-shot-style';
+      style.textContent = '.app-header{display:none!important}';
+      document.head.appendChild(style);
+      document.querySelector('.dev-emission-spec-trigger')?.click();
+    });
+    await page.waitForSelector('#devEmissionSpecDrawer.show', { timeout: 12000 });
+    await waitStable(page, 500);
+    const emissionSpecClip = await page.evaluate(() => {
+      const header = document.querySelector('.card-header--with-dev-hint');
+      const drawer = document.querySelector('#devEmissionSpecDrawer .drawer-panel');
+      if (!header || !drawer) return null;
+      const r1 = header.getBoundingClientRect();
+      const r2 = drawer.getBoundingClientRect();
+      const x = Math.max(0, Math.floor(Math.min(r1.left, r2.left) - 12));
+      const y = Math.max(0, Math.floor(r1.top - 8));
+      const right = Math.ceil(Math.max(r1.right, r2.right) + 12);
+      const bottom = Math.ceil(Math.min(window.innerHeight - 8, Math.max(r2.bottom, r1.bottom + 120) + 8));
+      return {
+        x,
+        y,
+        width: Math.min(Math.ceil(right - x), window.innerWidth - x),
+        height: Math.min(Math.ceil(bottom - y), 560)
+      };
+    });
+    const emissionSpecFile = path.join(OUT_DIR, 'supplement-emission-dev-spec.png');
+    if (emissionSpecClip?.width > 0 && emissionSpecClip?.height > 0) {
+      await page.screenshot({ path: emissionSpecFile, clip: emissionSpecClip });
+    } else {
+      await shotSelector(page, '#devEmissionSpecDrawer .drawer-panel', 'supplement-emission-dev-spec', {
+        fallback: '.card-header--with-dev-hint'
+      });
+    }
+    console.log('  ✓', 'supplement-emission-dev-spec');
+    await page.evaluate(() => {
+      document.getElementById('changelog-shot-style')?.remove();
+      document.getElementById('devEmissionSpecDrawer')?.classList.remove('show');
+      document.body.classList.remove('drawer-open');
+    });
+
     // 排放计算
     await resetDemo(page);
     await enableBasicConfigMenus(page);

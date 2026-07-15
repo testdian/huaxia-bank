@@ -2992,6 +2992,30 @@ function hasCalculationInvestmentFilter(filters) {
     || parseCalculationInvestmentYuanFilter(f.investMax) != null;
 }
 
+/** 项目总投资筛选仅作用于业务种类为项目类的归集单元（非项目类、项目按非项目计算不参与筛选） */
+function isCalculationInvestmentFilterTargetGroup(group, taskId, data) {
+  if (!group) return false;
+  if (group.bucket === 'non_project' || group.bucket === 'project_as_non_project') return false;
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const primaryId = group.memberFormalIds?.[0];
+  if (!primaryId || !d) {
+    return group.bucket === 'project' || group.bucket === 'project_as_project';
+  }
+  const primary = (d.formalList || []).find(f => f.id === primaryId && f.taskId === taskId);
+  const cand = primary ? (d.candidates || []).find(c => c.id === primary.customerId) : null;
+  const row = { ...(cand || {}), ...(primary || {}) };
+  const accountingType = typeof resolveAccountingType === 'function'
+    ? resolveAccountingType(row)
+    : (primary?.accountingType || row.accountingType);
+  if (accountingType === 'non_project' || accountingType === 'project_as_non_project') return false;
+  if (group.bucket === 'project' || group.bucket === 'project_as_project') return true;
+  const supp = supplementForCollectGroup(d, taskId, group.id);
+  const bucket = typeof resolveCollectedProjectBucket === 'function'
+    ? resolveCollectedProjectBucket(primary, cand, supp)
+    : null;
+  return bucket === 'project_as_project';
+}
+
 /** 归集单元项目总投资（元）：汇总组内项目明细，无项目投资额时返回 null */
 function getCollectGroupProjectTotalInvestmentYuan(group, taskId, data) {
   const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
@@ -3035,8 +3059,10 @@ function filterCalculationGroupsByInvestment(groups, filters, taskId, data) {
   const minYuan = parseCalculationInvestmentYuanFilter(filters?.investMin);
   const maxYuan = parseCalculationInvestmentYuanFilter(filters?.investMax);
   if (minYuan == null && maxYuan == null) return groups || [];
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
   return (groups || []).filter(group => {
-    const yuan = getCollectGroupProjectTotalInvestmentYuan(group, taskId, data);
+    if (!isCalculationInvestmentFilterTargetGroup(group, taskId, d)) return true;
+    const yuan = getCollectGroupProjectTotalInvestmentYuan(group, taskId, d);
     if (yuan == null) return false;
     if (minYuan != null && yuan < minYuan) return false;
     if (maxYuan != null && yuan > maxYuan) return false;
@@ -3103,7 +3129,9 @@ function formatCalculationScopeLockHint(task) {
   if (lock.investMax != null && lock.investMax !== '') {
     parts.push(`止 ${Number(lock.investMax).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 元`);
   }
-  const range = parts.length ? `项目总投资 ${parts.join('，')}` : '全量清单';
+  const range = parts.length
+    ? `项目类 · 项目总投资 ${parts.join('，')}（非项目类全量包含）`
+    : '全量清单';
   const count = lock.groupCount != null ? `${lock.groupCount} 个归集单元` : '';
   return `${range}${count ? ` · ${count}` : ''}${lock.lockedAt ? ` · 锁定于 ${lock.lockedAt}` : ''}`;
 }
