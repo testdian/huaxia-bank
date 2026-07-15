@@ -1492,12 +1492,15 @@ const CarbonAccount = {
     if (!task?.resultsConfirmed) return { accounts: 0, records: 0 };
 
     const formals = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
+    const lockIds = task.calculationScopeLock?.formalIds;
+    const lockSet = lockIds?.length ? new Set(lockIds) : null;
     const calcs = d.calculations.filter(c =>
       c.taskId === taskId && c.status === 'done' && (c.entityEmission != null || c.attributedEmission != null)
     );
     const touched = new Set();
     let added = 0;
     calcs.forEach(calc => {
+      if (lockSet && !lockSet.has(calc.formalId)) return;
       const formal = formals.find(f => f.id === calc.formalId);
       if (!formal) return;
       const row = this.resolveLedgerRow(d, formal, calc);

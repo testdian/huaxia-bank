@@ -309,6 +309,79 @@ async function main() {
     await waitStable(page, 350);
     await shotSelector(page, '.calculation-intensity-card table', 'calculation-quality-grade');
 
+    // 排放计算 - 项目总投资筛选
+    await go(page, '#/calculation?taskId=T2025001', 'hq');
+    await page.evaluate(() => {
+      Store.update((d) => {
+        const t = d.tasks.find((x) => x.id === 'T2025001');
+        if (t) {
+          t.resultsConfirmed = false;
+          delete t.resultsConfirmedAt;
+          delete t.calculationScopeLock;
+          t.workflowStep = 4;
+        }
+      });
+      if (typeof Store.rebuildCollectGroups === 'function') {
+        Store.rebuildCollectGroups('T2025001');
+      }
+      sessionStorage.setItem('calculation_filters_T2025001', JSON.stringify({
+        investMin: '3000000000',
+        investMax: '50000000000'
+      }));
+      const style = document.createElement('style');
+      style.id = 'changelog-shot-style';
+      style.textContent = '.app-header{display:none!important}';
+      document.getElementById('changelog-shot-style')?.remove();
+      document.head.appendChild(style);
+    });
+    await page.reload({ waitUntil: 'networkidle0' });
+    await waitStable(page, 800);
+    await page.evaluate(() => {
+      document.getElementById('calculationFilterBtn')?.click();
+    });
+    await waitStable(page, 500);
+    await page.evaluate(() => {
+      ['.page-title', '.steps', '.toolbar', '.stats-row', '.calculation-intensity-card', '.demo-tip'].forEach((sel) => {
+        document.querySelectorAll(sel).forEach((el) => { el.style.display = 'none'; });
+      });
+      const filterCard = document.getElementById('calc_invest_min')?.closest('.card');
+      filterCard?.scrollIntoView({ block: 'start' });
+      window.scrollTo(0, 0);
+    });
+    await waitStable(page, 450);
+    const calcFilterClip = await page.evaluate(() => {
+      const filterCard = document.getElementById('calc_invest_min')?.closest('.card');
+      const listCard = [...document.querySelectorAll('#viewRoot .card')].find((c) =>
+        c.querySelector('h3')?.textContent?.trim() === '排放计算清单'
+      );
+      if (!filterCard || !listCard) return null;
+      const r1 = filterCard.getBoundingClientRect();
+      const r2 = listCard.getBoundingClientRect();
+      const thead = listCard.querySelector('thead');
+      const bottom = (thead?.getBoundingClientRect().bottom ?? r2.bottom) + 12;
+      const x = Math.max(0, Math.floor(Math.min(r1.left, r2.left) - 16));
+      const y = Math.max(0, Math.floor(r1.top - 12));
+      const right = Math.ceil(Math.max(r1.right, r2.right) + 16);
+      return {
+        x,
+        y,
+        width: Math.min(Math.ceil(right - x), window.innerWidth - x),
+        height: Math.min(Math.ceil(bottom - y), 480)
+      };
+    });
+    const calcFilterFile = path.join(OUT_DIR, 'calculation-invest-filter.png');
+    if (calcFilterClip?.width > 0 && calcFilterClip?.height > 0) {
+      await page.screenshot({ path: calcFilterFile, clip: calcFilterClip });
+    } else {
+      await shotSelector(page, '#calc_invest_min', 'calculation-invest-filter', {
+        fallback: '#viewRoot .card .filter-panel'
+      });
+    }
+    console.log('  ✓', 'calculation-invest-filter');
+    await page.evaluate(() => {
+      document.getElementById('changelog-shot-style')?.remove();
+    });
+
     // 台账 - 分行
     await go(page, '#/ledger', 'branch');
     await shotSelector(page, '#viewRoot .table-wrap', 'ledger-branch-scope');

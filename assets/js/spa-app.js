@@ -110,6 +110,9 @@ function route() {
   if (typeof BatchImportDevSpec !== 'undefined') {
     BatchImportDevSpec.bindBatchImportDevHints(root);
   }
+  if (typeof SupplementEmissionDevSpec !== 'undefined') {
+    SupplementEmissionDevSpec.bindSupplementEmissionDevHint(root);
+  }
   document.title = title + ' - 华夏银行投融资碳核算';
 }
 
@@ -1380,6 +1383,19 @@ function bindPageEvents(base, ctx) {
       }
       Store.syncCalculationsFromDataCollect(taskId);
       toast(`已对 ${n} 笔记录应用信贷数据兜底法`, 'success');
+      route();
+    });
+    qs('#calculationFilterBtn')?.addEventListener('click', () => {
+      saveCalculationFilters(taskId, {
+        investMin: qs('#calc_invest_min')?.value || '',
+        investMax: qs('#calc_invest_max')?.value || ''
+      });
+      setListPage('calculation_' + taskId, 1);
+      route();
+    });
+    qs('#calculationFilterResetBtn')?.addEventListener('click', () => {
+      saveCalculationFilters(taskId, {});
+      setListPage('calculation_' + taskId, 1);
       route();
     });
     qs('#submitAllDataBtn')?.addEventListener('click', () => {

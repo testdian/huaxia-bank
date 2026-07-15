@@ -2954,6 +2954,160 @@ function saveDataCollectFilters(taskId, filters) {
   sessionStorage.setItem(`data_collect_filters_${taskId}`, JSON.stringify(filters || {}));
 }
 
+function getCalculationFilters(taskId) {
+  try {
+    return JSON.parse(sessionStorage.getItem(`calculation_filters_${taskId}`) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveCalculationFilters(taskId, filters) {
+  sessionStorage.setItem(`calculation_filters_${taskId}`, JSON.stringify(filters || {}));
+}
+
+function getActiveCalculationFilters(taskId, task) {
+  const t = task || (typeof Store !== 'undefined' ? Store.getTask(taskId) : null);
+  const lock = t?.calculationScopeLock;
+  if (t?.resultsConfirmed && lock) {
+    return {
+      investMin: lock.investMin ?? '',
+      investMax: lock.investMax ?? '',
+      locked: true
+    };
+  }
+  const f = getCalculationFilters(taskId);
+  return { investMin: f.investMin ?? '', investMax: f.investMax ?? '', locked: false };
+}
+
+function parseCalculationInvestmentYuanFilter(value) {
+  if (value == null || value === '') return null;
+  const n = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function hasCalculationInvestmentFilter(filters) {
+  const f = filters || {};
+  return parseCalculationInvestmentYuanFilter(f.investMin) != null
+    || parseCalculationInvestmentYuanFilter(f.investMax) != null;
+}
+
+/** 归集单元项目总投资（元）：汇总组内项目明细，无项目投资额时返回 null */
+function getCollectGroupProjectTotalInvestmentYuan(group, taskId, data) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  if (!d || !group) return null;
+  const formals = (d.formalList || []).filter(f => f.taskId === taskId);
+  const candidatesById = new Map(
+    (d.candidates || []).filter(c => c.taskId === taskId).map(c => [c.id, c])
+  );
+  const supp = supplementForCollectGroup(d, taskId, group.id);
+  const members = (group.memberFormalIds || [])
+    .map(fid => formals.find(f => f.id === fid))
+    .filter(Boolean);
+  let totalWan = 0;
+  let hasValue = false;
+  members.forEach(f => {
+    const cand = candidatesById.get(f.customerId);
+    let details = Array.isArray(supp?.projectDetails) && supp.projectDetails.length
+      ? supp.projectDetails
+      : resolveFormalProjectDetails(f, cand);
+    if (details.length) {
+      details.forEach(p => {
+        const wan = Number(p.projectTotalInvestmentWan);
+        if (Number.isFinite(wan) && wan > 0) {
+          totalWan += wan;
+          hasValue = true;
+        }
+      });
+      return;
+    }
+    const fallbackWan = Number(f.totalInvestment) || Number(supp?.totalInvestment);
+    if (Number.isFinite(fallbackWan) && fallbackWan > 0) {
+      totalWan += fallbackWan;
+      hasValue = true;
+    }
+  });
+  if (!hasValue) return null;
+  return totalWan * 10000;
+}
+
+function filterCalculationGroupsByInvestment(groups, filters, taskId, data) {
+  const minYuan = parseCalculationInvestmentYuanFilter(filters?.investMin);
+  const maxYuan = parseCalculationInvestmentYuanFilter(filters?.investMax);
+  if (minYuan == null && maxYuan == null) return groups || [];
+  return (groups || []).filter(group => {
+    const yuan = getCollectGroupProjectTotalInvestmentYuan(group, taskId, data);
+    if (yuan == null) return false;
+    if (minYuan != null && yuan < minYuan) return false;
+    if (maxYuan != null && yuan > maxYuan) return false;
+    return true;
+  });
+}
+
+function getFormalIdsFromCalculationGroups(groups) {
+  const ids = new Set();
+  (groups || []).forEach(g => (g.memberFormalIds || []).forEach(id => ids.add(id)));
+  return ids;
+}
+
+function getCalculationDisplayGroups(taskId, data) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  const all = getDataCollectTableGroups(taskId, d);
+  if (task?.resultsConfirmed && task.calculationScopeLock?.formalIds?.length) {
+    const idSet = new Set(task.calculationScopeLock.formalIds);
+    return all.filter(g => (g.memberFormalIds || []).some(id => idSet.has(id)));
+  }
+  const filters = getCalculationFilters(taskId);
+  if (!hasCalculationInvestmentFilter(filters)) return all;
+  return filterCalculationGroupsByInvestment(all, filters, taskId, d);
+}
+
+function getCalculationScopedCalcs(taskId, data, groupsOverride) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const task = typeof Store !== 'undefined' ? Store.getTask(taskId) : null;
+  const eligibleIds = new Set(getCollectEmissionEligibleFormals(taskId, d).map(f => f.id));
+  const calcs = (typeof Store !== 'undefined' ? Store.getCalculations(taskId) : [])
+    .filter(c => eligibleIds.has(c.formalId));
+  const scopedByLock = task?.resultsConfirmed && task.calculationScopeLock?.formalIds?.length;
+  if (scopedByLock) {
+    const lockIds = new Set(task.calculationScopeLock.formalIds);
+    return calcs.filter(c => lockIds.has(c.formalId));
+  }
+  const groups = groupsOverride || getCalculationDisplayGroups(taskId, d);
+  const filters = getCalculationFilters(taskId);
+  if (!hasCalculationInvestmentFilter(filters)) return calcs;
+  const scopedFormalIds = getFormalIdsFromCalculationGroups(groups);
+  return calcs.filter(c => scopedFormalIds.has(c.formalId));
+}
+
+function calcDQRFromCalcs(calcs) {
+  const list = (calcs || []).filter(c => c.attributedEmission > 0);
+  if (!list.length) return null;
+  const sum = list.reduce((s, c) => s + c.attributedEmission, 0);
+  const dqr = list.reduce((s, c) => s + c.attributedEmission * (c.qualityGrade || 5), 0) / sum;
+  const level = (typeof GUIDE !== 'undefined' && GUIDE.QUALITY_LEVELS)
+    ? (GUIDE.QUALITY_LEVELS.find(l => dqr <= l.max)?.label || '一般')
+    : '一般';
+  const grade = typeof resolveDqrGrade === 'function' ? resolveDqrGrade(dqr) : null;
+  return { dqr: dqr.toFixed(2), level, grade, count: list.length };
+}
+
+function formatCalculationScopeLockHint(task) {
+  const lock = task?.calculationScopeLock;
+  if (!lock) return '';
+  const parts = [];
+  if (lock.investMin != null && lock.investMin !== '') {
+    parts.push(`起 ${Number(lock.investMin).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 元`);
+  }
+  if (lock.investMax != null && lock.investMax !== '') {
+    parts.push(`止 ${Number(lock.investMax).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 元`);
+  }
+  const range = parts.length ? `项目总投资 ${parts.join('，')}` : '全量清单';
+  const count = lock.groupCount != null ? `${lock.groupCount} 个归集单元` : '';
+  return `${range}${count ? ` · ${count}` : ''}${lock.lockedAt ? ` · 锁定于 ${lock.lockedAt}` : ''}`;
+}
+
 function supplementForFormalInTask(d, taskId, formalId) {
   if (typeof Store !== 'undefined' && Store.findSupplementForFormal) {
     return Store.findSupplementForFormal(d, taskId, formalId);
@@ -4054,7 +4208,7 @@ function renderSupplementFillBody(s, options = {}) {
     <div class="card-body form-grid">
       ${SUPPLEMENT_FIELDS.renderBasicInfo(s, dis, !!options.editableBasicInfo && !readonly)}
     </div></div>
-    <div class="card"><div class="card-header"><h3>排放数据（可同时填写多种方法）</h3></div>
+    <div class="card"><div class="card-header card-header--with-dev-hint"><h3>排放数据（可同时填写多种方法）</h3>${typeof SupplementEmissionDevSpec !== 'undefined' && SupplementEmissionDevSpec.renderBadge ? SupplementEmissionDevSpec.renderBadge() : ''}</div>
     ${gelanInterfaceTip}
     <div class="tabs method-tabs-bar" id="methodTabs">
       ${methodTabs.map(t => `<div class="${tabCls(t.id)}" data-tab="${t.id}">${t.label}</div>`).join('')}
@@ -5541,8 +5695,9 @@ function candidateIndustryLabel(c) {
   return c.industryMajor || '-';
 }
 
-/** 投向行业：优先取项目明细中的项目所属行业（国标代码） */
+/** 投向行业：优先正式清单手工调整，其次项目明细国标代码 */
 function candidateInvestIndustryCode(c) {
+  if (c?.investIndustryCode) return c.investIndustryCode;
   const details = getCandidateProjectDetails(c);
   if (details.length) {
     const p = details[0];
@@ -5553,6 +5708,13 @@ function candidateInvestIndustryCode(c) {
 
 /** 投向行业展示：与列表项目所属行业一致 */
 function candidateInvestIndustryLabel(c) {
+  if (c?.investIndustryCode || c?.investIndustryEdited) {
+    const code = scopedIndustryCode(c.investIndustryCode || '');
+    const name = c.investIndustryName || '';
+    if (code && name) return `${code} ${resolveGbIndustryShortName(code, name)}`;
+    if (code) return formatIndustryPickerLabel(code);
+    if (name) return name;
+  }
   const details = getCandidateProjectDetails(c);
   if (details.length) {
     const p = details[0];
@@ -6610,6 +6772,21 @@ function parseFormalIndustryInput(inputEl) {
       label: shortName ? `${parsedCode} ${shortName}` : text
     };
   }
+  const exact = searchFormalIndustryOptions(text, 20).find(item =>
+    item.label === text || item.code === text || item.label.toLowerCase() === text.toLowerCase()
+  );
+  if (exact) {
+    const scoped = scopedIndustryCode(exact.code);
+    const map = typeof IndustryCascade !== 'undefined' ? IndustryCascade.nameMap() : {};
+    const cascade = toCascadeIndustryCode(scoped);
+    const name = map[cascade] || map[scoped] || '';
+    const shortName = resolveGbIndustryShortName(scoped, name);
+    return {
+      code: scoped,
+      name: name || shortName,
+      label: exact.label || (shortName ? `${scoped} ${shortName}` : text)
+    };
+  }
   return { code: '', name: text, label: text };
 }
 
@@ -6685,6 +6862,13 @@ function bindFormalIndustryPickers(rootEl) {
       hideDropdown();
       window.removeEventListener('scroll', onScrollOrResize, true);
       window.removeEventListener('resize', onScrollOrResize);
+      if (!input.dataset.code && input.value.trim()) {
+        const parsed = parseFormalIndustryInput(input);
+        if (parsed.code) {
+          input.dataset.code = parsed.code;
+          if (parsed.label) input.value = parsed.label;
+        }
+      }
     });
     dropdown.addEventListener('mousedown', e => {
       const btn = e.target.closest('.formal-industry-option');
@@ -6704,21 +6888,22 @@ function collectFormalIndustryEdits() {
     const field = picker.dataset.field;
     const input = qs('.formal-industry-input', picker);
     const parsed = parseFormalIndustryInput(input);
-    const initialCode = input?.dataset.initialCode || '';
-    if (!formalId || !parsed.code || parsed.code === initialCode) return;
+    const initialCode = scopedIndustryCode(input?.dataset.initialCode || '');
+    const code = scopedIndustryCode(parsed.code || '');
+    if (!formalId || !code || code === initialCode) return;
     if (!byFormal.has(formalId)) byFormal.set(formalId, { formalId });
     const edit = byFormal.get(formalId);
     if (field === 'subject') {
       edit.subjectIndustryEdited = true;
-      edit.gbIndustryCode = parsed.code;
+      edit.gbIndustryCode = code;
       edit.gbIndustryName = parsed.name;
       edit.industryLabel = parsed.label;
       edit.industryMajor = typeof inferIndustryMajor === 'function'
-        ? (inferIndustryMajor(parsed.code) || '')
+        ? (inferIndustryMajor(code) || '')
         : '';
     } else if (field === 'invest') {
       edit.investIndustryEdited = true;
-      edit.investIndustryCode = parsed.code;
+      edit.investIndustryCode = code;
       edit.investIndustryName = parsed.name;
     }
   });
@@ -7158,6 +7343,8 @@ function formalLedgerRow(f, taskId) {
     row.subjectIndustryEdited = !!f.subjectIndustryEdited;
   }
   if (f.investIndustryEdited || f.investIndustryCode) {
+    row.investIndustryCode = f.investIndustryCode ?? base.investIndustryCode;
+    row.investIndustryName = f.investIndustryName ?? base.investIndustryName;
     const details = Array.isArray(f.projectDetails)
       ? f.projectDetails.map(p => ({ ...p }))
       : (Array.isArray(base.projectDetails) ? base.projectDetails.map(p => ({ ...p })) : []);

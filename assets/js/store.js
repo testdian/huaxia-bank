@@ -3370,6 +3370,9 @@ const Store = {
           };
           f.projectDetails = details;
           if (c) {
+            c.investIndustryCode = edit.investIndustryCode;
+            c.investIndustryName = edit.investIndustryName;
+            c.investIndustryEdited = true;
             const cDetails = Array.isArray(c.projectDetails) ? c.projectDetails.map(p => ({ ...p })) : [];
             if (!cDetails.length) cDetails.push({});
             cDetails[0] = {
@@ -3389,13 +3392,22 @@ const Store = {
   generateReport(taskId, scope, template, format) {
     return this.update(d => {
       d.reports = d.reports || [];
-      const calcs = d.calculations.filter(c => c.taskId === taskId && c.attributedEmission);
+      const task = d.tasks.find(t => t.id === taskId);
+      const lockIds = task?.calculationScopeLock?.formalIds;
+      let calcs = d.calculations.filter(c => c.taskId === taskId && c.attributedEmission);
+      if (lockIds?.length) {
+        const idSet = new Set(lockIds);
+        calcs = calcs.filter(c => idSet.has(c.formalId));
+      }
       const total = calcs.reduce((s, c) => s + c.attributedEmission, 0);
+      const scopeLabel = lockIds?.length && typeof formatCalculationScopeLockHint === 'function'
+        ? `${scope}（${formatCalculationScopeLockHint(task)}）`
+        : scope;
       d.reports.unshift({
         id: 'RPT' + Date.now(),
         taskId,
-        name: `${d.tasks.find(t => t.id === taskId)?.year || ''}年度导出-${scope}`,
-        scope, template, format,
+        name: `${task?.year || ''}年度导出-${scope}`,
+        scope: scopeLabel, template, format,
         status: 'success',
         generatedAt: new Date().toLocaleString('zh-CN'),
         generatedBy: d.currentUser,
@@ -3416,6 +3428,23 @@ const Store = {
     if (!eligible.length) {
       return { ok: false, message: '暂无排放结果可提交的记录，请先在数据采集页完成排放结果' };
     }
+    const d = this.get();
+    const allGroups = typeof getDataCollectTableGroups === 'function'
+      ? getDataCollectTableGroups(taskId, d)
+      : [];
+    const filters = typeof getCalculationFilters === 'function' ? getCalculationFilters(taskId) : {};
+    const hasInvestFilter = typeof hasCalculationInvestmentFilter === 'function'
+      && hasCalculationInvestmentFilter(filters);
+    const filteredGroups = hasInvestFilter && typeof filterCalculationGroupsByInvestment === 'function'
+      ? filterCalculationGroupsByInvestment(allGroups, filters, taskId, d)
+      : allGroups;
+    if (hasInvestFilter && !filteredGroups.length) {
+      return { ok: false, message: '当前项目总投资筛选条件下无排放计算清单，请调整筛选范围后再提交' };
+    }
+    const groupsForLock = hasInvestFilter ? filteredGroups : allGroups;
+    const scopedFormalIds = typeof getFormalIdsFromCalculationGroups === 'function'
+      ? Array.from(getFormalIdsFromCalculationGroups(groupsForLock))
+      : eligible.map(f => f.id);
     this.syncCalculationsFromDataCollect(taskId);
     this.update(d => {
       const t = d.tasks.find(x => x.id === taskId);
@@ -3424,6 +3453,19 @@ const Store = {
         t.resultsConfirmedAt = new Date().toLocaleString('zh-CN');
         t.workflowStep = WORKFLOW_STEP.REPORT;
         t.progress = Math.max(t.progress || 0, 85);
+        t.calculationScopeLock = {
+          investMin: filters.investMin ?? null,
+          investMax: filters.investMax ?? null,
+          formalIds: scopedFormalIds,
+          groupCount: groupsForLock.length,
+          lockedAt: new Date().toLocaleString('zh-CN')
+        };
+        const scopedCalcs = d.calculations.filter(c =>
+          c.taskId === taskId && scopedFormalIds.includes(c.formalId) && c.attributedEmission > 0
+        );
+        t.dqr = typeof calcDQRFromCalcs === 'function'
+          ? (calcDQRFromCalcs(scopedCalcs) || Store.calcDQR(taskId))
+          : Store.calcDQR(taskId);
         if (t.milestone) {
           t.milestone.calculationDone = true;
           t.milestone.resultsConfirmed = true;

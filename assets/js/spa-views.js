@@ -777,51 +777,74 @@ SPA_VIEWS['#/calculation'] = function(ctx) {
   const d = Store.get();
   const vma = viewModeDisabledAttr();
   const listKey = 'calculation_' + taskId;
-  const groups = getDataCollectTableGroups(taskId, d);
-  const eligibleIds = new Set(getCollectEmissionEligibleFormals(taskId, d).map(f => f.id));
-  const calcs = Store.getCalculations(taskId).filter(c => eligibleIds.has(c.formalId));
+  const allGroups = getDataCollectTableGroups(taskId, d);
+  const filters = getActiveCalculationFilters(taskId, ctx.task);
+  const filterLocked = !!filters.locked || !!ctx.task.resultsConfirmed;
+  const groups = getCalculationDisplayGroups(taskId, d);
+  const calcs = getCalculationScopedCalcs(taskId, d, groups);
   const total = calcs.filter(c => c.attributedEmission != null).reduce((s, c) => s + (c.attributedEmission || 0), 0);
   const doneCount = groups.filter(g => {
     const primaryId = g.memberFormalIds?.[0];
     return primaryId && getEffectiveEntityEmission(taskId, primaryId) != null;
   }).length;
-  const dqr = Store.calcDQR(taskId) || ctx.task.dqr;
+  const dqr = calcDQRFromCalcs(calcs.filter(c => c.attributedEmission > 0)) || Store.calcDQR(taskId) || ctx.task.dqr;
   const dqrGrade = dqr?.grade || resolveDqrGrade(dqr?.dqr);
   const intensityStats = computePboEightFinancingIntensityStats(taskId, calcs);
   const hasMissingSystemMethod = Store.hasMissingSystemAccountingMethod(taskId, d);
+  const hasInvestFilter = hasCalculationInvestmentFilter(filters);
+  const scopeHint = ctx.task.resultsConfirmed ? formatCalculationScopeLockHint(ctx.task) : '';
   const view = paginateData(listKey, groups);
   return `
     <h1 class="page-title">碳排放计算</h1>
     ${workflowStepsBar(ctx.task)}
+    ${scopeHint ? `<div class="demo-tip" style="border-color:#409eff;background:#ecf5ff;color:#337ecc">已按提交时筛选范围锁定数据：${escapeHtml(scopeHint)}。上方统计、强度及后续报告导出均基于该范围。</div>` : ''}
     <div class="toolbar">
       <button type="button" class="btn" id="creditFallbackBtn"${vma}${hasMissingSystemMethod ? '' : ' disabled title="当前无系统核算方法为空的记录"'}>信贷数据兜底法</button>
-      <button type="button" class="btn btn-primary" id="submitAllDataBtn"${vma}>一键提交数据</button>
+      <button type="button" class="btn btn-primary" id="submitAllDataBtn"${vma}${filterLocked ? ' disabled title="数据已提交锁定"' : ''}>一键提交数据</button>
     </div>
     <div class="stats-row">
-      <div class="stat-card accent"><div class="label">总归因排放量</div><div class="value">${formatNum(total)}</div><div class="sub">吨 CO₂e</div></div>
+      <div class="stat-card accent"><div class="label">总归因排放量</div><div class="value">${formatNum(total)}</div><div class="sub">吨 CO₂e${hasInvestFilter || scopeHint ? '（当前筛选范围）' : ''}</div></div>
       ${renderDqrQualityStatCards(dqr, dqrGrade)}
-      <div class="stat-card"><div class="label">已计算</div><div class="value">${doneCount}</div><div class="sub">/ ${groups.length} 个归集单元（有排放结果）</div></div>
+      <div class="stat-card"><div class="label">已计算</div><div class="value">${doneCount}</div><div class="sub">/ ${groups.length} 个归集单元（有排放结果）${allGroups.length !== groups.length ? ` · 共 ${allGroups.length} 个` : ''}</div></div>
     </div>
     ${renderCalculationIntensitySection(ctx.task, intensityStats)}
+    <div class="card">
+      <div class="card-header"><h3>筛选</h3></div>
+      <div class="filter-panel">
+        <fieldset class="view-mode-fieldset"${filterLocked ? ' disabled' : ''}>
+        <div class="filter-extra calculation-filter-grid">
+          <div class="form-item"><label>项目总投资金额（元）起</label><input id="calc_invest_min" type="number" min="0" step="0.01" placeholder="不限" value="${escapeHtml(filters.investMin ?? '')}"></div>
+          <div class="form-item"><label>项目总投资金额（元）止</label><input id="calc_invest_max" type="number" min="0" step="0.01" placeholder="不限" value="${escapeHtml(filters.investMax ?? '')}"></div>
+          <div class="form-item filter-action-cell"><label>&nbsp;</label>
+            <div class="filter-action-btns">
+              <button type="button" class="btn btn-primary" id="calculationFilterBtn"${filterLocked ? ' disabled' : ''}>查询</button>
+              <button type="button" class="btn" id="calculationFilterResetBtn"${filterLocked ? ' disabled' : ''}>重置</button>
+            </div>
+          </div>
+        </div>
+        </fieldset>
+      </div>
+    </div>
     <div class="card"><div class="card-header"><h3>排放计算清单</h3></div><div class="card-body table-wrap"><table class="data-table">
     <thead><tr>${renderCalculationGroupTableHead()}</tr></thead>
-    <tbody>${view.rows.length ? view.rows.map(g => renderCalculationGroupTableRow(g, taskId, d)).join('') : `<tr><td colspan="${calculationGroupTableColCount()}" style="text-align:center;padding:32px;color:#909399">暂无排放计算清单数据</td></tr>`}</tbody></table></div>
+    <tbody>${view.rows.length ? view.rows.map(g => renderCalculationGroupTableRow(g, taskId, d)).join('') : `<tr><td colspan="${calculationGroupTableColCount()}" style="text-align:center;padding:32px;color:#909399">${allGroups.length && hasInvestFilter ? '无符合项目总投资筛选条件的归集单元' : '暂无排放计算清单数据'}</td></tr>`}</tbody></table></div>
     ${groups.length ? renderPagination(listKey, view) : ''}</div>`;
 };
 
 SPA_VIEWS['#/results'] = function(ctx) {
-  const list = Store.getCalculations(ctx.task.id);
+  const list = getCalculationScopedCalcs(ctx.task.id);
   const total = list.filter(c => c.attributedEmission != null).reduce((s, c) => s + (c.attributedEmission || 0), 0);
-  const dqr = Store.calcDQR(ctx.task.id) || ctx.task.dqr;
+  const dqr = calcDQRFromCalcs(list.filter(c => c.attributedEmission > 0)) || Store.calcDQR(ctx.task.id) || ctx.task.dqr;
   const dqrGrade = dqr?.grade || resolveDqrGrade(dqr?.dqr);
-  const industries = computeIndustryStatsFromCalcs(ctx.task.id);
+  const industries = computeIndustryStatsFromCalcs(ctx.task.id, list);
+  const scopeHint = formatCalculationScopeLockHint(ctx.task);
   const industryKey = 'results_industry_' + ctx.task.id;
   const detailKey = 'results_detail_' + ctx.task.id;
   const industryView = paginateData(industryKey, industries.length ? industries : []);
   const detailView = paginateData(detailKey, list);
   return `
     <h1 class="page-title">核算结果查询</h1>
-    <p class="page-desc">归因排放汇总 · DQR=${dqr ? dqr.dqr : '-'}（${dqr ? dqr.level : '待计算'}）</p>
+    <p class="page-desc">归因排放汇总 · DQR=${dqr ? dqr.dqr : '-'}（${dqr ? dqr.level : '待计算'}）${scopeHint ? ` · 数据范围：${escapeHtml(scopeHint)}` : ''}</p>
     ${workflowStepsBar(ctx.task)}
     <div class="stats-row">
       <div class="stat-card accent"><div class="label">总归因排放量</div><div class="value">${formatNum(total)}</div><div class="sub">吨 CO₂e</div></div>
@@ -844,9 +867,11 @@ SPA_VIEWS['#/reports'] = function(ctx) {
   const vma = viewModeDisabledAttr();
   const listKey = 'reports_' + ctx.task.id;
   const view = paginateData(listKey, reports);
+  const scopeHint = formatCalculationScopeLockHint(ctx.task);
   return `
     <h1 class="page-title">生成报告</h1>
     ${workflowStepsBar(ctx.task)}
+    ${scopeHint ? `<div class="demo-tip" style="border-color:#409eff;background:#ecf5ff;color:#337ecc">报告导出将基于排放计算提交时锁定的数据范围：${escapeHtml(scopeHint)}</div>` : ''}
     <div class="card"><div class="card-header"><h3>新建导出</h3></div><div class="card-body form-grid">
       <fieldset class="view-mode-fieldset"${isTaskViewMode() ? ' disabled' : ''}>
       <div class="form-item"><label>导出范围</label><select id="exportScope"><option>监管报送范围（8大行业）</option><option>管理分析范围（8+15）</option><option>全量</option></select></div>
