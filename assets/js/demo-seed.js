@@ -214,12 +214,81 @@ const DemoSeed = {
     return { task, candidates, formalList };
   },
 
-  patchDataCollectGelanEcoDemo(candidates, formalList, tasks) {
+  patchDataCollectGelanEcoDemo(candidates, formalList, tasks, supplements, approvals) {
     const slice = this.buildDataCollectDemoSlice();
     if (tasks.some(t => t.id === slice.task.id)) return;
     tasks.push(slice.task);
     candidates.push(...slice.candidates);
     formalList.push(...slice.formalList);
+    if (supplements && approvals && typeof this.buildDataCollectDemoSupplements === 'function') {
+      const pack = this.buildDataCollectDemoSupplements(slice.task.id, formalList);
+      supplements.push(...pack.supplements);
+      approvals.push(...pack.approvals);
+    }
+  },
+
+  /** T2026002 数据采集演示：含分行初审/总行终审中等未完成采集任务 */
+  buildDataCollectDemoSupplements(taskId, formalList) {
+    const specs = [
+      { formalId: 'FDC03', methodId: 'energy', status: 'completed', auditStage: 'branch_review', branchReviewStatus: 'pending', approvalStatus: 'pending' },
+      { formalId: 'FDC04', methodId: 'report', status: 'in_progress', auditStage: 'pending_fill', approvalStatus: 'none' },
+      { formalId: 'FDC08', methodId: 'report', status: 'completed', auditStage: 'hq_review', branchReviewStatus: 'approved', hqReviewStatus: 'pending', approvalStatus: 'pending' },
+      { formalId: 'FDC01', methodId: 'report', status: 'completed', auditStage: 'approved', branchReviewStatus: 'approved', hqReviewStatus: 'approved', approvalStatus: 'approved' }
+    ];
+    const supplements = [];
+    const approvals = [];
+    let seq = 600;
+    specs.forEach((cfg, i) => {
+      const f = (formalList || []).find(x => x.id === cfg.formalId && x.taskId === taskId);
+      if (!f) return;
+      const s = this.enrichSupplementFieldData(
+        this._buildSupplementFromFormal(taskId, f, 200 + i, {
+          id: 'SDC' + String(i + 1).padStart(2, '0'),
+          methodId: cfg.methodId,
+          status: cfg.status,
+          auditStage: cfg.auditStage,
+          branchReviewStatus: cfg.branchReviewStatus || 'none',
+          hqReviewStatus: cfg.hqReviewStatus || 'none',
+          approvalStatus: cfg.approvalStatus || 'none',
+          dispatchedAt: '2026-07-0' + (i + 1) + ' 10:00:00',
+          branch: f.branch,
+          manager: f.manager
+        }),
+        formalList
+      );
+      supplements.push(s);
+      if (s.auditStage === 'branch_review' && s.branchReviewStatus === 'pending') {
+        approvals.push({
+          id: 'APR' + seq++,
+          taskId,
+          docType: 'supplement',
+          docId: s.id,
+          docName: '数据采集-' + (s.customerName || s.id),
+          reviewLevel: 'branch',
+          submitter: s.manager || '王磊',
+          submitTime: '2026-07-10 10:30',
+          status: 'pending',
+          approver: null,
+          approveTime: null
+        });
+      }
+      if (s.auditStage === 'hq_review' && s.hqReviewStatus === 'pending') {
+        approvals.push({
+          id: 'APR' + seq++,
+          taskId,
+          docType: 'supplement',
+          docId: s.id,
+          docName: '数据采集-' + (s.customerName || s.id),
+          reviewLevel: 'hq',
+          submitter: s.manager || '王磊',
+          submitTime: '2026-07-12 16:00',
+          status: 'pending',
+          approver: null,
+          approveTime: null
+        });
+      }
+    });
+    return { supplements, approvals };
   },
 
   build() {
@@ -310,7 +379,7 @@ const DemoSeed = {
       .reduce((sum, b) => sum + (b.recordCount || 0), 0);
 
     const tasks = this.buildTasks(mainTask, completedTask);
-    this.patchDataCollectGelanEcoDemo(candidates, formalList, tasks);
+    this.patchDataCollectGelanEcoDemo(candidates, formalList, tasks, supplements, approvals);
     this.patchCollectGroupDemo(candidates, formalList, taskId);
 
     const seed = {

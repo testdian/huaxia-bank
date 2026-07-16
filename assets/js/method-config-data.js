@@ -2477,9 +2477,11 @@ window.METHOD_CONFIG = {
   mergeTemplateStep(detail, step, form) {
     const next = JSON.parse(JSON.stringify(detail));
     if (step === '1') {
+      if (!form?.querySelector('[name="meta_templateName"]')) return next;
       const basic = this.readTemplateBasicInfo(form);
       next.meta = { ...next.meta, ...basic.meta };
     } else if (step === '2') {
+      if (!form?.querySelector('[data-partition-row]')) return next;
       const structure = this.readTemplateStructure(form);
       next.layout = structure.layout;
       next.params = structure.params;

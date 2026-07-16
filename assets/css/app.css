@@ -2366,6 +2366,40 @@ tr.row-excluded .badge { opacity: .85; }
   color: #606266;
 }
 .dev-import-spec-logic li { margin: 6px 0; }
+
+/* 六步流程 · 排放计算 DEV 说明入口 */
+.dev-calc-step-trigger {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1;
+}
+.dev-calc-step-trigger .dev-import-spec-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  line-height: 1.4;
+}
+.step-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.calc-step-deadline-tip {
+  border-color: #e6a23c;
+  background: #fdf6ec;
+  color: #b88230;
+}
+.calc-step-emission-ready-tip {
+  border-color: #67c23a;
+  background: #f0f9eb;
+  color: #529b2e;
+}
 .card-header--with-dev-hint {
   display: flex;
   align-items: center;
@@ -2573,6 +2607,12 @@ tr.row-excluded .badge { opacity: .85; }
   border-bottom: 1px solid var(--border);
   justify-content: flex-end;
   gap: 10px;
+}
+.approval-hq-back-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .emission-overwritten-tag {
   margin-left: 4px;

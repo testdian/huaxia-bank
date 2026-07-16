@@ -774,7 +774,7 @@ function renderTemplatePreviewTab(detail) {
   };
   const validation = METHOD_CONFIG.validateTemplate({ ...detail, layout: previewDetail.layout });
   const checklist = [
-    ['基础信息完整性', !!(detail.meta?.templateName && detail.meta?.industry && detail.meta?.methodId)],
+    ['基础信息完整性', !!(detail.meta?.templateName && METHOD_CONFIG.normalizeTemplateIndustries(detail.meta).length && detail.meta?.methodId)],
     ['表单结构配置', !!(detail.params || []).length],
     ['因子绑定完整性', detail.meta?.methodId === 'report' || !!(detail.factorBindings || []).length],
     ['总排放公式', detail.meta?.methodId === 'report' || (detail.formulas || []).some(f => f.expression && f.isEntityTotal)],

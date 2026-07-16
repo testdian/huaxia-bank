@@ -9,6 +9,33 @@ const UPDATE_CHANGELOG = [
     items: [
       {
         menu: '数据审核',
+        feature: '总行一级分行两级列表',
+        type: 'feature',
+        date: '2026-07-16 19:05',
+        text: '总行角色数据审核页改为两级结构：外侧列表按「任务 + 一级分行」汇总展示，字段为序号、任务名称、核算年度、一级分行、分行审核通过条数、合计任务条数、操作（查看）；筛选项为任务名称、核算年度、一级分行。点击「查看」进入内侧明细列表（沿用原逐条审核列表字段与筛选），支持单条审核/查看及「批量审核通过」；审核完成后可返回一级分行汇总列表。分行负责人、客户经理视图保持不变。',
+        route: '#/approvals',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/approvals-hq-branch-summary.png?v=20260716h`
+      },
+      {
+        menu: '行业配置',
+        feature: '精简为标识配置能力',
+        type: 'feature',
+        date: '2026-07-16 17:05',
+        text: '行业配置页移除「新增行业」「批量导入」及演示环境 DEV 导入说明入口，列表操作列移除「删除」，仅保留标识筛选与「编辑」。绿金系统基础配置已包含行业配置功能，仅需增加配置标识功能：在既有国标四级行业上维护「人行八大高碳」「我行主要行业」等标识，供候选清单、正式清单与核算流程按标识筛选与展示。',
+        route: '#/industry-config',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/industry-config-tag-only.png?v=20260716g`
+      },
+      {
+        menu: '六步流程',
+        feature: '排放计算步骤 DEV 进入规则',
+        type: 'feature',
+        date: '2026-07-16 16:50',
+        text: '六步流程「排放计算」步骤标题旁新增橙色 DEV 标识，点击可查看进入规则说明。截止日前：当任务下全部已锁定归集单元的「排放结果（tCO₂e）」均有值时，可点击进入排放计算；到达「分行审批截止日期」当日及之后：任务自动进入排放计算步骤。截止日自动进入时，对已下发手动核算采集任务且数据状态非「填报完成」的记录，数据采集列表「数据状态」与数据审核列表「审核状态」（不论处于分行初审、总行终审或待审核等任何节点）均变更为「强制结束」。演示环境可通过 window.__DEMO_CALC_STEP_REF_DATE__ 覆盖当前日期验收截止日逻辑。',
+        route: '#/data-collect?taskId=T2026002',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/calculation-step-dev-forced-end.png?v=20260716f`
+      },
+      {
+        menu: '数据审核',
         feature: '总行一级分行列与筛选',
         type: 'field',
         date: '2026-07-16 13:45',

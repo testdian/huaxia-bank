@@ -274,11 +274,15 @@ const CollectGroups = {
 
   syncGroupSupplementState(groups, supplements) {
     (groups || []).forEach(g => {
-      const sup = (supplements || []).find(s =>
-        (s.collectGroupId === g.id || s.id === g.supplementId) && s.dispatchedAt
-      );
+      const members = new Set(g.memberFormalIds || []);
+      const sup = (supplements || []).find(s => {
+        if (!s.dispatchedAt || s.taskId !== g.taskId) return false;
+        if (s.collectGroupId === g.id || s.id === g.supplementId) return true;
+        return s.formalId && members.has(s.formalId);
+      });
       if (sup) {
         g.supplementId = sup.id;
+        sup.collectGroupId = g.id;
         g.status = sup.status === 'completed' ? 'completed' : 'dispatched';
         if (sup.manager) g.assignedManager = sup.manager;
       } else {
