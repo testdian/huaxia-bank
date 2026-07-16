@@ -786,6 +786,63 @@ function getCollectEmissionEligibleFormals(taskId, data) {
   );
 }
 
+function parseYmdDate(dateStr) {
+  if (!dateStr) return null;
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/** 演示可覆盖当前日期：window.__DEMO_CALC_STEP_REF_DATE__ = 'YYYY-MM-DD' */
+function getCalculationStepRefDate() {
+  if (typeof window !== 'undefined' && window.__DEMO_CALC_STEP_REF_DATE__) {
+    return String(window.__DEMO_CALC_STEP_REF_DATE__);
+  }
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isBranchApprovalDeadlineReached(task, refDate) {
+  const deadline = parseYmdDate(task?.branchDeadline);
+  if (!deadline) return false;
+  const today = parseYmdDate(refDate || getCalculationStepRefDate());
+  if (!today) return false;
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const t1 = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate()).getTime();
+  return t0 >= t1;
+}
+
+/** 排放计算步骤是否可进入（DEV 规则） */
+function getCalculationStepAccess(taskId, data) {
+  const d = data || (typeof Store !== 'undefined' ? Store.get() : null);
+  const task = d?.tasks?.find(t => t.id === taskId);
+  if (!task) return { allowed: false, reason: 'no_task', forcedByDeadline: false };
+  if (task.dataCollectSubmitted || (task.workflowStep ?? 0) >= WORKFLOW_STEP.CALCULATION) {
+    return {
+      allowed: true,
+      reason: task.calculationForcedByDeadline ? 'deadline' : 'submitted',
+      forcedByDeadline: !!task.calculationForcedByDeadline
+    };
+  }
+  const deadlineReached = isBranchApprovalDeadlineReached(task);
+  const allEmissionReady = typeof Store !== 'undefined'
+    && Store.allConfirmedHaveEntityEmission(taskId, d);
+  if (deadlineReached) {
+    return { allowed: true, reason: 'deadline', forcedByDeadline: true, allEmissionReady };
+  }
+  if (allEmissionReady) {
+    return { allowed: true, reason: 'emission_ready', forcedByDeadline: false };
+  }
+  return { allowed: false, reason: 'pending', forcedByDeadline: false };
+}
+
+function isDataStatusDone(formal, supplement, taskId, d) {
+  return getDataStatus(formal, supplement, taskId, d) === 'done';
+}
+
 /** 数据采集 / 排放计算清单共用归集单元列表 */
 function getDataCollectTableGroups(taskId, data) {
   if (typeof Store === 'undefined') return [];
@@ -801,7 +858,11 @@ function getWorkflowMaxClickStep(task, progressStep) {
     ? Store.getFormalList(task.id).some(f => f.status === 'confirmed')
     : false;
   if (hasConfirmedFormal || step >= WORKFLOW_STEP.DATA_COLLECTION) {
-    maxClick = Math.max(maxClick, WORKFLOW_STEP.CALCULATION);
+    maxClick = Math.max(maxClick, WORKFLOW_STEP.DATA_COLLECTION);
+  }
+  if (task?.id && typeof getCalculationStepAccess === 'function') {
+    const access = getCalculationStepAccess(task.id);
+    if (access.allowed) maxClick = Math.max(maxClick, WORKFLOW_STEP.CALCULATION);
   }
   return maxClick;
 }
@@ -821,10 +882,13 @@ function demoSteps(current, options = {}) {
     const tail = i < WORKFLOW_STEP_NAMES.length - 1
       ? `<div class="step-tail ${workflowStepIsDone(i, stepCtx) ? 'done' : ''}"></div>` : '';
     const canClick = clickable && i <= maxClickIdx;
+    const devCalcTrigger = i === WORKFLOW_STEP.CALCULATION && typeof renderCalculationStepDevTrigger === 'function'
+      ? renderCalculationStepDevTrigger()
+      : '';
     const inner = `
       <div class="step-content">
         <span class="step-icon">${i + 1}</span>
-        <span class="step-title">${s}</span>
+        <span class="step-title">${s}${devCalcTrigger}</span>
       </div>
       ${tail}`;
     if (canClick) {
@@ -1627,9 +1691,6 @@ function ledgerCalculationRowValues(f, calc, taskId) {
     candidateCustomerScale(c),
     candidateProductType(c),
     candidateAccountingTypeLabel(c, { finalizeAccountingType: true }),
-    candidateCreditReferenceNo(c),
-    candidateCreditNo(c),
-    c.disbursementDate || '-',
     candidateBorrowerType(c),
     candidateIndustryLabel(c),
     candidateInvestIndustryLabel(c),
@@ -1646,8 +1707,8 @@ function ledgerCalculationRowValues(f, calc, taskId) {
 const LEDGER_SUMMARY_EXPORT_HEADERS = ['任务名称', '核算年度', '数据行业范围', '台账笔数'];
 const LEDGER_DETAIL_EXPORT_HEADERS = [
   '任务名称', '核算年度',
-  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '授信参考编号', '授信编号',
-  '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
+  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类',
+  '贷款主体类型', '企业所属行业', '贷款投向所属行业',
   '月均贷款余额（元）',
   '营业收入（元）', '平均资产总额（元）', '主办客户经理',
   '归因排放(tCO₂e)', '质量等级'
@@ -2792,6 +2853,7 @@ const DATA_STATUS_OPTIONS = [
   { value: 'branch_review', label: '待分行初审' },
   { value: 'hq_review',     label: '待总行终审' },
   { value: 'done',          label: '填报完成' },
+  { value: 'forced_end',    label: '强制结束' },
 ];
 
 const DATA_STATUS_LABELS = {
@@ -2802,6 +2864,7 @@ const DATA_STATUS_LABELS = {
   branch_review: ['待分行初审',   'badge-warning'],
   hq_review:     ['待总行终审',   'badge-warning'],
   done:          ['填报完成',     'badge-success'],
+  forced_end:    ['强制结束',     'badge-warning'],
 };
 
 /** 采集任务是否已发放（客户经理可见） */
@@ -2817,6 +2880,7 @@ function isCollectTaskDispatched(supplement) {
 function getDataStatus(formal, supplement, taskId, d) {
   if (!formal) return 'none';
   if (!isCollectTaskDispatched(supplement)) return 'none';
+  if (supplement.auditStage === 'forced_end' || supplement.forcedEnd) return 'forced_end';
 
   if (supplement.status === 'returned') return 'pending_fill';
   if (supplement.status === 'pending') {
@@ -2825,11 +2889,15 @@ function getDataStatus(formal, supplement, taskId, d) {
         formalHasSystemEntityEmission(formal, taskId, d)) return 'system_done';
     return 'pending_fill';
   }
-  if (supplement.status === 'in_progress') return 'in_progress';
+  if (supplement.status === 'in_progress') {
+    if (supplement.auditStage === 'forced_end' || supplement.forcedEnd) return 'forced_end';
+    return 'in_progress';
+  }
   if (supplement.status === 'completed') {
     const stage = supplement.auditStage || '';
-    if (stage === 'approved')      return 'done';
-    if (stage === 'hq_review')     return 'hq_review';
+    if (stage === 'forced_end') return 'forced_end';
+    if (stage === 'approved') return 'done';
+    if (stage === 'hq_review') return 'hq_review';
     if (stage === 'branch_review') return 'branch_review';
     return 'in_progress';
   }
@@ -4018,7 +4086,8 @@ function approvalStatusBadge(status) {
     pending: ['待审核', 'badge-warning'],
     approved: ['已通过', 'badge-success'],
     rejected: ['已退回', 'badge-danger'],
-    voided: ['已作废', 'badge-draft']
+    voided: ['已作废', 'badge-draft'],
+    forced_end: ['强制结束', 'badge-warning']
   };
   const [text, cls] = map[status] || [status, 'badge-draft'];
   return `<span class="badge ${cls}">${text}</span>`;
@@ -4029,7 +4098,8 @@ function approvalStatusLabel(status) {
     pending: '待审核',
     approved: '已通过',
     rejected: '已退回',
-    voided: '已作废'
+    voided: '已作废',
+    forced_end: '强制结束'
   }[status] || status || '—';
 }
 
@@ -4295,6 +4365,117 @@ function approvalTaskName(approval) {
 
 function approvalTaskYear(approval) {
   return Store.getTask(approval?.taskId)?.year || '—';
+}
+
+const HQ_APPROVAL_SUMMARY_FILTER_KEY_PREFIX = 'hq_approval_summary_filters_';
+
+function getHqApprovalBranchFromRoute() {
+  const q = new URLSearchParams((location.hash.split('?')[1] || ''));
+  return (q.get('hqBranch') || '').trim();
+}
+
+function buildApprovalsListHash(taskId, hqBranch) {
+  const params = new URLSearchParams();
+  if (taskId) params.set('taskId', taskId);
+  if (hqBranch) params.set('hqBranch', hqBranch);
+  const qs = params.toString();
+  return `#/approvals${qs ? `?${qs}` : ''}`;
+}
+
+/** 采集审核是否已完成分行初审（用于总行外侧汇总「分行审核通过条数」） */
+function isApprovalBranchReviewPassed(approval, data) {
+  const d = data || Store.get();
+  const s = getSupplementForApproval(approval);
+  if (s) {
+    if (['branch_approved', 'hq_review', 'approved'].includes(s.auditStage || '')) return true;
+    if (s.branchReviewStatus === 'approved') return true;
+  }
+  return approval?.reviewLevel === 'branch' && approval?.status === 'approved';
+}
+
+function buildHqApprovalBranchGroups(approvals, taskId, data) {
+  const map = new Map();
+  (approvals || []).filter(a => !taskId || a.taskId === taskId).forEach(a => {
+    const tier1Branch = approvalTier1Branch(a);
+    const key = `${a.taskId || taskId || ''}::${tier1Branch}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        taskId: a.taskId || taskId,
+        taskName: approvalTaskName(a),
+        year: approvalTaskYear(a),
+        tier1Branch,
+        branchApprovedCount: 0,
+        totalCount: 0
+      });
+    }
+    const row = map.get(key);
+    row.totalCount += 1;
+    if (isApprovalBranchReviewPassed(a, data)) row.branchApprovedCount += 1;
+  });
+  return [...map.values()].sort((a, b) =>
+    String(a.taskName).localeCompare(String(b.taskName), 'zh-CN')
+    || String(a.tier1Branch).localeCompare(String(b.tier1Branch), 'zh-CN')
+  );
+}
+
+function getHqApprovalSummaryFilters(taskId) {
+  try {
+    return JSON.parse(sessionStorage.getItem(`${HQ_APPROVAL_SUMMARY_FILTER_KEY_PREFIX}${taskId}`) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveHqApprovalSummaryFilters(taskId, filters) {
+  sessionStorage.setItem(`${HQ_APPROVAL_SUMMARY_FILTER_KEY_PREFIX}${taskId}`, JSON.stringify(filters || {}));
+}
+
+function readHqApprovalSummaryFilterInputs() {
+  return {
+    taskName: qs('#apfs_taskName')?.value || '',
+    year: qs('#apfs_year')?.value || '',
+    tier1Branch: qs('#apfs_tier1Branch')?.value || ''
+  };
+}
+
+function filterHqApprovalBranchSummary(groups, filters) {
+  const f = filters || {};
+  let out = groups || [];
+  if (f.taskName) {
+    const kw = f.taskName.trim().toLowerCase();
+    if (kw) out = out.filter(g => String(g.taskName || '').toLowerCase().includes(kw));
+  }
+  if (f.year) {
+    const y = String(f.year).trim();
+    if (y) out = out.filter(g => String(g.year) === y);
+  }
+  if (f.tier1Branch) {
+    const branch = String(f.tier1Branch).trim();
+    if (branch) out = out.filter(g => g.tier1Branch === branch);
+  }
+  return out;
+}
+
+function renderHqApprovalSummaryFilterPanel(filters) {
+  const f = filters || {};
+  return `
+    <div class="filter-panel approval-filter-panel">
+      <div class="filter-extra approval-filter-grid">
+        <div class="form-item"><label>任务名称</label>
+          <input id="apfs_taskName" type="search" value="${escapeHtml(f.taskName || '')}" placeholder="模糊搜索"></div>
+        <div class="form-item"><label>核算年度</label>
+          ${renderTaskYearFilterField(f.year, 'apfs_year')}</div>
+        <div class="form-item"><label>一级分行</label>
+          ${renderTier1BranchFilterSelect('apfs_tier1Branch', f.tier1Branch || '')}</div>
+        <div class="form-item filter-actions">
+          <label>&nbsp;</label>
+          <div class="filter-action-btns">
+            <button type="button" class="btn btn-primary" id="hqApprovalSummaryFilterBtn">查询</button>
+            <button type="button" class="btn" id="hqApprovalSummaryFilterResetBtn">重置</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 function getSupplementForApproval(approval) {
@@ -4650,7 +4831,8 @@ const APPROVAL_STATUS_OPTIONS = [
   { value: '', label: '全部状态' },
   { value: 'pending', label: '待审核' },
   { value: 'approved', label: '已通过' },
-  { value: 'rejected', label: '已退回' }
+  { value: 'rejected', label: '已退回' },
+  { value: 'forced_end', label: '强制结束' }
 ];
 
 function getApprovalFilters(taskId) {
@@ -6557,11 +6739,11 @@ function projectYuanFormToWan(yuan) {
 
 const LEDGER_MONTH_BALANCE_COL_COUNT = 12;
 
-/** 台账列表基础列数：12 个业务字段 + 余额 + 营收 + 资产 + 经理 */
+/** 台账列表基础列数：9 个业务字段 + 余额 + 营收 + 资产 + 经理 */
 function ledgerListTableColCount(options = {}) {
   const { headCheckbox = false, tailExtra = 0 } = options;
   // 所有清单均使用汇总口径：月均/年末余额（1列） + 平均资产总额（1列）
-  return (headCheckbox ? 1 : 0) + 12 + 4 + tailExtra;
+  return (headCheckbox ? 1 : 0) + 9 + 4 + tailExtra;
 }
 
 function renderConsolidatedAssetsTableHead() {
@@ -6712,8 +6894,8 @@ function renderFormalSummaryAssetsCell(c) {
 }
 
 const FORMAL_LIST_EXPORT_HEADERS = [
-  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类', '授信参考编号', '授信编号',
-  '投放日', '贷款主体类型', '企业所属行业', '贷款投向所属行业',
+  '一级分行', '经办行', '客户名称', '企业规模', '信贷品种', '业务种类',
+  '贷款主体类型', '企业所属行业', '贷款投向所属行业',
   '月均贷款余额（元）', '营业收入（元）', '平均资产总额（元）', '主办客户经理', '状态'
 ];
 
@@ -6727,9 +6909,6 @@ function formalListExportRowValues(f, taskId, task) {
     candidateEnterpriseScale(c),
     candidateProductType(c),
     candidateAccountingTypeLabel(c, { finalizeAccountingType: true, listKind: 'formal', task }),
-    candidateCreditReferenceNo(c),
-    candidateCreditNo(c),
-    c.disbursementDate || '-',
     candidateLoanSubjectType(c),
     candidateIndustryLabel(c),
     candidateInvestIndustryLabel(c),
@@ -7139,9 +7318,6 @@ function renderCandidateListCells(c, options = {}) {
     <td>${candidateEnterpriseScale(c)}</td>
     <td>${candidateProductType(c)}</td>
     <td>${candidateAccountingTypeLabel(c, options)}</td>
-    <td>${candidateCreditReferenceNo(c)}</td>
-    <td>${candidateCreditNo(c)}</td>
-    <td>${c.disbursementDate || '-'}</td>
     <td>${candidateLoanSubjectType(c)}</td>
     ${renderFormalIndustryCells(c, options)}
     ${renderFormalSummaryBalanceCell(c, c.accountingYear, task)}
@@ -7150,8 +7326,8 @@ function renderCandidateListCells(c, options = {}) {
     <td>${c.manager || '-'}</td>`;
 }
 
-const _LEDGER_COMMON_HEAD_INNER = `<th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th><th>授信参考编号</th><th>授信编号</th>
-  <th>投放日</th><th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>`;
+const _LEDGER_COMMON_HEAD_INNER = `<th>一级分行</th><th>经办行</th><th>客户名称</th><th>企业规模</th><th>信贷品种</th><th>业务种类</th>
+  <th>贷款主体类型</th><th>企业所属行业</th><th>贷款投向所属行业</th>`;
 const _LEDGER_REVENUE_HEAD = `<th><span class="th-tip-bubble">营业收入（元）<span class="th-tip-icon">?</span><span class="th-tip-popover">优先经审计合并报表年报&gt;未审计合并报表年报&gt;经审计本部报表年报&gt;未审计本部报表年报</span></span></th>`;
 
 const CANDIDATE_LIST_TABLE_HEAD = `

@@ -211,6 +211,7 @@ const Store = {
     this._migrateFinalizedAccountingTypes();
     this._migrateCalculationEmissionSplit();
     this._ensureDataCollectDemoTask();
+    this._ensureDataCollectDemoSupplements();
     this._ensureCollectGroupDemo();
     this._ensureCollectGroupsStructure();
     this._migrateTaskIndustryScopes();
@@ -541,12 +542,46 @@ const Store = {
       d.tasks.push(slice.task);
       d.candidates.push(...slice.candidates);
       d.formalList.push(...slice.formalList);
+      if (typeof DemoSeed.buildDataCollectDemoSupplements === 'function') {
+        const pack = DemoSeed.buildDataCollectDemoSupplements(slice.task.id, d.formalList);
+        d.supplements = d.supplements || [];
+        d.approvals = d.approvals || [];
+        d.supplements.push(...pack.supplements);
+        d.approvals.push(...pack.approvals);
+      }
       if (typeof CarbonAccount !== 'undefined') {
         CarbonAccount.provisionFromFormalLock(d, slice.task.id, slice.formalList);
       }
       if (typeof CollectGroups !== 'undefined') {
         this._rebuildCollectGroupsInPlace(d, slice.task.id);
       }
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 为 T2026002 补全演示用手动采集与审核单据（已有 localStorage 时增量注入） */
+  _ensureDataCollectDemoSupplements() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || !DemoSeed.buildDataCollectDemoSupplements) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._dataCollectDemoSuppsPatched) return;
+      const taskId = 'T2026002';
+      if (!(d.tasks || []).some(t => t.id === taskId)) return;
+      if ((d.supplements || []).some(s => s.taskId === taskId && String(s.id || '').startsWith('SDC'))) {
+        d._dataCollectDemoSuppsPatched = true;
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+        return;
+      }
+      const pack = DemoSeed.buildDataCollectDemoSupplements(taskId, d.formalList);
+      d.supplements = d.supplements || [];
+      d.approvals = d.approvals || [];
+      d.supplements.push(...pack.supplements);
+      d.approvals.push(...pack.approvals);
+      if (typeof CollectGroups !== 'undefined') {
+        this._rebuildCollectGroupsInPlace(d, taskId);
+      }
+      d._dataCollectDemoSuppsPatched = true;
       localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -958,6 +993,64 @@ const Store = {
     const formal = d.formalList.filter(f => f.taskId === taskId && f.status === 'confirmed');
     if (!formal.length) return false;
     return formal.every(f => this._formalHasEntityEmission(d, taskId, f));
+  },
+
+  /** 分行审批截止日：强制结束未完成手动采集，并推进至排放计算（演示 DEV 规则） */
+  _applyCalculationStepDeadlinePolicyInPlace(d, taskId) {
+    const t = d.tasks.find(x => x.id === taskId);
+    if (!t || typeof isBranchApprovalDeadlineReached !== 'function' || !isBranchApprovalDeadlineReached(t)) {
+      return false;
+    }
+    const nowStr = new Date().toLocaleString('zh-CN');
+    let changed = false;
+    (d.supplements || []).filter(s => s.taskId === taskId && s.dispatchedAt).forEach(s => {
+      if (s.auditStage === 'approved') return;
+      if (s.auditStage !== 'forced_end') {
+        s.auditStage = 'forced_end';
+        changed = true;
+      }
+      if (!s.forcedEnd) {
+        s.forcedEnd = true;
+        changed = true;
+      }
+      s.forcedEndAt = s.forcedEndAt || nowStr;
+      (d.approvals || []).filter(a =>
+        a.docType === 'supplement' && a.docId === s.id && a.status !== 'approved' && a.status !== 'voided'
+      ).forEach(a => {
+        if (a.status !== 'forced_end') {
+          a.status = 'forced_end';
+          a.approver = a.approver || '系统';
+          a.approveTime = a.approveTime || nowStr;
+          changed = true;
+        }
+      });
+    });
+    if (!t.calculationForcedByDeadline) {
+      t.calculationForcedByDeadline = true;
+      changed = true;
+    }
+    if ((t.workflowStep ?? 0) < WORKFLOW_STEP.CALCULATION) {
+      t.workflowStep = WORKFLOW_STEP.CALCULATION;
+      changed = true;
+    }
+    t.progress = Math.max(t.progress || 0, 65);
+    if (t.milestone) t.milestone.calculationForcedByDeadline = true;
+    return changed;
+  },
+
+  ensureCalculationStepDeadlinePolicy(taskId) {
+    const tid = taskId || this.get().currentTaskId;
+    if (!tid) return;
+    const task = this.getTask(tid);
+    if (!task || typeof isBranchApprovalDeadlineReached !== 'function' || !isBranchApprovalDeadlineReached(task)) {
+      return;
+    }
+    let needSync = false;
+    this.update(d => {
+      if (this._applyCalculationStepDeadlinePolicyInPlace(d, tid)) needSync = true;
+      this.syncTaskWorkflow(d, tid);
+    });
+    if (needSync) this.syncCalculationsFromDataCollect(tid);
   },
 
   hasMissingEntityEmission(taskId, data) {
@@ -1789,6 +1882,31 @@ const Store = {
         a.taskId === taskId &&
         a.docType === 'supplement' &&
         a.reviewLevel === 'branch' &&
+        a.status === 'pending'
+      );
+      rows.forEach(a => {
+        a.status = 'approved';
+        a.approver = operator;
+        a.approveTime = now;
+        this._applyDocApproval(d, a, true, '', {});
+        count++;
+      });
+      if (count) this.syncTaskWorkflowAfterApprovals(d, taskId);
+    });
+    return count;
+  },
+
+  bulkApproveHqSupplements(taskId, approvalIds = []) {
+    let count = 0;
+    this.update(d => {
+      const ids = new Set(approvalIds);
+      const now = new Date().toLocaleString('zh-CN');
+      const operator = d.currentUser;
+      const rows = (d.approvals || []).filter(a =>
+        ids.has(a.id) &&
+        a.taskId === taskId &&
+        a.docType === 'supplement' &&
+        a.reviewLevel === 'hq' &&
         a.status === 'pending'
       );
       rows.forEach(a => {
@@ -2847,17 +2965,31 @@ const Store = {
       if (t.milestone) t.milestone.supplementDispatched = true;
     }
 
-    const allReady = this.isDataCollectionComplete(taskId);
+    const access = typeof getCalculationStepAccess === 'function'
+      ? getCalculationStepAccess(taskId, d)
+      : { allowed: this.isDataCollectionComplete(taskId), forcedByDeadline: false };
 
-    if (allReady) {
+    if (access.forcedByDeadline) {
+      this._applyCalculationStepDeadlinePolicyInPlace(d, taskId);
+    }
+
+    if (access.allowed) {
       t.workflowStep = WORKFLOW_STEP.CALCULATION;
       t.progress = Math.max(t.progress || 0, 65);
-      if (t.milestone) t.milestone.supplementApproved = true;
-    } else if (t.workflowStep >= WORKFLOW_STEP.CALCULATION) {
+      if (access.forcedByDeadline) {
+        t.calculationForcedByDeadline = true;
+        if (t.milestone) t.milestone.calculationForcedByDeadline = true;
+      } else if (this.isDataCollectionComplete(taskId)) {
+        if (t.milestone) t.milestone.supplementApproved = true;
+      } else if (access.reason === 'emission_ready') {
+        if (t.milestone) t.milestone.emissionReadyForCalc = true;
+      }
+    } else if (t.workflowStep >= WORKFLOW_STEP.CALCULATION && !t.calculationForcedByDeadline && !t.dataCollectSubmitted) {
       t.workflowStep = WORKFLOW_STEP.DATA_COLLECTION;
     }
 
     const calcs = d.calculations.filter(c => c.taskId === taskId);
+    const allReady = this.isDataCollectionComplete(taskId);
     if (allReady && calcs.length && calcs.every(c => c.status === 'done')) {
       t.workflowStep = Math.max(t.workflowStep ?? 0, WORKFLOW_STEP.CALCULATION);
       t.progress = Math.max(t.progress || 0, 80);

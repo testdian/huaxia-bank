@@ -211,9 +211,7 @@ window.IndustryConfig = {
   },
 
   renderTableRow(row, startIndex, i) {
-    const ops = `
-      <button type="button" class="btn-link ic-edit-btn" data-id="${row.id}">编辑</button>
-      <button type="button" class="btn-link btn-link-danger ic-del-btn" data-id="${row.id}">删除</button>`;
+    const ops = `<button type="button" class="btn-link ic-edit-btn" data-id="${row.id}">编辑</button>`;
     return `<tr>
       <td>${startIndex + i + 1}</td>
       <td>${row.level1Name || '—'}<div class="cell-sub">${row.level1Code || ''}</div></td>

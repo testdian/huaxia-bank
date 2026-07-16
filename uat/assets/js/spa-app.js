@@ -88,6 +88,10 @@ function route() {
     return ROUTE_TITLES[base] || '投融资碳核算';
   })();
   const ctx = renderSpaLayout(title);
+  const activeTaskId = ctx.task?.id || Store.get().currentTaskId;
+  if (activeTaskId && !isTaskViewMode()) {
+    Store.ensureCalculationStepDeadlinePolicy(activeTaskId);
+  }
   const fn = SPA_VIEWS[base] || SPA_VIEWS['#/tasks'];
   const root = document.getElementById('viewRoot');
   if (!root) return;
@@ -112,6 +116,9 @@ function route() {
   }
   if (typeof SupplementEmissionDevSpec !== 'undefined') {
     SupplementEmissionDevSpec.bindSupplementEmissionDevHint(root);
+  }
+  if (typeof bindCalculationStepDevSpec === 'function') {
+    bindCalculationStepDevSpec(root);
   }
   document.title = title + ' - 华夏银行投融资碳核算';
 }
@@ -948,14 +955,30 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/approvals') {
+    const hqBranch = typeof getHqApprovalBranchFromRoute === 'function' ? getHqApprovalBranchFromRoute() : '';
+    qs('#hqApprovalSummaryFilterBtn')?.addEventListener('click', () => {
+      saveHqApprovalSummaryFilters(taskId, readHqApprovalSummaryFilterInputs());
+      setListPage('approvals_hq_branch_' + taskId, 1);
+      route();
+    });
+    qs('#hqApprovalSummaryFilterResetBtn')?.addEventListener('click', () => {
+      saveHqApprovalSummaryFilters(taskId, {});
+      setListPage('approvals_hq_branch_' + taskId, 1);
+      route();
+    });
+    qs('#hqApprovalBackBtn')?.addEventListener('click', () => {
+      location.hash = typeof buildApprovalsListHash === 'function'
+        ? buildApprovalsListHash(taskId, '')
+        : `#/approvals?taskId=${encodeURIComponent(taskId)}`;
+    });
     qs('#approvalFilterBtn')?.addEventListener('click', () => {
       saveApprovalFilters(taskId, readApprovalFilterInputs());
-      setListPage('approvals', 1);
+      setListPage(hqBranch ? `approvals_hq_detail_${taskId}_${hqBranch}` : 'approvals', 1);
       route();
     });
     qs('#approvalFilterResetBtn')?.addEventListener('click', () => {
       saveApprovalFilters(taskId, {});
-      setListPage('approvals', 1);
+      setListPage(hqBranch ? `approvals_hq_detail_${taskId}_${hqBranch}` : 'approvals', 1);
       route();
     });
     qs('#approvalBatchSelectAll')?.addEventListener('change', e => {
@@ -989,6 +1012,21 @@ function bindPageEvents(base, ctx) {
       if (!ok) return;
       const count = Store.bulkSubmitBranchApprovedToHq(taskId, ids);
       toast(count ? `已提交 ${count} 笔至总行终审` : '没有可提交的记录', count ? 'success' : 'warning');
+      route();
+    });
+    qs('#hqBatchApproveBtn')?.addEventListener('click', async () => {
+      const ids = qsa('.approval-batch-check:checked').filter(cb => cb.dataset.batchKind === 'hq_approve').map(cb => cb.value);
+      if (!ids.length) {
+        toast('请先勾选待总行终审记录', 'warning');
+        return;
+      }
+      const ok = await showConfirmDialog({
+        message: '是否确认批量审核通过？',
+        detail: `本次将处理 <strong>${ids.length}</strong> 笔总行终审记录。`
+      });
+      if (!ok) return;
+      const count = Store.bulkApproveHqSupplements(taskId, ids);
+      toast(count ? `已批量审核通过 ${count} 笔` : '没有可批量审核的记录', count ? 'success' : 'warning');
       route();
     });
   }
@@ -1275,7 +1313,9 @@ function bindPageEvents(base, ctx) {
             } else {
               toast('数据已提交，审核通过', 'success');
             }
-            location.hash = '#/approvals?taskId=' + tid;
+            location.hash = typeof buildApprovalsListHash === 'function'
+              ? buildApprovalsListHash(tid, getHqApprovalBranchFromRoute())
+              : '#/approvals?taskId=' + tid;
           };
           beginSupplementApprovalPass(approval, extra, proceed);
         };
@@ -1325,10 +1365,14 @@ function bindPageEvents(base, ctx) {
       } else {
         toast('审核通过', 'success');
       }
-      location.hash = '#/approvals?taskId=' + tid;
+      location.hash = typeof buildApprovalsListHash === 'function'
+        ? buildApprovalsListHash(tid, getHqApprovalBranchFromRoute())
+        : '#/approvals?taskId=' + tid;
     };
     qs('#approvalCancelBtn')?.addEventListener('click', () => {
-      location.hash = '#/approvals?taskId=' + taskId;
+      location.hash = typeof buildApprovalsListHash === 'function'
+        ? buildApprovalsListHash(taskId, getHqApprovalBranchFromRoute())
+        : '#/approvals?taskId=' + taskId;
     });
     qs('#approvalApproveBtn')?.addEventListener('click', () => {
       const approval = (Store.get().approvals || []).find(a => a.id === approvalId);
@@ -1589,19 +1633,6 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/industry-config') {
-    qs('#icImportBtn')?.addEventListener('click', () => openIndustryBatchImportModal());
-    qs('#icAddBtn')?.addEventListener('click', () => {
-      IndustryConfig.openEditModal(null, (payload) => {
-        const added = Store.addIndustryConfigRow(payload);
-        if (!added) {
-          toast('新增失败，行业代码可能已存在', 'warning');
-          return;
-        }
-        hideModal('reviewModal');
-        toast('已新增行业', 'success');
-        route();
-      });
-    });
     qs('#icf_search')?.addEventListener('click', () => {
       saveIndustryConfigFilters(readIndustryConfigFilterInputs());
       setListPage('industry_config', 1);
@@ -1625,19 +1656,6 @@ function bindPageEvents(base, ctx) {
           toast('已保存', 'success');
           route();
         });
-      };
-    });
-    qsa('.ic-del-btn').forEach(btn => {
-      btn.onclick = async () => {
-        const ok = await showConfirmDialog({
-          message: '是否确认删除该行业分类？',
-          danger: true
-        });
-        if (!ok) return;
-        if (Store.deleteIndustryConfigRow(btn.dataset.id)) {
-          toast('已删除', 'success');
-          route();
-        }
       };
     });
   }

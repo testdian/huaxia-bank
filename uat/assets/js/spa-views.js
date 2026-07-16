@@ -385,16 +385,28 @@ SPA_VIEWS['#/data-collect'] = function(ctx) {
       <td colspan="15">${memberTable}</td>
     </tr>`;
   }).join('');
+  const calcAccess = typeof getCalculationStepAccess === 'function'
+    ? getCalculationStepAccess(taskId, d)
+    : null;
   const collectDone = Store.isDataCollectionComplete(taskId);
+  const deadlineTip = calcAccess?.forcedByDeadline
+    ? '<div class="demo-tip calc-step-deadline-tip">分行审批截止日期已到：已下发且未完成填报的手动采集任务，数据采集「数据状态」与数据审核「审核状态」均已变更为<strong>强制结束</strong>；任务已自动进入「排放计算」步骤。</div>'
+    : '';
+  const emissionReadyTip = calcAccess?.allowed && calcAccess.reason === 'emission_ready'
+    ? '<div class="demo-tip calc-step-emission-ready-tip">截止日前规则：全部已锁定归集单元的「排放结果（tCO₂e）」均有值，可点击进入「排放计算」步骤。</div>'
+    : '';
+  const collectDoneTip = collectDone && !calcAccess?.forcedByDeadline
+    ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'
+    : '';
   return `
     <h1 class="page-title">数据采集</h1>
     ${workflowStepsBar(ctx.task)}
     ${hasWanhuaDemo
       ? '<div class="demo-tip">归集示范：<strong>万华化学归集示范</strong> 6 笔贷款合并为 4 个归集单元（非项目 1 + 项目 3，含跨行非项目、联合贷款与同客户多项目）。展开行可查看逐笔明细。</div>'
       : ''}
-    ${collectDone
-      ? '<div class="demo-tip" style="border-color:#67c23a;background:#f0f9eb;color:#529b2e">数据采集已全部完成，可进入「排放计算」环节</div>'
-      : ''}
+    ${deadlineTip}
+    ${emissionReadyTip}
+    ${collectDoneTip}
     <div class="toolbar">
       <button class="btn btn-success" id="fetchInterfaceDataBtn"${vma} title="先调取格澜报告法主体排放，再对剩余非项目主体记录执行经济活动法直算">调取接口数据</button>
       <button class="btn btn-primary" id="dispatchSupplementBtn"${vma}>发放采集任务</button>
@@ -543,7 +555,7 @@ SPA_VIEWS['#/approval-review'] = function(ctx) {
   const s = getSupplementForApproval(approval);
   if (!s) {
     return `<h1 class="page-title">数据审核</h1><p class="page-desc">关联收集数据未找到</p>
-      <button class="btn" onclick="location.hash='#/approvals'">返回</button>`;
+      <button class="btn" onclick="location.hash='${typeof buildApprovalsListHash === 'function' ? buildApprovalsListHash(approval.taskId, getHqApprovalBranchFromRoute()) : '#/approvals'}'">返回</button>`;
   }
 
   const defaultTab = (approval.status === 'rejected' || s.status === 'returned') ? 'approval' : 'fill';
@@ -568,50 +580,61 @@ function approvalRecordBadge(status) {
   return approvalStatusBadge(status);
 }
 
-SPA_VIEWS['#/approvals'] = function(ctx) {
-  const listKey = 'approvals';
-  const roleKey = Store.get().currentRole;
-  const task = ctx.task;
-  const twoLevel = task.initiatorOrg !== 'branch';
-  const filters = getApprovalFilters(task.id);
-  const roleScoped = filterApprovalsForRole(Store.get().approvals || [], roleKey, ctx.role, task.id);
-  const all = filterApprovalList(roleScoped, filters);
+function renderApprovalDetailTable(ctx, options = {}) {
+  const {
+    listKey = 'approvals',
+    roleKey,
+    task,
+    all,
+    twoLevel,
+    showTier1BranchCol = false,
+    canBatchBranch = false,
+    canBatchHq = false,
+    batchableApprovals = [],
+    submittableApprovals = [],
+    hqBatchableApprovals = []
+  } = options;
   const view = paginateData(listKey, all);
-  const canBatchBranch = roleKey === 'branch' && twoLevel;
-  const showTier1BranchCol = roleKey === 'hq';
-  const batchableApprovals = canBatchBranch
-    ? all.filter(a => a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canUserReviewApproval(a, roleKey))
-    : [];
-  const submittableApprovals = canBatchBranch
-    ? all.filter(a => isBranchApprovedReadyForHqSubmit(a, ctx.data))
-    : [];
-  return `
-    <h1 class="page-title">数据审核</h1>
-    <div class="card">
-      <div class="card-header"><h3>筛选条件</h3></div>
-      ${renderApprovalFilterPanel(filters, { showTier1Branch: showTier1BranchCol })}
-      <div class="card-body table-wrap${canBatchBranch ? ' approval-table-body' : ''}">
-      ${canBatchBranch ? `<div class="toolbar approval-batch-toolbar">
+  const colSpan = (twoLevel ? 12 : 11)
+    + (canBatchBranch || canBatchHq ? 1 : 0)
+    + (showTier1BranchCol ? 1 : 0);
+  const batchToolbar = canBatchBranch
+    ? `<div class="toolbar approval-batch-toolbar">
         <button type="button" class="btn btn-primary" id="branchBatchApproveBtn" ${batchableApprovals.length ? '' : 'disabled'}>批量审核通过</button>
         <button type="button" class="btn btn-primary" id="branchSubmitToHqBtn" ${submittableApprovals.length ? '' : 'disabled'}>一键提交数据</button>
-      </div>` : ''}
+      </div>`
+    : (canBatchHq
+      ? `<div class="toolbar approval-batch-toolbar">
+          <button type="button" class="btn btn-primary" id="hqBatchApproveBtn" ${hqBatchableApprovals.length ? '' : 'disabled'}>批量审核通过</button>
+        </div>`
+      : '');
+  return `
+      ${batchToolbar}
       <table class="data-table">
-    <thead><tr>${canBatchBranch ? '<th class="col-select col-no-resize"><input type="checkbox" id="approvalBatchSelectAll" title="选择当前页待分行初审"></th>' : ''}<th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th>${showTier1BranchCol ? '<th>一级分行</th>' : ''}<th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
+    <thead><tr>${(canBatchBranch || canBatchHq) ? '<th class="col-select col-no-resize"><input type="checkbox" id="approvalBatchSelectAll" title="选择当前页可批量审核记录"></th>' : ''}<th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th>${showTier1BranchCol ? '<th>一级分行</th>' : ''}<th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
     ${twoLevel ? '<th>当前审批人</th><th>下一节点审批人</th>' : '<th>审批人</th><th>审批时间</th>'}
     <th>操作</th></tr></thead>
     <tbody>${view.rows.map((a, i) => {
       const canReview = canUserReviewApproval(a, roleKey);
       const canBatchRow = canBatchBranch && a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canReview;
       const canSubmitRow = canBatchBranch && isBranchApprovedReadyForHqSubmit(a, ctx.data);
+      const canHqBatchRow = canBatchHq && a.docType === 'supplement' && a.reviewLevel === 'hq' && a.status === 'pending' && canReview;
+      const hqBranchCtx = typeof getHqApprovalBranchFromRoute === 'function' ? getHqApprovalBranchFromRoute() : '';
+      const reviewQuery = (mode) => {
+        const p = new URLSearchParams({ approvalId: a.id, mode });
+        if (hqBranchCtx) p.set('hqBranch', hqBranchCtx);
+        return `#/approval-review?${p}`;
+      };
       const ops = [];
-      if (canReview) ops.push(`<a href="#/approval-review?approvalId=${a.id}&mode=review" class="btn-link">审核</a>`);
-      ops.push(`<a href="#/approval-review?approvalId=${a.id}&mode=view" class="btn-link">查看</a>`);
+      if (canReview) ops.push(`<a href="${reviewQuery('review')}" class="btn-link">审核</a>`);
+      ops.push(`<a href="${reviewQuery('view')}" class="btn-link">查看</a>`);
       const approverCols = twoLevel && a.docType === 'supplement'
         ? `<td>${approvalCurrentApproverLabel(a, task)}</td><td>${approvalNextApproverLabel(a, task)}</td>`
         : `<td>${a.approver || approvalCurrentApproverLabel(a, task) || '-'}</td><td>${a.approveTime || '-'}</td>`;
       const reviewStage = a.reviewLevel ? reviewLevelLabel(a.reviewLevel) : approvalDocTypeLabel(a.docType);
+      const batchKind = canBatchRow ? 'approve' : (canSubmitRow ? 'submit' : (canHqBatchRow ? 'hq_approve' : ''));
       return `<tr>
-      ${canBatchBranch ? `<td class="col-select"><input type="checkbox" class="approval-batch-check" value="${a.id}" data-batch-kind="${canBatchRow ? 'approve' : (canSubmitRow ? 'submit' : '')}" ${(canBatchRow || canSubmitRow) ? '' : 'disabled'}></td>` : ''}
+      ${(canBatchBranch || canBatchHq) ? `<td class="col-select"><input type="checkbox" class="approval-batch-check" value="${a.id}" data-batch-kind="${batchKind}" ${batchKind ? '' : 'disabled'}></td>` : ''}
       <td>${view.startIndex + i + 1}</td>
       <td>${approvalTaskName(a)}</td>
       <td>${approvalTaskYear(a)}</td>
@@ -624,8 +647,93 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
       ${approverCols}
       <td>${ops.join(' · ')}</td>
     </tr>`;
-    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${(twoLevel ? 12 : 11) + (canBatchBranch ? 1 : 0) + (showTier1BranchCol ? 1 : 0)}" style="text-align:center;padding:32px;color:#909399">${roleScoped.length ? '无符合筛选条件的审核记录' : '当前角色下无可见审核记录'}</td></tr>` : ''}</tbody></table></div>
-    ${renderPagination(listKey, view)}</div>`;
+    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${colSpan}" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的审核记录</td></tr>` : ''}</tbody></table>
+    ${renderPagination(listKey, view)}`;
+}
+
+SPA_VIEWS['#/approvals'] = function(ctx) {
+  const roleKey = Store.get().currentRole;
+  const task = ctx.task;
+  const twoLevel = task.initiatorOrg !== 'branch';
+  const roleScoped = filterApprovalsForRole(Store.get().approvals || [], roleKey, ctx.role, task.id);
+  const hqBranch = roleKey === 'hq' ? getHqApprovalBranchFromRoute() : '';
+
+  if (roleKey === 'hq' && !hqBranch) {
+    const summaryFilters = getHqApprovalSummaryFilters(task.id);
+    const groups = filterHqApprovalBranchSummary(
+      buildHqApprovalBranchGroups(roleScoped, task.id, ctx.data),
+      summaryFilters
+    );
+    const listKey = 'approvals_hq_branch_' + task.id;
+    const view = paginateData(listKey, groups);
+    return `
+    <h1 class="page-title">数据审核</h1>
+    <p class="page-desc">按一级分行汇总；点击「查看」进入该分行下待审核明细，支持单条审核与批量审核。</p>
+    <div class="card">
+      <div class="card-header"><h3>筛选条件</h3></div>
+      ${renderHqApprovalSummaryFilterPanel(summaryFilters)}
+      <div class="card-body table-wrap">
+      <table class="data-table">
+        <thead><tr>
+          <th>序号</th><th>任务名称</th><th>核算年度</th><th>一级分行</th><th>分行审核通过条数</th><th>合计任务条数</th><th>操作</th>
+        </tr></thead>
+        <tbody>${view.rows.map((g, i) => `<tr>
+          <td>${view.startIndex + i + 1}</td>
+          <td>${escapeHtml(g.taskName || '—')}</td>
+          <td>${g.year || '—'}</td>
+          <td>${escapeHtml(g.tier1Branch || '—')}</td>
+          <td>${g.branchApprovedCount || 0}</td>
+          <td>${g.totalCount || 0}</td>
+          <td><a href="${buildApprovalsListHash(task.id, g.tier1Branch)}" class="btn-link" data-hq-approval-branch="${escapeHtml(g.tier1Branch || '')}">查看</a></td>
+        </tr>`).join('')}${view.rows.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:32px;color:#909399">无符合筛选条件的一级分行汇总</td></tr>' : ''}</tbody>
+      </table></div>
+      ${renderPagination(listKey, view)}</div>`;
+  }
+
+  const listKey = hqBranch ? `approvals_hq_detail_${task.id}_${hqBranch}` : 'approvals';
+  const filters = getApprovalFilters(task.id);
+  let all = filterApprovalList(roleScoped, filters);
+  if (hqBranch) {
+    all = all.filter(a => approvalTier1Branch(a) === hqBranch);
+  }
+  const canBatchBranch = roleKey === 'branch' && twoLevel;
+  const canBatchHq = roleKey === 'hq' && !!hqBranch;
+  const batchableApprovals = canBatchBranch
+    ? all.filter(a => a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canUserReviewApproval(a, roleKey))
+    : [];
+  const submittableApprovals = canBatchBranch
+    ? all.filter(a => isBranchApprovedReadyForHqSubmit(a, ctx.data))
+    : [];
+  const hqBatchableApprovals = canBatchHq
+    ? all.filter(a => a.docType === 'supplement' && a.reviewLevel === 'hq' && a.status === 'pending' && canUserReviewApproval(a, roleKey))
+    : [];
+  const backBar = hqBranch
+    ? `<div class="toolbar approval-hq-back-toolbar">
+        <button type="button" class="btn" id="hqApprovalBackBtn">返回一级分行列表</button>
+        <span class="text-muted" style="font-size:13px">当前一级分行：<strong>${escapeHtml(hqBranch)}</strong></span>
+      </div>`
+    : '';
+  return `
+    <h1 class="page-title">数据审核</h1>
+    ${backBar}
+    <div class="card">
+      <div class="card-header"><h3>筛选条件</h3></div>
+      ${renderApprovalFilterPanel(filters, { showTier1Branch: false })}
+      <div class="card-body table-wrap${canBatchBranch || canBatchHq ? ' approval-table-body' : ''}">
+      ${renderApprovalDetailTable(ctx, {
+        listKey,
+        roleKey,
+        task,
+        all,
+        twoLevel,
+        showTier1BranchCol: false,
+        canBatchBranch,
+        canBatchHq,
+        batchableApprovals,
+        submittableApprovals,
+        hqBatchableApprovals
+      })}
+      </div></div>`;
 };
 
 SPA_VIEWS['#/factors'] = function(ctx) {
@@ -684,10 +792,6 @@ SPA_VIEWS['#/industry-config'] = function(ctx) {
   const view = paginateData(listKey, filtered);
   return `
     <h1 class="page-title">行业配置</h1>
-    <div class="toolbar">
-      <button type="button" class="btn btn-primary" id="icAddBtn">新增行业</button>
-      <button type="button" class="btn" id="icImportBtn">批量导入</button>
-    </div>
     <div class="card">
       <div class="card-header">
         <h3>行业列表</h3>

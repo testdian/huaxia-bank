@@ -7,7 +7,6 @@
 
   const IMPORT_BTN_MAP = [
     { btnId: 'paramBatchImportBtn', key: 'param' },
-    { btnId: 'icImportBtn', key: 'industry' },
     { btnId: 'factorBatchImportBtn', key: 'factor' }
   ];
 
