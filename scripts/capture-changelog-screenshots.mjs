@@ -210,6 +210,39 @@ async function main() {
     await waitStable(page, 400);
     await shotSelector(page, '.filter-panel', 'task-create-filters', { fallback: '#viewRoot .card' });
 
+    // 企业碳账户 - 项目可展开列表
+    await go(page, '#/carbon-accounts', 'hq');
+    const caExpandMeta = await page.evaluate(() => {
+      const d = Store.get();
+      const years = [...new Set((d.tasks || []).map(t => String(t.year)).filter(Boolean))].sort();
+      for (const year of years.reverse()) {
+        const rows = CarbonAccount.buildAccountListRows(d, d.carbonAccounts, year);
+        const parent = rows.find(r => !r.isSubAccount && r.hasExpandableProjects);
+        if (parent) {
+          sessionStorage.setItem('ca_list_filters', JSON.stringify({
+            accountingYear: year,
+            viewMode: 'year',
+            keyword: parent.customerName
+          }));
+          sessionStorage.setItem('ca_project_expanded', JSON.stringify([parent.expandKey]));
+          return true;
+        }
+      }
+      return false;
+    });
+    if (caExpandMeta) {
+      await page.reload({ waitUntil: 'networkidle0' });
+      await waitStable(page, 700);
+      await page.evaluate(() => {
+        const btn = document.querySelector('[data-ca-expand]');
+        if (btn && btn.getAttribute('aria-expanded') !== 'true') btn.click();
+      });
+      await waitStable(page, 400);
+      await shotSelector(page, '#caAccountsRoot .card', 'carbon-accounts-project-expand', {
+        fallback: '#caAccountsRoot .table-wrap'
+      });
+    }
+
     // 企业碳账户 - 注销无编辑、主体排放为 0
     await go(page, '#/carbon-accounts', 'hq');
     await page.evaluate(() => {

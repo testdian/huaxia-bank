@@ -1454,6 +1454,14 @@ function bindPageEvents(base, ctx) {
       setListPage('carbon_accounts', 1);
       route();
     });
+    qsa('[data-ca-expand]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCaProjectExpanded(btn.dataset.caExpand);
+        route();
+      });
+    });
     qsa('.ca-account-status-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const accountId = btn.dataset.id;
@@ -1949,6 +1957,7 @@ function bindFactorForm(base) {
     multiple: false,
     includeOther: true
   });
+  bindFactorMethodCombo(form);
 
   qs('#factorEditDelBtn')?.addEventListener('click', async () => {
     const editId = form.dataset.factorId;
@@ -1965,13 +1974,6 @@ function bindFactorForm(base) {
       toast('已删除', 'success');
       location.hash = '#/factors';
     }
-  });
-
-  qs('#factorMethodSelect')?.addEventListener('change', () => {
-    if (form.dataset.factorId) return;
-    const m = qs('#factorMethodSelect').value;
-    const code = qs('#factorIndustryCombined')?.value || '';
-    location.hash = '#/factors/new?method=' + encodeURIComponent(m) + (code ? '&code=' + encodeURIComponent(code) : '');
   });
 
   form.addEventListener('submit', e => {
@@ -1992,6 +1994,10 @@ function bindFactorForm(base) {
     }
     if (!payload.industryMajor) {
       toast('请选择行业', 'warning');
+      return;
+    }
+    if (!payload.methodId || (payload.methodId === 'custom' && !payload.methodName)) {
+      toast('请选择或输入计算方法名称', 'warning');
       return;
     }
     const editId = form.dataset.factorId;

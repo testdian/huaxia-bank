@@ -219,6 +219,8 @@ const Store = {
     this._migrateCarbonAccountProjectDetails();
     this._migrateCarbonAccountCustomerNames();
     this._migrateCarbonAccountEntityDedupe();
+    this._migrateCarbonAccountMixedLoanMetrics();
+    this._migrateCarbonAccountDemoMetricsV3();
     this._migrateFactorMeta();
     this._migrateFactorSourceSheet();
     this._migrateFactorDedupe();
@@ -768,6 +770,37 @@ const Store = {
         if (r.customerName) r.customerName = CarbonAccount._sanitizeDemoCompanyName(r.customerName);
       });
       d._carbonEntityAccountMigratedV1 = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 碳账户：同一主体兼项目/非项目贷时，法人主体与项目主体排放、方法差异化 */
+  _migrateCarbonAccountMixedLoanMetrics() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || typeof CarbonAccount === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._caMixedLoanMetricsV2) return;
+      if (typeof DemoSeed.patchMixedLoanCarbonDemo === 'function') {
+        DemoSeed.patchMixedLoanCarbonDemo(d, 'T2025001');
+      }
+      (d.carbonAccounts || []).forEach(acc => CarbonAccount.reconcileMixedLoanAccount(d, acc));
+      d._caMixedLoanMetricsV2 = true;
+      localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 碳账户列表：补全项目子行客户号/方法/排放，企业行法人主体排放 */
+  _migrateCarbonAccountDemoMetricsV3() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw || typeof DemoSeed === 'undefined' || typeof CarbonAccount === 'undefined') return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._caDemoMetricsV3) return;
+      if (typeof DemoSeed.patchCarbonAccountDemoMetrics === 'function') {
+        DemoSeed.patchCarbonAccountDemoMetrics(d);
+      }
+      d._caDemoMetricsV3 = true;
       localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },

@@ -313,7 +313,7 @@ const DemoSeed = {
     this.patchDataCollectGelanEcoDemo(candidates, formalList, tasks);
     this.patchCollectGroupDemo(candidates, formalList, taskId);
 
-    return {
+    const seed = {
       tasks,
       candidates,
       formalList,
@@ -332,6 +332,208 @@ const DemoSeed = {
       branchStats: this.buildBranchStats(),
       industryStats: this.buildIndustryStats()
     };
+    this.patchMixedLoanCarbonDemo(seed, taskId);
+    this.patchCarbonAccountDemoMetrics(seed);
+    return seed;
+  },
+
+  /** 补全碳账户列表演示数据：法人/项目主体排放、客户号、核算方法 */
+  patchCarbonAccountDemoMetrics(d) {
+    if (!d || typeof CarbonAccount === 'undefined') return;
+    (d.calculations || []).forEach(c => {
+      if (c.status === 'pending' || c.entityEmission == null) return;
+      const f = (d.formalList || []).find(x => x.id === c.formalId);
+      if (!f || typeof applyCalculationEmissionSplit !== 'function') return;
+      applyCalculationEmissionSplit(c, f, c.taskId, c.entityEmission, d);
+    });
+    if (typeof CarbonAccount.backfillProvisionFromLockedFormals === 'function') {
+      CarbonAccount.backfillProvisionFromLockedFormals(d);
+    }
+    (d.carbonAccounts || []).forEach(acc => {
+      (acc.projectDetails || []).forEach((p, idx) => {
+        if (!p.customerNo) {
+          p.customerNo = CarbonAccount.formatProjectCustomerNo(p, acc);
+        }
+      });
+      CarbonAccount.reconcileMixedLoanAccount(d, acc);
+    });
+  },
+
+  /**
+   * 华能发电：同一信用代码下兼营非项目贷（法人主体·经济法）+ 项目贷（项目主体·能源法），供碳账户展开行演示
+   */
+  patchMixedLoanCarbonDemo(d, taskId = 'T2025001') {
+    if (!d) return;
+    const projectFormal = (d.formalList || []).find(f => f.id === 'F001' && f.taskId === taskId);
+    if (!projectFormal) return;
+    const projectCand = (d.candidates || []).find(c => c.id === projectFormal.customerId);
+    const creditCode = projectCand?.creditCode || projectFormal.creditCode || '91110000MA001006X';
+    const npFormalId = 'FMIX001';
+    const npCandId = 'C2025001996';
+
+    if (!(d.candidates || []).some(c => c.id === npCandId)) {
+      d.candidates.push({
+        id: npCandId,
+        taskId,
+        customerName: '华能发电有限公司',
+        creditCode,
+        loanAccount: '62219961006001',
+        loanType: '流动资金贷款',
+        productType: '短期流动资金贷款',
+        bizType: 'non_project',
+        objectType: '融资主体',
+        avgMonthlyBalance: 2800,
+        operatingRevenue: 12000,
+        tier1Branch: '北京分行',
+        handlingBranch: '北京营业部',
+        branch: '北京分行',
+        manager: '王磊',
+        gbIndustryCode: 'D4411',
+        gbIndustryName: '火力发电',
+        industryMajor: '电力',
+        industryLabel: '火力发电',
+        status: 'confirmed',
+        accountingType: 'non_project'
+      });
+    }
+
+    let npFormal = (d.formalList || []).find(f => f.id === npFormalId && f.taskId === taskId);
+    if (!npFormal) {
+      npFormal = {
+        id: npFormalId,
+        taskId,
+        customerId: npCandId,
+        customerName: '华能发电有限公司',
+        loanType: '流动资金贷款',
+        productType: '短期流动资金贷款',
+        collectMode: 'optional',
+        bizType: 'non_project',
+        objectType: '融资主体',
+        boundary: '范围一+范围二',
+        scope1: true,
+        scope2: true,
+        scope3: false,
+        controlApproach: '运营控制法',
+        period: '自然年度',
+        boundaryNote: '核算边界为融资主体运营边界',
+        gbIndustryCode: 'D4411',
+        gbIndustryName: '火力发电',
+        industryMajor: '电力',
+        creditCode,
+        tier1Branch: '北京分行',
+        manager: '王磊',
+        status: 'confirmed',
+        lockedAt: '2025-02-20',
+        accountingType: 'non_project',
+        loanAccount: '62219961006001'
+      };
+      d.formalList.push(npFormal);
+    }
+
+    projectFormal.accountingType = 'project_as_project';
+    projectFormal.projectInfoAvailable = true;
+    if (projectCand) projectCand.accountingType = 'project_as_project';
+
+    const projSupp = (d.supplements || []).find(s => s.formalId === 'F001' && s.taskId === taskId);
+    if (projSupp) {
+      Object.assign(projSupp, {
+        methodId: 'energy',
+        method: '物理活动法-能源法',
+        status: 'completed',
+        energyTotalEmission: 540000,
+        approvalStatus: 'approved',
+        branchReviewStatus: 'approved',
+        auditStage: 'approved'
+      });
+    }
+
+    let npSupp = (d.supplements || []).find(s => s.formalId === npFormalId && s.taskId === taskId);
+    if (!npSupp) {
+      npSupp = this._buildSupplementFromFormal(taskId, npFormal, 96, {
+        id: 'SMIX002',
+        methodId: 'economy',
+        status: 'completed',
+        economyValue: 2850000,
+        economyFactor: 2.35,
+        totalAssets: 9800000,
+        revenue: 2850000,
+        approvalStatus: 'approved',
+        branchReviewStatus: 'approved',
+        auditStage: 'approved'
+      });
+      d.supplements.push(npSupp);
+    } else {
+      Object.assign(npSupp, {
+        methodId: 'economy',
+        method: '经济活动法',
+        status: 'completed',
+        economyValue: 2850000,
+        economyFactor: 2.35,
+        approvalStatus: 'approved'
+      });
+    }
+
+    const upsertCalc = (formalId, patch) => {
+      let c = (d.calculations || []).find(x => x.formalId === formalId && x.taskId === taskId);
+      const f = (d.formalList || []).find(x => x.id === formalId && x.taskId === taskId);
+      if (!c) {
+        c = {
+          id: 'CALMIX' + formalId,
+          taskId,
+          formalId,
+          customerName: '华能发电有限公司',
+          industryMajor: '电力',
+          status: 'done',
+          approvalStatus: 'approved',
+          calculatedAt: '2025-05-10 14:22:00'
+        };
+        d.calculations.push(c);
+      }
+      Object.assign(c, patch);
+      if (f && typeof applyCalculationEmissionSplit === 'function' && c.entityEmission != null) {
+        applyCalculationEmissionSplit(c, f, taskId, c.entityEmission, d);
+      }
+      return c;
+    };
+
+    upsertCalc('F001', {
+      bizType: 'project',
+      method: '物理活动法-能源法',
+      methodId: 'energy',
+      entityEmission: 540000,
+      projectEntityEmission: 540000,
+      legalEntityEmission: 68000,
+      attributedEmission: 420000,
+      qualityGrade: 2,
+      quality: '二级',
+      source: 'calc'
+    });
+
+    upsertCalc(npFormalId, {
+      bizType: 'non_project',
+      method: '经济活动法',
+      methodId: 'economy',
+      entityEmission: 285000,
+      legalEntityEmission: 285000,
+      projectEntityEmission: null,
+      attributedEmission: 196000,
+      qualityGrade: 4,
+      quality: '四级',
+      source: 'calc'
+    });
+
+    if (typeof CarbonAccount !== 'undefined') {
+      const accId = CarbonAccount.makeAccountId(creditCode);
+      let acc = (d.carbonAccounts || []).find(a => a.id === accId || a.creditCode === creditCode);
+      if (!acc && typeof CarbonAccount.provisionFromFormalLock === 'function') {
+        CarbonAccount.provisionFromFormalLock(d, taskId, [projectFormal, npFormal]);
+        acc = (d.carbonAccounts || []).find(a => a.id === accId || a.creditCode === creditCode);
+      }
+      if (acc) {
+        acc.status = 'active';
+        CarbonAccount.reconcileMixedLoanAccount(d, acc);
+      }
+    }
   },
 
   buildTasks(mainTask, completedTask) {
@@ -1228,7 +1430,9 @@ const DemoSeed = {
       const grade = m?.qualityGrade || (fallback ? 5 : 3);
       const status = i < 25 ? 'done' : (i === 25 ? 'warning' : 'pending');
       const split = status === 'pending' ? {} : splitEmission({ ...f, accountingType: acct }, entity, mockD);
-      const projectLegal = acct === 'project_as_project' && i % 4 === 0 ? Math.round(entity * 0.12) : null;
+      const projectLegal = acct === 'project_as_project' && status !== 'pending'
+        ? Math.max(1, Math.round(entity * (0.10 + (i % 4) * 0.02)))
+        : null;
       return {
         id: 'CAL' + String(i + 1).padStart(3, '0'),
         taskId,

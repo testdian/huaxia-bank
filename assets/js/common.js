@@ -2402,6 +2402,8 @@ function applyCalculationEmissionSplit(payload, f, taskId, entityEmission, d) {
     payload.projectEntityEmission = Number(entityEmission);
     if (payload.legalEntityEmission == null && f.gelanEntityEmission != null) {
       payload.legalEntityEmission = Number(f.gelanEntityEmission);
+    } else if (payload.legalEntityEmission == null) {
+      payload.legalEntityEmission = Math.max(1, Math.round(Number(entityEmission) * 0.12));
     }
     payload.entityEmission = Number(entityEmission);
   } else {
@@ -4269,6 +4271,24 @@ function approvalCustomerName(approval) {
   return name.replace(/^数据采集-/, '') || name || '—';
 }
 
+/** 数据审核列表：收集单据对应的一级分行（下发分行） */
+function approvalTier1Branch(approval) {
+  const s = getSupplementForApproval(approval);
+  if (s) return s.dispatchBranch || s.branch || s.tier1Branch || '—';
+  const d = Store.get();
+  const formal = (d.formalList || []).find(f => f.id === approval?.docId);
+  if (formal) return formal.tier1Branch || formal.branch || '—';
+  return '—';
+}
+
+function renderTier1BranchFilterSelect(selectId, selected) {
+  const val = selected || '';
+  const opts = TIER1_BRANCH_NAMES.map(b =>
+    `<option value="${escapeHtml(b)}" ${val === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+  ).join('');
+  return `<select id="${selectId}"><option value="">全部</option>${opts}</select>`;
+}
+
 function approvalTaskName(approval) {
   return Store.getTask(approval?.taskId)?.name || '—';
 }
@@ -4650,6 +4670,7 @@ function readApprovalFilterInputs() {
     taskName: qs('#apf_taskName')?.value || '',
     year: qs('#apf_year')?.value || '',
     customerName: qs('#apf_customerName')?.value || '',
+    tier1Branch: qs('#apf_tier1Branch')?.value || '',
     submitter: qs('#apf_submitter')?.value || '',
     reviewLevel: qs('#apf_reviewLevel')?.value || '',
     status: qs('#apf_status')?.value || ''
@@ -4671,6 +4692,10 @@ function filterApprovalList(list, filters) {
     const y = String(f.year).trim();
     if (y) out = out.filter(a => String(approvalTaskYear(a)) === y);
   }
+  if (f.tier1Branch) {
+    const branch = String(f.tier1Branch).trim();
+    if (branch) out = out.filter(a => approvalTier1Branch(a) === branch);
+  }
   if (f.submitter) {
     const kw = f.submitter.trim().toLowerCase();
     if (kw) out = out.filter(a => (a.submitter || '').toLowerCase().includes(kw));
@@ -4686,8 +4711,9 @@ function renderApprovalFilterOptions(options, selected) {
   ).join('');
 }
 
-function renderApprovalFilterPanel(filters) {
+function renderApprovalFilterPanel(filters, options = {}) {
   const f = filters || {};
+  const { showTier1Branch = false } = options;
   const customerName = f.customerName || f.docName || '';
   return `
     <div class="filter-panel approval-filter-panel">
@@ -4698,6 +4724,7 @@ function renderApprovalFilterPanel(filters) {
           ${renderTaskYearFilterField(f.year, 'apf_year')}</div>
         <div class="form-item"><label>客户名称</label>
           <input id="apf_customerName" type="search" value="${escapeHtml(customerName)}" placeholder="模糊搜索"></div>
+        ${showTier1Branch ? `<div class="form-item"><label>一级分行</label>${renderTier1BranchFilterSelect('apf_tier1Branch', f.tier1Branch || '')}</div>` : ''}
         <div class="form-item"><label>提交人</label>
           <input id="apf_submitter" type="search" value="${escapeHtml(f.submitter || '')}" placeholder="提交人姓名"></div>
         <div class="form-item"><label>审核环节</label>
@@ -5880,6 +5907,10 @@ function toggleCandidateProjectExpanded(taskId, candidateId) {
 
 const CA_PROJECT_EXPANDED_KEY = 'ca_project_expanded';
 
+function caProjectExpandKey(accountId, year) {
+  return year != null && year !== '' ? `${accountId}|${year}` : String(accountId || '');
+}
+
 function getCaProjectExpandedSet() {
   try {
     return new Set(JSON.parse(sessionStorage.getItem(CA_PROJECT_EXPANDED_KEY) || '[]'));
@@ -5888,11 +5919,26 @@ function getCaProjectExpandedSet() {
   }
 }
 
-function toggleCaProjectExpanded(accountId) {
+function toggleCaProjectExpanded(expandKey) {
+  const key = String(expandKey || '');
+  if (!key) return;
   const set = getCaProjectExpandedSet();
-  if (set.has(accountId)) set.delete(accountId);
-  else set.add(accountId);
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
   sessionStorage.setItem(CA_PROJECT_EXPANDED_KEY, JSON.stringify(Array.from(set)));
+}
+
+function filterVisibleCaListRows(listRows, expandedSet) {
+  const out = [];
+  (listRows || []).forEach(r => {
+    if (!r.isSubAccount) {
+      out.push(r);
+      return;
+    }
+    const parentKey = r.parentExpandKey || caProjectExpandKey(r.accountId, r.year);
+    if (expandedSet.has(parentKey)) out.push(r);
+  });
+  return out;
 }
 
 function getCarbonAccountProjectDetails(acc) {
@@ -5933,14 +5979,29 @@ function renderCaProjectDetailRow(acc, colspan = 10) {
   </tr>`;
 }
 
-function renderCarbonAccountNameCell(acc, expandedSet) {
+function renderCarbonAccountNameCell(acc, expandedSet, year) {
   const hasProjects = Array.isArray(acc.projectDetails) && acc.projectDetails.length > 0;
   if (!hasProjects) return acc.customerName || '-';
-  const expanded = expandedSet.has(acc.id);
+  const expanded = expandedSet.has(caProjectExpandKey(acc.id, year));
   return `<span class="ca-name-cell">
-    <button type="button" class="candidate-expand-toggle ${expanded ? 'is-expanded' : ''}" data-ca-expand="${acc.id}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>
+    <button type="button" class="candidate-expand-toggle ${expanded ? 'is-expanded' : ''}" data-ca-expand="${caProjectExpandKey(acc.id, year)}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? '收起项目明细' : '展开项目明细'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>
     ${acc.customerName || '-'}
   </span>`;
+}
+
+function renderCaListIndexCell(r, expandedSet, displayIndex) {
+  if (r.isSubAccount) {
+    return `<span class="ca-sub-index-indent" aria-hidden="true"></span>`;
+  }
+  if (r.hasExpandableProjects) {
+    const key = r.expandKey || caProjectExpandKey(r.accountId, r.year);
+    const expanded = expandedSet.has(key);
+    return `<span class="ca-index-cell">
+      <button type="button" class="candidate-expand-toggle ${expanded ? 'is-expanded' : ''}" data-ca-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? '收起项目' : '展开项目'}"><span class="candidate-expand-icon" aria-hidden="true"></span></button>
+      <span>${displayIndex}</span>
+    </span>`;
+  }
+  return String(displayIndex);
 }
 
 /** 碳账户档案页：解析展示用客户号、方法、主体排放及收集视图 */
