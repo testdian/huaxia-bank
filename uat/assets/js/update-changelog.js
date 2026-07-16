@@ -8,6 +8,42 @@ const UPDATE_CHANGELOG = [
     summary: '投融资碳核算 UAT 首发版本',
     items: [
       {
+        menu: '数据审核',
+        feature: '总行一级分行列与筛选',
+        type: 'field',
+        date: '2026-07-16 13:45',
+        text: '仅总行角色查看数据审核列表时，在「客户名称」后新增「一级分行」列，展示收集单据下发分行；筛选条件同步增加「一级分行」下拉，选项与新建核算任务「组织范围」一致（北京分行、上海分行等 30 家一级分行）。分行负责人、客户经理视图不展示该列与筛选项。',
+        route: '#/approvals',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/approvals-tier1-branch.png?v=20260716a`
+      },
+      {
+        menu: '企业碳账户',
+        feature: '列表列名（企业/项目）',
+        type: 'style',
+        date: '2026-07-16 12:20',
+        text: '账户列表表头「企业名称」改为「企业/项目名称」，「主体排放(tCO2e)」改为「企业/项目主体排放（tCO2e）」。企业行展示企业名称与法人主体排放；展开后的项目子行同一列展示项目名称与项目主体排放，列名统一体现企业/项目双层含义。',
+        route: '#/carbon-accounts',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/carbon-accounts-project-expand.png?v=20260716c`
+      },
+      {
+        menu: '排放因子库',
+        feature: '计算方法选项扩展',
+        type: 'field',
+        date: '2026-07-16 12:13',
+        text: '新增/编辑因子时，「计算方法」改为可输入组合框（不再使用「下拉 + 自定义… + 独立输入框」）：输入框 placeholder 为「请选择或输入核算方法名称」；点击可展开预设列表（报告法、物理活动法-能源法/产品法、经济活动法-营收、经济活动法-资产总额、其他计算法），也可直接在输入框键入自定义方法名称并保存；列表与筛选按所填名称展示。历史因子中 methodId 为 economy 的记录在编辑时默认回显「经济活动法-营收」，列表仍归入「经济活动法（兼容）」筛选。',
+        route: '#/factors/new',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/factors-method-select.png?v=20260716e`
+      },
+      {
+        menu: '企业碳账户',
+        feature: '项目排放可展开列表',
+        type: 'feature',
+        date: '2026-07-16 12:00',
+        text: '企业碳账户列表按「核算年度 + 统一社会信用代码」合并为一条企业行。若该企业下存在按「项目方式」核算的项目贷款，企业行序号列提供展开/收起按钮；展开后在下方逐条展示项目子行：「企业/项目名称」列显示项目名称，「企业/项目主体排放（tCO2e）」列显示项目主体排放（非归因），操作列与企业行一致（查看、编辑等，项目子行带 sub 参数）。按非项目方式核算的项目贷款不生成可展开子行。',
+        route: '#/carbon-accounts',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/carbon-accounts-project-expand.png?v=20260716a`
+      },
+      {
         menu: '数据采集填报',
         feature: '排放数据 DEV 填报说明',
         type: 'feature',

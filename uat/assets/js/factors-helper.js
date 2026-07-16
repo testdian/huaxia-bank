@@ -9,16 +9,95 @@ function getGuideMethods() {
   return (typeof GUIDE !== 'undefined' && Array.isArray(GUIDE.METHODS)) ? GUIDE.METHODS : [];
 }
 
-function getFactorMethodCatalog() {
-  return getGuideMethods().map(m => ({ id: m.id, label: m.name || m.id }));
+const FACTOR_FORM_METHOD_CUSTOM_ID = '__custom__';
+
+/** 排放因子表单「计算方法」选项（与核算 GUIDE.METHODS 解耦，支持经济法拆分与自定义名称） */
+const FACTOR_FORM_METHOD_CATALOG = [
+  { id: 'report', label: '报告法' },
+  { id: 'energy', label: '物理活动法-能源法' },
+  { id: 'product', label: '物理活动法-产品法' },
+  { id: 'economy_revenue', label: '经济活动法-营收' },
+  { id: 'economy_assets', label: '经济活动法-资产总额' },
+  { id: 'economy_fallback', label: '其他计算法' },
+  { id: FACTOR_FORM_METHOD_CUSTOM_ID, label: '自定义…' }
+];
+
+function getFactorFormMethodCatalog() {
+  return FACTOR_FORM_METHOD_CATALOG.filter(x => x.id !== FACTOR_FORM_METHOD_CUSTOM_ID);
 }
 
-function factorMethodLabel(methodId) {
-  const m = getGuideMethods().find(x => x.id === methodId);
-  return m?.name || methodId || '-';
+function isFactorEconomyMethodId(methodId) {
+  return methodId === 'economy' || methodId === 'economy_revenue' || methodId === 'economy_assets';
+}
+
+function resolveFactorFormMethodSelectValue(factor) {
+  const id = factor?.methodId || 'energy';
+  if (id === 'custom' || id === FACTOR_FORM_METHOD_CUSTOM_ID) return FACTOR_FORM_METHOD_CUSTOM_ID;
+  if (FACTOR_FORM_METHOD_CATALOG.some(x => x.id === id && x.id !== FACTOR_FORM_METHOD_CUSTOM_ID)) return id;
+  if (id === 'economy') return 'economy_revenue';
+  if (factor?.methodName) return FACTOR_FORM_METHOD_CUSTOM_ID;
+  return id;
+}
+
+/** 因子表单计算方法 combobox 展示值 */
+function resolveFactorFormMethodInputValue(factor) {
+  if (!factor) return '';
+  if (factor.methodId === 'custom') return factor.methodName || '';
+  const hit = FACTOR_FORM_METHOD_CATALOG.find(x => x.id === factor.methodId && x.id !== FACTOR_FORM_METHOD_CUSTOM_ID);
+  if (hit) return hit.label;
+  if (factor.methodId === 'economy') return '经济活动法-营收';
+  if (factor.methodName) return factor.methodName;
+  return '';
+}
+
+/** 从 combobox 输入解析 methodId / methodName */
+function resolveFactorMethodIdFromInput(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return { methodId: '', methodName: '' };
+  const byLabel = FACTOR_FORM_METHOD_CATALOG.find(x => x.label === raw && x.id !== FACTOR_FORM_METHOD_CUSTOM_ID);
+  if (byLabel) return { methodId: byLabel.id, methodName: byLabel.label };
+  const legacyAliases = { '经济活动法': 'economy_revenue', '经济法': 'economy_revenue' };
+  const legacyId = legacyAliases[raw];
+  if (legacyId) {
+    const hit = FACTOR_FORM_METHOD_CATALOG.find(x => x.id === legacyId);
+    return { methodId: legacyId, methodName: hit?.label || raw };
+  }
+  return { methodId: 'custom', methodName: raw };
+}
+
+function resolveFactorFormMethodDisplay(factor) {
+  if (!factor) return '-';
+  if (factor.methodId === 'custom') return factor.methodName || '自定义';
+  const hit = FACTOR_FORM_METHOD_CATALOG.find(x => x.id === factor.methodId);
+  if (hit) return hit.label;
+  if (factor.methodName) return factor.methodName;
+  return factorMethodLabel(factor.methodId, factor);
+}
+
+function factorMethodLabel(methodId, factor) {
+  const f = factor && typeof factor === 'object' ? factor : null;
+  const id = f?.methodId || methodId;
+  if (id === 'custom') return f?.methodName || '自定义';
+  if (id === 'economy') return '经济活动法-营收';
+  const catalog = FACTOR_FORM_METHOD_CATALOG.find(x => x.id === id);
+  if (catalog && catalog.id !== FACTOR_FORM_METHOD_CUSTOM_ID) return catalog.label;
+  if (f?.methodName && !getGuideMethods().find(x => x.id === id)) return f.methodName;
+  const m = getGuideMethods().find(x => x.id === id);
+  return m?.name || id || '-';
 }
 
 function factorMethodPriority(methodId) {
+  const order = {
+    report: 1,
+    energy: 2,
+    product: 3,
+    economy: 4,
+    economy_revenue: 4,
+    economy_assets: 4.1,
+    economy_fallback: 5,
+    custom: 99
+  };
+  if (order[methodId] != null) return order[methodId];
   const m = getGuideMethods().find(x => x.id === methodId);
   return m?.priority ?? 99;
 }
@@ -55,7 +134,7 @@ function getAllFactorUnitOptions() {
 
 function getFactorFormDefaultUnit(methodId, factor) {
   if (factor?.unit) return factor.unit;
-  if (methodId === 'economy') return 'tCO2e/万元';
+  if (isFactorEconomyMethodId(methodId)) return 'tCO2e/万元';
   return 'tCO2e/t';
 }
 
@@ -84,10 +163,79 @@ function isFactorFilterChecked(selected, value) {
   return selected.includes(value);
 }
 
-function renderFactorFormMethodOptions(selectedId) {
-  return getFactorMethodCatalog().map(t =>
-    `<option value="${escapeHtml(t.id)}" ${selectedId === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
+function renderFactorMethodCombo(factor, options = {}) {
+  const { disabled = false, required = true, comboId = 'factorMethodCombo' } = options;
+  const displayVal = resolveFactorFormMethodInputValue(factor);
+  const catalog = getFactorFormMethodCatalog();
+  const optionsHtml = catalog.map(m =>
+    `<div class="param-units-option method-combo-option factor-method-combo-option" data-value="${escapeHtml(m.label)}" data-method-id="${escapeHtml(m.id)}">${escapeHtml(m.label)}</div>`
   ).join('');
+  const dis = disabled ? ' disabled readonly' : '';
+  const req = required && !disabled ? ' required' : '';
+  return `
+    <div class="method-combo-wrap factor-method-combo-wrap param-units-combo" id="${escapeHtml(comboId)}Wrap" data-combo-id="${escapeHtml(comboId)}">
+      <div class="method-combo-field param-units-combo-field" tabindex="${disabled ? '-1' : '0'}">
+        <input type="text" name="methodDisplay" id="factorMethodComboInput" class="method-combo-input factor-method-combo-input" autocomplete="off"
+          value="${escapeHtml(displayVal)}" placeholder="请选择或输入核算方法名称"${dis}${req}>
+        <span class="param-units-drop-arrow">▼</span>
+      </div>
+      <div class="method-combo-dropdown param-units-dropdown" style="display:none">
+        <div class="method-combo-options param-units-options">${optionsHtml}</div>
+      </div>
+    </div>`;
+}
+
+function bindFactorMethodCombo(form) {
+  if (!form) return;
+  const root = form.closest('.card-body') || form;
+  qsa('.factor-method-combo-wrap', root).forEach(wrap => {
+    if (wrap.dataset.bound === '1') return;
+    wrap.dataset.bound = '1';
+    const field = wrap.querySelector('.method-combo-field');
+    const input = wrap.querySelector('.factor-method-combo-input');
+    const dropdown = wrap.querySelector('.method-combo-dropdown');
+    const arrow = wrap.querySelector('.param-units-drop-arrow');
+    if (!field || !input || !dropdown || input.disabled || input.readOnly) return;
+    let open = false;
+    const openDrop = () => {
+      open = true;
+      dropdown.style.display = 'block';
+      if (arrow) arrow.textContent = '▲';
+    };
+    const closeDrop = () => {
+      open = false;
+      dropdown.style.display = 'none';
+      if (arrow) arrow.textContent = '▼';
+    };
+    field.addEventListener('click', (e) => {
+      if (e.target === input) return;
+      if (open) closeDrop(); else openDrop();
+      input.focus();
+    });
+    input.addEventListener('focus', () => { if (!open) openDrop(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrop(); });
+    wrap.querySelectorAll('.factor-method-combo-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        input.value = opt.dataset.value || opt.textContent.trim();
+        closeDrop();
+        if (!form.dataset.factorId) {
+          const methodId = opt.dataset.methodId;
+          if (methodId) {
+            const code = form.querySelector('#factorIndustryCombined')?.value || '';
+            location.hash = '#/factors/new?method=' + encodeURIComponent(methodId) + (code ? '&code=' + encodeURIComponent(code) : '');
+          }
+        }
+      });
+    });
+    document.addEventListener('click', function onOutside(e) {
+      if (!wrap.isConnected) {
+        document.removeEventListener('click', onOutside);
+        return;
+      }
+      if (!wrap.contains(e.target)) closeDrop();
+    });
+  });
 }
 
 function renderFactorUnitCombo(name, options, selected, disabled, comboId, required) {
@@ -262,7 +410,7 @@ function saveFactorFilters(filters) {
 
 function getFactorName(f) {
   if (!f) return '';
-  if (f.methodId === 'economy') {
+  if (isFactorEconomyMethodId(f.methodId)) {
     return normalizeEconomyFactorDisplayName(f);
   }
   if (f.factorName && String(f.factorName).trim()) return String(f.factorName).trim();
@@ -297,7 +445,7 @@ function syncFactorLegacyFields(payload) {
     const parts = name.split(' · ').map(s => s.trim()).filter(Boolean);
     payload.productMajor = parts[0] || name;
     payload.productSub = parts.slice(1).join(' · ') || '';
-  } else if (payload.methodId === 'economy') {
+  } else if (isFactorEconomyMethodId(payload.methodId)) {
     if (!payload.gbCode) {
       const m = name.match(/^([A-Z]\d{4})\s+(.+)$/);
       if (m) {
@@ -827,7 +975,7 @@ function collectFactorMethodsAtVersionRank(allFactors, rank) {
   groups.forEach(g => {
     if (!g.methodId) return;
     if (!map.has(g.methodId)) {
-      map.set(g.methodId, { id: g.methodId, label: factorMethodLabel(g.methodId), count: 0 });
+      map.set(g.methodId, { id: g.methodId, label: factorMethodLabel(g.methodId, g.latest), count: 0 });
     }
     map.get(g.methodId).count += 1;
   });
@@ -1190,7 +1338,9 @@ function renderFactorFilterHeader(collapsed) {
 function renderFactorFilterPanel(filters, allFactors, options = {}) {
   const collapsed = options.collapsed !== undefined ? options.collapsed : isFactorFilterCollapsed();
   const f = normalizeFactorFilters(filters);
-  const methodOpts = getFactorMethodCatalog().map(t => ({ value: t.id, label: t.label }));
+  const methodOpts = getFactorFormMethodCatalog()
+    .concat([{ id: 'economy', label: '经济活动法（兼容）' }, { id: 'custom', label: '自定义' }])
+    .map(t => ({ value: t.id, label: t.label }));
   const industryOpts = getFactorIndustryMajorOptions().map(major => ({ value: major, label: major }));
   const caliberOpts = FACTOR_CALIBER_OPTIONS.map(o => ({ value: o.value, label: o.label }));
   return `
@@ -1229,7 +1379,9 @@ function readFactorFilterInputsFromDom() {
   const industries = qsa('input[name="ff_industry"]:checked').map(el => el.value);
   const sourceKeyword = qs('#ff_source_keyword')?.value?.trim() || '';
   const caliberTags = qsa('input[name="ff_caliber"]:checked').map(el => el.value);
-  const allMethods = getFactorMethodCatalog().map(t => t.id);
+  const allMethods = getFactorFormMethodCatalog()
+    .concat([{ id: 'economy', label: '经济活动法（兼容）' }, { id: 'custom', label: '自定义' }])
+    .map(t => t.id);
   const allIndustries = getFactorIndustryMajorOptions();
   return normalizeFactorFilters({
     methodIds: methodIds.length && methodIds.length < allMethods.length ? methodIds : [],
@@ -1269,13 +1421,18 @@ function nextCustomFactorId(list) {
 }
 
 function readFactorFormPayload(form) {
-  const methodId = form.querySelector('[name=methodId]')?.value || 'energy';
+  const methodInput = form.querySelector('[name=methodDisplay]')?.value?.trim()
+    || form.querySelector('#factorMethodComboInput')?.value?.trim()
+    || '';
+  const resolved = resolveFactorMethodIdFromInput(methodInput);
+  let methodId = resolved.methodId || 'energy';
+  let methodName = resolved.methodName || methodInput;
   const gbCode = form.querySelector('[name=gbIndustryCode]')?.value?.trim() || '';
   const factorName = form.querySelector('[name=factorName]')?.value?.trim() || '';
   const unit = form.querySelector('[name=unit]')?.value?.trim() || getFactorFormDefaultUnit(methodId);
   const payload = {
     methodId,
-    methodName: (GUIDE.METHODS.find(m => m.id === methodId) || {}).name || methodId,
+    methodName,
     industryMajor: '',
     factorName,
     caliberTag: form.querySelector('[name=caliberTag]')?.value || 'bank',
@@ -1305,9 +1462,6 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
   const selectedCode = resolveFactorIndustrySelectCode(f, selectedMajor);
   const industryOther = selectedMajor === '其他' && !selectedCode;
   const industryViewVal = formatFactorIndustryFieldDisplay(f, selectedCode, selectedMajor);
-  const m = f.methodId || methodId || 'energy';
-  const methodOpts = renderFactorFormMethodOptions(m);
-
   const caliberVal = normalizeFactorCaliber(f) || (f.isBuiltin ? 'pbo' : 'bank');
   const caliberOpts = FACTOR_CALIBER_OPTIONS.map(o =>
     `<option value="${o.value}" ${caliberVal === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
@@ -1320,7 +1474,7 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
 
   const versionYearVal = normalizeFactorVersionYear(f, new Date().getFullYear());
   const factorNameVal = getFactorName(f);
-  const unitVal = f.unit || getFactorFormDefaultUnit(m, f);
+  const unitVal = f.unit || getFactorFormDefaultUnit(f.methodId || 'energy', f);
   const valueDisplay = isView
     ? formatFactorValue(f)
     : (f.value != null && f.valueType !== 'custom' && f.valueType !== 'na' ? f.value : '');
@@ -1336,7 +1490,10 @@ function renderFactorFormFields(methodId, industryMajor, factor, options = {}) {
       <div class="form-item">${renderFormLabel('因子口径', { required: true })}
         <select name="caliberTag" required${fieldDis}>${caliberOpts}</select></div>
       <div class="form-item">${renderFormLabel('计算方法', { required: true })}
-        <select name="methodId" id="factorMethodSelect" required${fieldDis}>${methodOpts}</select></div>
+        ${isView
+    ? `<input type="text" value="${escapeHtml(resolveFactorFormMethodDisplay(f))}" readonly disabled>`
+    : renderFactorMethodCombo(f)}
+      </div>
       <div class="form-item">${renderFormLabel('行业', { required: true })}
         ${isView
     ? `<div class="industry-combo param-units-combo industry-combo-disabled">
@@ -1535,8 +1692,14 @@ const FACTOR_IMPORT_HEADER_ALIASES = {
 };
 
 const FACTOR_IMPORT_METHOD_MAP = {
-  energy: 'energy', product: 'product', economy: 'economy',
-  '能源法': 'energy', '产品法': 'product', '经济活动法': 'economy'
+  energy: 'energy', product: 'product', economy: 'economy_revenue',
+  economy_revenue: 'economy_revenue', economy_assets: 'economy_assets',
+  economy_fallback: 'economy_fallback', report: 'report', custom: 'custom',
+  '能源法': 'energy', '物理活动法-能源法': 'energy',
+  '产品法': 'product', '物理活动法-产品法': 'product',
+  '经济活动法': 'economy_revenue', '经济活动法-营收': 'economy_revenue',
+  '经济活动法-资产总额': 'economy_assets',
+  '其他计算法': 'economy_fallback', '报告法': 'report'
 };
 
 const FACTOR_IMPORT_CALIBER_MAP = {
@@ -1600,7 +1763,12 @@ function parseFactorImportCsv(text) {
 
 function parseFactorImportRow(row, rowNum) {
   const methodRaw = String(row.methodId || '').trim();
-  const methodId = FACTOR_IMPORT_METHOD_MAP[methodRaw] || FACTOR_IMPORT_METHOD_MAP[methodRaw.toLowerCase()];
+  let methodId = FACTOR_IMPORT_METHOD_MAP[methodRaw] || FACTOR_IMPORT_METHOD_MAP[methodRaw.toLowerCase()];
+  let methodName = '';
+  if (!methodId && methodRaw) {
+    methodId = 'custom';
+    methodName = methodRaw;
+  }
   if (!methodId) {
     return { error: `第 ${rowNum} 行：计算方法无效（${methodRaw || '空'}）` };
   }
@@ -1616,7 +1784,7 @@ function parseFactorImportRow(row, rowNum) {
 
   const payload = {
     methodId,
-    methodName: factorMethodLabel(methodId),
+    methodName: methodName || factorMethodLabel(methodId),
     industryMajor,
     factorName,
     caliberTag,

@@ -578,6 +578,7 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
   const all = filterApprovalList(roleScoped, filters);
   const view = paginateData(listKey, all);
   const canBatchBranch = roleKey === 'branch' && twoLevel;
+  const showTier1BranchCol = roleKey === 'hq';
   const batchableApprovals = canBatchBranch
     ? all.filter(a => a.docType === 'supplement' && a.reviewLevel === 'branch' && a.status === 'pending' && canUserReviewApproval(a, roleKey))
     : [];
@@ -588,14 +589,14 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
     <h1 class="page-title">数据审核</h1>
     <div class="card">
       <div class="card-header"><h3>筛选条件</h3></div>
-      ${renderApprovalFilterPanel(filters)}
+      ${renderApprovalFilterPanel(filters, { showTier1Branch: showTier1BranchCol })}
       <div class="card-body table-wrap${canBatchBranch ? ' approval-table-body' : ''}">
       ${canBatchBranch ? `<div class="toolbar approval-batch-toolbar">
         <button type="button" class="btn btn-primary" id="branchBatchApproveBtn" ${batchableApprovals.length ? '' : 'disabled'}>批量审核通过</button>
         <button type="button" class="btn btn-primary" id="branchSubmitToHqBtn" ${submittableApprovals.length ? '' : 'disabled'}>一键提交数据</button>
       </div>` : ''}
       <table class="data-table">
-    <thead><tr>${canBatchBranch ? '<th class="col-select col-no-resize"><input type="checkbox" id="approvalBatchSelectAll" title="选择当前页待分行初审"></th>' : ''}<th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th><th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
+    <thead><tr>${canBatchBranch ? '<th class="col-select col-no-resize"><input type="checkbox" id="approvalBatchSelectAll" title="选择当前页待分行初审"></th>' : ''}<th>序号</th><th>任务名称</th><th>核算年度</th><th>客户名称</th>${showTier1BranchCol ? '<th>一级分行</th>' : ''}<th>审核环节</th><th>审核状态</th><th>提交人</th><th>提交时间</th>
     ${twoLevel ? '<th>当前审批人</th><th>下一节点审批人</th>' : '<th>审批人</th><th>审批时间</th>'}
     <th>操作</th></tr></thead>
     <tbody>${view.rows.map((a, i) => {
@@ -615,6 +616,7 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
       <td>${approvalTaskName(a)}</td>
       <td>${approvalTaskYear(a)}</td>
       <td>${approvalCustomerName(a)}</td>
+      ${showTier1BranchCol ? `<td>${approvalTier1Branch(a)}</td>` : ''}
       <td>${reviewStage}</td>
       <td>${approvalRecordBadge(a.status)}</td>
       <td>${a.submitter}</td>
@@ -622,7 +624,7 @@ SPA_VIEWS['#/approvals'] = function(ctx) {
       ${approverCols}
       <td>${ops.join(' · ')}</td>
     </tr>`;
-    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${(twoLevel ? 12 : 11) + (canBatchBranch ? 1 : 0)}" style="text-align:center;padding:32px;color:#909399">${roleScoped.length ? '无符合筛选条件的审核记录' : '当前角色下无可见审核记录'}</td></tr>` : ''}</tbody></table></div>
+    }).join('')}${view.rows.length === 0 ? `<tr><td colspan="${(twoLevel ? 12 : 11) + (canBatchBranch ? 1 : 0) + (showTier1BranchCol ? 1 : 0)}" style="text-align:center;padding:32px;color:#909399">${roleScoped.length ? '无符合筛选条件的审核记录' : '当前角色下无可见审核记录'}</td></tr>` : ''}</tbody></table></div>
     ${renderPagination(listKey, view)}</div>`;
 };
 
@@ -1456,10 +1458,12 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
   if (filters.status) {
     listRows = listRows.filter(r => (r.account?.status || 'active') === filters.status);
   }
+  const expandedSet = getCaProjectExpandedSet();
+  const visibleListRows = filterVisibleCaListRows(listRows, expandedSet);
   const showCreditCodeCol = viewMode === 'enterprise' || !isEnterpriseSearch;
   const showYearCol = viewMode === 'enterprise';
   const tableColCount = (showCreditCodeCol ? 1 : 0) + (showYearCol ? 1 : 0) + 7;
-  const view = paginateData(listKey, listRows);
+  const view = paginateData(listKey, visibleListRows);
   const mainRows = listRows.filter(r => !r.isSubAccount);
   const totalEntity = mainRows.reduce((s, r) => s + (Number(r.entityEmission) || 0), 0);
   const uniqueMainAccounts = new Set(mainRows.map(r => r.accountId)).size;
@@ -1478,7 +1482,7 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
     <div class="stats-row stats-row--compact">
       <div class="stat-card"><div class="label">${viewMode === 'enterprise' ? '企业账户' : '正常账户'}</div><div class="value">${viewMode === 'enterprise' ? uniqueMainAccounts : mainRows.length}</div><div class="sub">${statsSubLabel}</div></div>
       <div class="stat-card accent"><div class="label">主体排放合计</div><div class="value">${formatNum(totalEntity)}</div><div class="sub">tCO2e</div></div>
-      <div class="stat-card"><div class="label">含项目子账户</div><div class="value">${listRows.filter(r => r.isSubAccount).length}</div><div class="sub">${viewMode === 'enterprise' ? '跨年度累计' : '笔'}</div></div>
+      <div class="stat-card"><div class="label">含项目子账户</div><div class="value">${listRows.filter(r => r.isSubAccount).length}</div><div class="sub">${viewMode === 'enterprise' ? '跨年度累计' : '按项目方式核算'}</div></div>
     </div>
     <div class="card">
       <div class="card-header"><h3>账户列表</h3></div>
@@ -1503,15 +1507,13 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
       </div>
       <div class="table-wrap"><table class="data-table">
         <thead><tr>
-          <th>序号</th>${showYearCol ? '<th>核算年度</th>' : ''}<th>企业名称</th>${showCreditCodeCol ? '<th>统一社会信用代码</th>' : ''}<th>客户号</th>
-          <th>核算方法</th><th>主体排放(tCO2e)</th><th>账户状态</th><th>操作</th>
+          <th>序号</th>${showYearCol ? '<th>核算年度</th>' : ''}<th>企业/项目名称</th>${showCreditCodeCol ? '<th>统一社会信用代码</th>' : ''}<th>客户号</th>
+          <th>核算方法</th><th>企业/项目主体排放（tCO2e）</th><th>账户状态</th><th>操作</th>
         </tr></thead>
-        <tbody>${view.rows.length ? view.rows.map((r, i) => `<tr class="${r.isSubAccount ? 'ca-sub-account-row' : ''}">
-          <td>${view.startIndex + i + 1}</td>
+        <tbody>${view.rows.length ? view.rows.map((r, i) => `<tr class="${r.isSubAccount ? 'ca-sub-account-row' : (r.hasExpandableProjects ? 'ca-parent-account-row' : '')}">
+          <td>${renderCaListIndexCell(r, expandedSet, view.startIndex + i + 1)}</td>
           ${showYearCol ? `<td>${r.year || '—'}</td>` : ''}
-          <td>${r.isSubAccount
-            ? `<div>${r.customerName || '-'}</div><div class="ca-sub-account-label" style="margin-top:2px">└ 项目：${r.project?.projectName || r.projectNo || '—'}</div>`
-            : (r.customerName || '-')}</td>
+          <td class="${r.isSubAccount ? 'ca-sub-name-cell' : ''}">${r.customerName || '-'}</td>
           ${showCreditCodeCol ? `<td><code style="font-size:12px">${r.creditCode || '-'}</code></td>` : ''}
           <td>${r.customerNo || '-'}</td>
           <td>${r.method || '-'}</td>

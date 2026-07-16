@@ -311,6 +311,13 @@ const CarbonAccount = {
     return '-';
   },
 
+  formatProjectCustomerNo(project, account) {
+    if (project?.customerNo) return project.customerNo;
+    const seed = String(project?.projectNo || project?.creditCode || account?.creditCode || '').replace(/\D/g, '');
+    if (seed) return 'KH' + seed.slice(-6).padStart(6, '0');
+    return '-';
+  },
+
   /** 解析账户在指定年度的核算方法、客户号与主体排放 */
   resolveYearMetrics(d, account, year) {
     const yearStr = String(year || '');
@@ -320,19 +327,44 @@ const CarbonAccount = {
 
     if (account.annualProfiles?.[yearStr]) {
       const p = account.annualProfiles[yearStr];
-      return this._finalizeMetrics(d, account, yearStr, {
-        entityEmission: p.entityEmission,
-        method: p.methodLabel || p.method || '-',
-        methodId: p.methodId || null,
-        methodLabel: p.methodLabel,
-        customerNo: p.customerNo || customerNo,
-        source: p.source,
-        formal,
-        task,
-        supplement: null,
-        calc: null,
-        reportDetail: p.reportDetail
-      });
+      if (p.nonAttributed !== true) {
+        return this._finalizeMetrics(d, account, yearStr, {
+          entityEmission: p.entityEmission,
+          method: p.methodLabel || p.method || '-',
+          methodId: p.methodId || null,
+          methodLabel: p.methodLabel,
+          customerNo: p.customerNo || customerNo,
+          source: p.source,
+          formal,
+          task,
+          supplement: null,
+          calc: null,
+          reportDetail: p.reportDetail
+        });
+      }
+    }
+
+    if ((account.hasMixedLoans || account.projectDetails?.length) && formal) {
+      const legalEmission = this.resolveFormalEmissionScope(d, account.taskId, account.formalId, 'legal');
+      const legalMethod = account.hasMixedLoans && !this.isProjectFormal(formal)
+        ? this.resolveMethodLabelForFormal(d, account.taskId, formal)
+        : (formal.gelanEntityEmission != null
+          ? this.METHOD_LABEL.REPORT_AUTHORITY
+          : this.resolveMethodLabelForFormal(d, account.taskId, formal));
+      if (legalEmission != null || (legalMethod && legalMethod !== '-')) {
+        return this._finalizeMetrics(d, account, yearStr, {
+          entityEmission: legalEmission,
+          method: legalMethod,
+          methodId: this.mapMethodId(legalMethod),
+          methodLabel: legalMethod,
+          customerNo,
+          source: 'formal_legal',
+          formal,
+          task,
+          supplement: null,
+          calc: (d.calculations || []).find(c => c.formalId === account.formalId && c.taskId === account.taskId)
+        });
+      }
     }
 
     const recs = (d.carbonAccountRecords || []).filter(r =>
@@ -535,7 +567,17 @@ const CarbonAccount = {
     };
   },
 
-  /** 企业碳账户列表行：主账户每年一行，项目贷款追加子账户行 */
+  /** 项目是否按「项目方式」核算（project_as_project），才在列表中作为可展开子行 */
+  isProjectMethodCalculated(d, account, projectNo) {
+    const formal = this.resolveFormalForProject(d, account, projectNo);
+    if (!formal) return false;
+    const type = typeof resolveAccountingType === 'function'
+      ? resolveAccountingType(formal)
+      : (formal.accountingType || '');
+    return type === 'project_as_project';
+  },
+
+  /** 企业碳账户列表行：同一年度同一信用代码仅一条企业行；按项目方式核算的项目可展开子行 */
   buildAccountListRows(d, accounts, year) {
     const rows = [];
     (accounts || []).forEach(acc => {
@@ -556,10 +598,16 @@ const CarbonAccount = {
         seenProjectNo.add(pno);
         uniqueProjects.push(p);
       });
+      const expandKey = `${acc.id}|${year}`;
+      const expandableProjects = uniqueProjects.filter(p =>
+        this.isProjectMethodCalculated(d, acc, p.projectNo)
+      );
       rows.push({
         rowId: `${acc.id}|${year}|main`,
         accountId: acc.id,
         isSubAccount: false,
+        expandKey,
+        hasExpandableProjects: expandableProjects.length > 0,
         year: String(year),
         customerName: enterpriseName,
         creditCode: acc.creditCode || '-',
@@ -569,28 +617,28 @@ const CarbonAccount = {
         account: acc,
         metrics
       });
-      if (uniqueProjects.length) {
-        uniqueProjects.forEach((p, idx) => {
-          const subStore = (acc.projectSubAccounts || []).find(x => x.projectNo === p.projectNo);
-          const subProfile = subStore?.annualProfiles?.[String(year)] || {};
-          const projMetrics = this.resolveProjectYearMetrics(d, acc, p.projectNo, year);
-          rows.push({
-            rowId: `${acc.id}|${year}|sub|${p.projectNo || idx}`,
-            accountId: acc.id,
-            isSubAccount: true,
-            projectNo: p.projectNo || ('P' + (idx + 1)),
-            year: String(year),
-            customerName: p.customerName || enterpriseName,
-            creditCode: p.creditCode || acc.creditCode || '-',
-            customerNo: p.customerNo || projMetrics.customerNo || metrics.customerNo || '-',
-            method: projMetrics.method || subProfile.methodLabel || subProfile.method || '-',
-            entityEmission: projMetrics.entityEmission ?? subProfile.entityEmission ?? null,
-            account: acc,
-            project: p,
-            metrics: { ...metrics, ...subProfile, ...projMetrics, nonAttributed: true }
-          });
+      expandableProjects.forEach((p, idx) => {
+        const subStore = (acc.projectSubAccounts || []).find(x => x.projectNo === p.projectNo);
+        const subProfile = subStore?.annualProfiles?.[String(year)] || {};
+        const projMetrics = this.resolveProjectYearMetrics(d, acc, p.projectNo, year);
+        const subCustomerNo = this.formatProjectCustomerNo(p, acc);
+        rows.push({
+          rowId: `${acc.id}|${year}|sub|${p.projectNo || idx}`,
+          accountId: acc.id,
+          isSubAccount: true,
+          parentExpandKey: expandKey,
+          projectNo: p.projectNo || ('P' + (idx + 1)),
+          year: String(year),
+          customerName: p.projectName || p.projectNo || enterpriseName,
+          creditCode: p.creditCode || acc.creditCode || '-',
+          customerNo: subCustomerNo !== '-' ? subCustomerNo : (projMetrics.customerNo || metrics.customerNo || '-'),
+          method: projMetrics.method || subProfile.methodLabel || subProfile.method || '-',
+          entityEmission: projMetrics.entityEmission ?? subProfile.entityEmission ?? null,
+          account: acc,
+          project: p,
+          metrics: { ...metrics, ...subProfile, ...projMetrics, nonAttributed: true }
         });
-      }
+      });
     });
     return rows;
   },
@@ -1295,23 +1343,116 @@ const CarbonAccount = {
   resolveFormalForProject(d, account, projectNo, formals) {
     const list = formals || this.findFormalsForAccount(d, account);
     const pno = String(projectNo || '');
-    return list.find(f => {
+    const hit = list.find(f => {
       if (!this.isProjectFormal(f)) return false;
       const cand = (d.candidates || []).find(c => c.id === f.customerId);
       return resolveFormalProjectDetails(f, cand).some(p => String(p.projectNo) === pno);
-    }) || null;
+    });
+    if (hit) return hit;
+    const projectOnly = list.filter(f => this.isProjectFormal(f));
+    if (projectOnly.length === 1) return projectOnly[0];
+    return null;
   },
 
-  resolveEntityEmissionForFormal(d, taskId, formalId) {
+  resolveEntityEmissionForFormal(d, taskId, formalId, scope = 'effective') {
+    return this.resolveFormalEmissionScope(d, taskId, formalId, scope);
+  },
+
+  /** 按法人主体 / 项目主体拆分读取排放（碳账户列表企业行 vs 项目子行） */
+  resolveFormalEmissionScope(d, taskId, formalId, scope = 'effective') {
+    const calc = (d.calculations || []).find(c => c.formalId === formalId && c.taskId === taskId);
+    const formal = (d.formalList || []).find(f => f.id === formalId);
+    const cand = formal ? (d.candidates || []).find(c => c.id === formal.customerId) : null;
+    const row = formal ? { ...(cand || {}), ...formal } : null;
+    const accountingType = row && typeof resolveAccountingType === 'function'
+      ? resolveAccountingType(row)
+      : (formal?.accountingType || 'non_project');
+    const isProjectMethod = accountingType === 'project_as_project';
+
+    if (scope === 'project') {
+      if (calc?.projectEntityEmission != null) return calc.projectEntityEmission;
+      if (isProjectMethod) {
+        if (typeof getEffectiveEntityEmission === 'function') {
+          const v = getEffectiveEntityEmission(taskId, formalId);
+          if (v != null) return v;
+        }
+        if (calc?.entityEmission != null) return calc.entityEmission;
+      }
+      return null;
+    }
+
+    if (scope === 'legal') {
+      if (calc?.legalEntityEmission != null) return calc.legalEntityEmission;
+      if (!isProjectMethod) {
+        if (typeof getEffectiveEntityEmission === 'function') {
+          const v = getEffectiveEntityEmission(taskId, formalId);
+          if (v != null) return v;
+        }
+        if (calc?.entityEmission != null) return calc.entityEmission;
+        if (formal?.gelanEntityEmission != null) return formal.gelanEntityEmission;
+        return null;
+      }
+      if (formal?.gelanEntityEmission != null) return formal.gelanEntityEmission;
+      return null;
+    }
+
     if (typeof getEffectiveEntityEmission === 'function') {
       const v = getEffectiveEntityEmission(taskId, formalId);
       if (v != null) return v;
     }
-    const calc = (d.calculations || []).find(c => c.formalId === formalId && c.taskId === taskId);
     if (calc?.entityEmission != null) return calc.entityEmission;
-    const formal = (d.formalList || []).find(f => f.id === formalId);
     if (formal?.gelanEntityEmission != null) return formal.gelanEntityEmission;
     return null;
+  },
+
+  accountUsesLegalEntityProfile(account) {
+    return !!account?.hasMixedLoans || !!(account?.projectDetails?.length);
+  },
+
+  syncAccountLegalAnnualProfile(d, account, nonProjectFormals, projectFormals) {
+    if (!account) return;
+    const profileFormal = nonProjectFormals?.[0] || null;
+    const fallbackFormal = profileFormal || projectFormals?.[0] || null;
+    if (!fallbackFormal) return;
+    const task = (d.tasks || []).find(t => t.id === fallbackFormal.taskId);
+    const yearStr = String(task?.year || '');
+    if (!yearStr) return;
+    const entityEmission = this.resolveFormalEmissionScope(
+      d,
+      fallbackFormal.taskId,
+      profileFormal ? profileFormal.id : fallbackFormal.id,
+      'legal'
+    ) ?? (profileFormal
+      ? null
+      : this.resolveFormalEmissionScope(d, fallbackFormal.taskId, fallbackFormal.id, 'project'));
+    const calc = (d.calculations || []).find(c =>
+      c.formalId === (profileFormal?.id || fallbackFormal.id) && c.taskId === fallbackFormal.taskId
+    );
+    const resolvedEntity = entityEmission
+      ?? calc?.legalEntityEmission
+      ?? (calc?.projectEntityEmission != null ? Math.max(1, Math.round(calc.projectEntityEmission * 0.12)) : null)
+      ?? calc?.entityEmission
+      ?? null;
+    const methodLabel = profileFormal
+      ? this.resolveMethodLabelForFormal(d, profileFormal.taskId, profileFormal)
+      : (fallbackFormal.gelanEntityEmission != null
+        ? this.METHOD_LABEL.REPORT_AUTHORITY
+        : this.resolveMethodLabelForFormal(d, fallbackFormal.taskId, fallbackFormal));
+    const resolvedMethod = (methodLabel && methodLabel !== '-')
+      ? methodLabel
+      : (calc?.method || '-');
+    if (resolvedEntity == null && (!resolvedMethod || resolvedMethod === '-')) return;
+    if (!account.annualProfiles) account.annualProfiles = {};
+    account.annualProfiles[yearStr] = {
+      ...(account.annualProfiles[yearStr] || {}),
+      entityEmission: resolvedEntity ?? account.annualProfiles[yearStr]?.entityEmission ?? null,
+      method: resolvedMethod,
+      methodLabel: resolvedMethod,
+      methodId: this.mapMethodId(resolvedMethod),
+      customerNo: account.annualProfiles[yearStr]?.customerNo || this.resolveCustomerNo(d, account, profileFormal || fallbackFormal, null),
+      source: profileFormal ? 'formal_legal' : (account.annualProfiles[yearStr]?.source || 'formal_legal'),
+      nonAttributed: false
+    };
   },
 
   resolveMethodLabelForFormal(d, taskId, formal) {
@@ -1375,21 +1516,29 @@ const CarbonAccount = {
         creditCode: p.creditCode || account.creditCode,
         annualProfiles: {}
       };
+      if (!sub.customerNo) sub.customerNo = this.formatProjectCustomerNo(p, account);
       const projectFormal = this.resolveFormalForProject(d, account, pno, projectFormals);
       if (projectFormal) {
         const task = (d.tasks || []).find(t => t.id === projectFormal.taskId);
         const yearStr = String(task?.year || '');
+        const calc = (d.calculations || []).find(c =>
+          c.formalId === projectFormal.id && c.taskId === projectFormal.taskId
+        );
         if (yearStr) {
-          const entityEmission = this.resolveEntityEmissionForFormal(d, projectFormal.taskId, projectFormal.id);
+          const entityEmission = this.resolveFormalEmissionScope(
+            d, projectFormal.taskId, projectFormal.id, 'project'
+          ) ?? calc?.projectEntityEmission ?? calc?.entityEmission ?? null;
           const methodLabel = this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal);
-          if (entityEmission != null || (methodLabel && methodLabel !== '-')) {
+          const resolvedMethod = (methodLabel && methodLabel !== '-') ? methodLabel : (calc?.method || '-');
+          if (entityEmission != null || (resolvedMethod && resolvedMethod !== '-')) {
             sub.annualProfiles[yearStr] = {
               ...(sub.annualProfiles[yearStr] || {}),
               entityEmission: entityEmission ?? sub.annualProfiles[yearStr]?.entityEmission ?? null,
-              method: methodLabel,
-              methodLabel,
-              methodId: this.mapMethodId(methodLabel),
-              source: sub.annualProfiles[yearStr]?.source || 'formal',
+              method: resolvedMethod,
+              methodLabel: resolvedMethod,
+              methodId: calc?.methodId || this.mapMethodId(resolvedMethod),
+              customerNo: sub.customerNo,
+              source: sub.annualProfiles[yearStr]?.source || 'formal_project',
               nonAttributed: true
             };
           }
@@ -1397,6 +1546,9 @@ const CarbonAccount = {
       }
       return sub;
     });
+    if (account.projectDetails.length) {
+      this.syncAccountLegalAnnualProfile(d, account, nonProjectFormals, projectFormals);
+    }
     return account;
   },
 
@@ -1411,22 +1563,53 @@ const CarbonAccount = {
         entityEmission: zeroIfCancelled(subProfile.entityEmission),
         method: subProfile.methodLabel || subProfile.method || '-',
         methodLabel: subProfile.methodLabel || subProfile.method,
-        customerNo: sub?.customerNo || subProfile.customerNo,
+        customerNo: sub?.customerNo || subProfile.customerNo || this.formatProjectCustomerNo(
+          (account.projectDetails || []).find(x => String(x.projectNo) === String(projectNo)),
+          account
+        ),
         source: subProfile.source || 'project_sub',
         nonAttributed: true
       };
     }
     const projectFormal = this.resolveFormalForProject(d, account, projectNo);
-    if (!projectFormal) return { entityEmission: zeroIfCancelled(null), method: '-', nonAttributed: true };
+    if (!projectFormal) {
+      return {
+        entityEmission: zeroIfCancelled(null),
+        method: '-',
+        customerNo: this.formatProjectCustomerNo(
+          (account.projectDetails || []).find(x => String(x.projectNo) === String(projectNo)),
+          account
+        ),
+        nonAttributed: true
+      };
+    }
     const task = (d.tasks || []).find(t => t.id === projectFormal.taskId);
     if (task && String(task.year) !== yearStr) {
-      return { entityEmission: zeroIfCancelled(null), method: '-', nonAttributed: true };
+      return {
+        entityEmission: zeroIfCancelled(null),
+        method: '-',
+        customerNo: sub?.customerNo || this.formatProjectCustomerNo(
+          (account.projectDetails || []).find(x => String(x.projectNo) === String(projectNo)),
+          account
+        ),
+        nonAttributed: true
+      };
     }
+    const calc = (d.calculations || []).find(c =>
+      c.formalId === projectFormal.id && c.taskId === projectFormal.taskId
+    );
+    const methodLabel = this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal);
+    const resolvedMethod = (methodLabel && methodLabel !== '-') ? methodLabel : (calc?.method || '-');
     return {
-      entityEmission: zeroIfCancelled(this.resolveEntityEmissionForFormal(d, projectFormal.taskId, projectFormal.id)),
-      method: this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal),
-      methodLabel: this.resolveMethodLabelForFormal(d, projectFormal.taskId, projectFormal),
-      customerNo: sub?.customerNo,
+      entityEmission: zeroIfCancelled(this.resolveFormalEmissionScope(
+        d, projectFormal.taskId, projectFormal.id, 'project'
+      ) ?? calc?.projectEntityEmission ?? calc?.entityEmission ?? null),
+      method: resolvedMethod,
+      methodLabel: resolvedMethod,
+      customerNo: sub?.customerNo || this.formatProjectCustomerNo(
+        (account.projectDetails || []).find(x => String(x.projectNo) === String(projectNo)),
+        account
+      ),
       source: 'formal',
       nonAttributed: true
     };
