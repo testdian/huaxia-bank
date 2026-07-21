@@ -331,6 +331,8 @@ const DemoSeed = {
       createdAt: '2025-01-08',
       createdBy: '张明',
       deadline: '2025-09-30',
+      branchDeadline: '2025-10-15',
+      factorVersionRank: 1,
       syncedFromInterface: true,
       syncedAt: '2025-05-18 09:30:00',
       syncInterfaceId: 'IF001',
@@ -1578,7 +1580,6 @@ const DemoSeed = {
   buildApprovals(taskId, supplements, formalList, calculations) {
     const list = [
       { id: 'APR001', taskId, docType: 'formal', docId: 'F001', docName: '正式清单-华能发电', submitter: '张明', submitTime: '2025-02-18 10:00', status: 'approved', approver: '李总', approveTime: '2025-02-19 15:30' },
-      { id: 'APR002B', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法', reviewLevel: 'branch', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '王丽', approveTime: '2025-03-06 11:00' },
       { id: 'APR002', taskId, docType: 'supplement', docId: 'S001', docName: '数据采集-【收集测试】电力·项目·报告法', reviewLevel: 'hq', submitter: '王磊', submitTime: '2025-03-05 09:20', status: 'approved', approver: '张明', approveTime: '2025-03-07 14:00' },
       { id: 'APR004', taskId, docType: 'calculation', docId: 'CAL001', docName: '碳排放计算-华能发电', submitter: '张明', submitTime: '2025-05-11 14:00', status: 'approved', approver: '李总', approveTime: '2025-05-12 09:00' },
       { id: 'APR005', taskId, docType: 'calculation', docId: 'CAL002', docName: '碳排放计算-宝钢炼钢', submitter: '张明', submitTime: '2025-05-11 14:05', status: 'pending', approver: null, approveTime: null },

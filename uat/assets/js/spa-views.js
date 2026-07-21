@@ -1570,7 +1570,9 @@ SPA_VIEWS['#/carbon-accounts'] = function(ctx) {
   const view = paginateData(listKey, visibleListRows);
   const mainRows = listRows.filter(r => !r.isSubAccount);
   const totalEntity = mainRows.reduce((s, r) => s + (Number(r.entityEmission) || 0), 0);
-  const uniqueMainAccounts = new Set(mainRows.map(r => r.accountId)).size;
+  const uniqueMainAccounts = viewMode === 'enterprise'
+    ? new Set(mainRows.map(r => CarbonAccount.companyListDedupeKey(r))).size
+    : mainRows.length;
   const statsSubLabel = viewMode === 'enterprise'
     ? `跨 ${years.length || 0} 个核算年度`
     : (accountingYear ? accountingYear + '年' : '');

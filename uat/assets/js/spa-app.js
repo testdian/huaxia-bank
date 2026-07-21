@@ -1945,11 +1945,6 @@ function bindPageEvents(base, ctx) {
       });
       if (!result.ok) {
         toast(result.message, result.id ? 'warning' : 'error');
-        if (result.id) {
-          setTimeout(() => {
-            location.hash = `#/method-config/templates/edit?id=${encodeURIComponent(result.id)}&step=2`;
-          }, 600);
-        }
         return;
       }
       toast('模板已创建', 'success');

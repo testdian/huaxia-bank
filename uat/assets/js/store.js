@@ -228,15 +228,75 @@ const Store = {
     this._migrateFactorVersions();
     this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
+    this._migrateTaskFactorVersionRank();
     this._fixTaskBranchDeadlineOrder();
     this._ensureIndustryConfig();
     this._ensureMenuPermissions();
     this._ensureTasksArray();
+    this._migrateSupplementApprovalSingleRow();
     this._compactOversizedCarbonStorage();
     this._initDone = true;
     } finally {
       this._initRunning = false;
     }
+  },
+
+  /** 采集审核：同一 docId 只保留当前环节一条记录（兼容旧数据重复行） */
+  _normalizeSupplementApprovalsInData(d) {
+    if (!Array.isArray(d.approvals) || !Array.isArray(d.supplements)) return false;
+    let changed = false;
+    const toRemove = new Set();
+    const byDoc = new Map();
+    d.approvals.forEach(a => {
+      if (a.docType !== 'supplement' || ['submit', 'branch_edit', 'hq_edit'].includes(a.reviewLevel)) return;
+      if (!byDoc.has(a.docId)) byDoc.set(a.docId, []);
+      byDoc.get(a.docId).push(a);
+    });
+    byDoc.forEach((group, docId) => {
+      if (group.length <= 1) return;
+      const s = d.supplements.find(x => x.id === docId);
+      if (!s) return;
+      const task = (d.tasks || []).find(t => t.id === s.taskId);
+      const active = typeof pickActiveSupplementApproval === 'function'
+        ? pickActiveSupplementApproval(group, s, task)
+        : group[group.length - 1];
+      if (!active) return;
+
+      if (s.auditStage === 'hq_review' && s.hqReviewStatus === 'pending'
+        && active.reviewLevel === 'branch' && active.status === 'approved') {
+        active.reviewLevel = 'hq';
+        active.status = 'pending';
+        active.approver = null;
+        active.approveTime = null;
+        changed = true;
+      }
+
+      group.forEach(a => {
+        if (a.id === active.id) return;
+        if (['branch', 'hq'].includes(a.reviewLevel) && a.status !== 'voided') {
+          toRemove.add(a.id);
+          changed = true;
+        }
+      });
+    });
+    if (toRemove.size) {
+      d.approvals = d.approvals.filter(a => !toRemove.has(a.id));
+    }
+    return changed;
+  },
+
+  _migrateSupplementApprovalSingleRow() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      const changed = this._normalizeSupplementApprovalsInData(d);
+      if (changed || !d._supplementApprovalSingleRowV1) {
+        d._supplementApprovalSingleRowV1 = true;
+        localStorage.setItem(this.KEY, JSON.stringify(d));
+      }
+      if (this._cache) this._normalizeSupplementApprovalsInData(this._cache);
+    } catch { /* ignore */ }
   },
 
   /** 从旧版 hxb_carbon_demo_v* 迁移；先删旧 key 释放配额，再写入 v19 */
@@ -459,6 +519,28 @@ const Store = {
         }
       });
       d._taskBranchDeadlineMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 任务：补全因子版本（默认取因子库最新版本序号） */
+  _migrateTaskFactorVersionRank() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._taskFactorVersionRankMigrated) return;
+      let changed = false;
+      const defaultRank = typeof resolveTaskFactorVersionRank === 'function'
+        ? resolveTaskFactorVersionRank()
+        : 1;
+      (d.tasks || []).forEach(t => {
+        if (t.factorVersionRank == null || t.factorVersionRank === '') {
+          t.factorVersionRank = defaultRank;
+          changed = true;
+        }
+      });
+      d._taskFactorVersionRankMigrated = true;
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
@@ -2065,7 +2147,20 @@ const Store = {
         if (s.branchReviewStatus === 'approved') {
           s.auditStage = 'hq_review';
           s.hqReviewStatus = 'pending';
-          this._createSupplementApproval(d, s, task, 'hq');
+          s.approvalStatus = 'pending';
+          const existing = (d.approvals || []).find(a =>
+            a.docType === 'supplement' && a.docId === s.id &&
+            a.reviewLevel === 'branch' && a.status === 'approved'
+          );
+          if (existing) {
+            existing.reviewLevel = 'hq';
+            existing.status = 'pending';
+            existing.approver = null;
+            existing.approveTime = null;
+            existing.submitTime = new Date().toLocaleString('zh-CN');
+          } else {
+            this._createSupplementApproval(d, s, task, 'hq');
+          }
           count++;
         } else {
           s.approvalStatus = 'pending';
@@ -2896,7 +2991,11 @@ const Store = {
           item.branchReviewStatus = 'pending';
           item.hqReviewStatus = 'rejected';
           item.rejectReason = (rejectReason || '').trim();
-          this._createSupplementApproval(d, item, task, 'branch', approval.round || item.reviewRound);
+          approval.reviewLevel = 'branch';
+          approval.status = 'pending';
+          approval.approver = null;
+          approval.approveTime = null;
+          approval.submitTime = new Date().toLocaleString('zh-CN');
           return;
         }
         item.approvalStatus = 'none';

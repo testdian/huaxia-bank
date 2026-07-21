@@ -167,6 +167,7 @@ window.METHOD_CONFIG = {
     if (deleted.size) {
       this.params = this.params.filter(p => !deleted.has(p.id));
     }
+    this._deduplicateTemplatesByIndustryMethod();
   },
 
   getIndustryOptionGroups() {
@@ -314,6 +315,146 @@ window.METHOD_CONFIG = {
       m.industry = '';
     }
     return m;
+  },
+
+  _industryMajorGbCodes(nameOrMajor) {
+    const t = String(nameOrMajor || '').trim();
+    if (!t || typeof GUIDE === 'undefined') return [];
+    const ind = (GUIDE.INDUSTRIES || []).find(x =>
+      x.major === t || t.includes(x.major) || x.major.includes(t)
+    );
+    return ind?.codes?.length ? ind.codes.slice() : [];
+  },
+
+  /** 模板唯一性校验用的行业键（国标代码 / 其他全部行业通用 / legacy） */
+  resolveTemplateUniquenessIndustryKeys(meta) {
+    const industries = this.normalizeTemplateIndustries(meta);
+    const keys = new Set();
+    industries.forEach(raw => {
+      const item = String(raw || '').trim();
+      if (!item) return;
+      if (item === this.INDUSTRY_OTHER_ALL) {
+        keys.add('__OTHER_ALL__');
+        return;
+      }
+      if (/^[A-Z]\d{4}$/.test(item)) {
+        keys.add(item);
+        return;
+      }
+      const majorCodes = this._industryMajorGbCodes(item);
+      if (majorCodes.length) {
+        majorCodes.forEach(c => keys.add(c));
+        return;
+      }
+      const row = this._findIndustryRowByNameOrMajor(item);
+      if (row?.code) keys.add(row.code);
+      else keys.add(`legacy:${item}`);
+    });
+    const sub = String(meta?.subCategory || '').trim();
+    if (sub) {
+      const subRow = this._findIndustryRowByNameOrMajor(sub);
+      if (subRow?.code) keys.add(subRow.code);
+    }
+    return [...keys];
+  },
+
+  formatUniquenessIndustryKey(key, meta) {
+    if (key === '__OTHER_ALL__') return this.INDUSTRY_OTHER_ALL_LABEL;
+    if (String(key).startsWith('legacy:')) return String(key).slice(7);
+    return this.formatIndustryCodeLabel(key, meta);
+  },
+
+  getTemplateMetaForUniqueness(templateId) {
+    const tpl = this.templates.find(t => t.id === templateId);
+    const detail = this.getTemplateDetail(templateId);
+    const meta = { ...(tpl || {}), ...(detail?.meta || {}) };
+    return this.syncMetaIndustries(meta);
+  },
+
+  findTemplateIndustryMethodConflicts(meta, excludeTemplateId = null) {
+    const methodId = String(meta?.methodId || '').trim();
+    if (!methodId) return [];
+    const keySet = new Set(this.resolveTemplateUniquenessIndustryKeys(meta));
+    if (!keySet.size) return [];
+    const conflicts = [];
+    this.templates.forEach(t => {
+      if (excludeTemplateId && t.id === excludeTemplateId) return;
+      if (t.enabled === false) return;
+      if (String(t.methodId || '') !== methodId) return;
+      const otherMeta = this.getTemplateMetaForUniqueness(t.id);
+      const overlap = this.resolveTemplateUniquenessIndustryKeys(otherMeta).filter(k => keySet.has(k));
+      if (!overlap.length) return;
+      conflicts.push({
+        templateId: t.id,
+        templateName: t.templateName || otherMeta.templateName || t.id,
+        status: t.status || otherMeta.status || 'draft',
+        methodId,
+        methodLabel: this.methodLabel(methodId),
+        overlap,
+        overlapLabels: overlap.map(k => this.formatUniquenessIndustryKey(k, otherMeta))
+      });
+    });
+    return conflicts;
+  },
+
+  validateTemplateIndustryMethodUnique(meta, excludeTemplateId = null) {
+    const synced = this.syncMetaIndustries({ ...(meta || {}) });
+    const conflicts = this.findTemplateIndustryMethodConflicts(synced, excludeTemplateId);
+    if (!conflicts.length) return { ok: true };
+    const c = conflicts[0];
+    const industries = c.overlapLabels.slice(0, 2).join('、');
+    const more = c.overlapLabels.length > 2 ? ` 等${c.overlapLabels.length}项` : '';
+    const statusLabel = c.status === 'published' ? '已发布' : '草稿';
+    return {
+      ok: false,
+      message: `「${industries}${more}」已存在「${c.methodLabel}」模板「${c.templateName}」（${statusLabel}）。每个行业每种核算方法仅允许一套模板，请直接编辑现有模板，或调整行业/核算方法后再保存。`,
+      conflicts,
+      id: c.templateId
+    };
+  },
+
+  _pickTemplateUniquenessLoser(a, b) {
+    const score = (t) => {
+      let s = 0;
+      if (t.status === 'published') s += 100;
+      if (t.updatedAt) s += 1;
+      return s;
+    };
+    const sa = score(a);
+    const sb = score(b);
+    if (sa !== sb) return sa < sb ? a : b;
+    return String(a.updatedAt || '') < String(b.updatedAt || '') ? a : b;
+  },
+
+  /** 兼容旧数据：移除同一行业·方法重复的模板，保留已发布/较新版本 */
+  _deduplicateTemplatesByIndustryMethod() {
+    const data = this._readStorage();
+    if (data._templateIndustryMethodDedupedV1) return;
+    const removeIds = new Set();
+    for (let i = 0; i < this.templates.length; i++) {
+      for (let j = i + 1; j < this.templates.length; j++) {
+        const a = this.templates[i];
+        const b = this.templates[j];
+        if (removeIds.has(a.id) || removeIds.has(b.id)) continue;
+        if (String(a.methodId || '') !== String(b.methodId || '')) continue;
+        const keysA = new Set(this.resolveTemplateUniquenessIndustryKeys(this.getTemplateMetaForUniqueness(a.id)));
+        const overlap = this.resolveTemplateUniquenessIndustryKeys(this.getTemplateMetaForUniqueness(b.id))
+          .some(k => keysA.has(k));
+        if (!overlap) continue;
+        const loser = this._pickTemplateUniquenessLoser(a, b);
+        removeIds.add(loser.id);
+      }
+    }
+    if (removeIds.size) {
+      this.templates = this.templates.filter(t => !removeIds.has(t.id));
+      removeIds.forEach(id => delete this.templateDetails[id]);
+      data.templates = this.templates.map(t => ({ ...t }));
+      if (data.templateDetails) {
+        removeIds.forEach(id => delete data.templateDetails[id]);
+      }
+    }
+    data._templateIndustryMethodDedupedV1 = true;
+    this._writeStorage(data);
   },
 
   templateMatchesIndustryFilter(meta, filterCode) {
@@ -610,9 +751,13 @@ window.METHOD_CONFIG = {
       : String(f.value ?? f.factorValue ?? '-');
     const unit = (f.unit || f.factorUnit || '').trim();
     const valueUnit = unit && unit !== '—' ? `${valueText} · ${unit}` : valueText;
+    const industryLabel = typeof factorIndustryDisplayLabel === 'function'
+      ? factorIndustryDisplayLabel(f)
+      : (f.gbIndustryName || f.industryMajor || '');
+    const industryText = industryLabel && industryLabel !== '-' ? String(industryLabel).trim() : '';
     const displayLabel = `${detailLabel} · ${valueUnit}`.replace(/\s·\s-$/, '').trim();
-    const searchText = `${detailLabel} ${f.id || ''} ${valueText} ${unit}`.toLowerCase();
-    return { detailLabel, valueText, unit, displayLabel, searchText };
+    const searchText = `${detailLabel} ${industryText} ${f.id || ''} ${valueText} ${unit}`.toLowerCase();
+    return { detailLabel, valueText, unit, industryLabel: industryText, displayLabel, searchText };
   },
 
   formatFactorLibraryOptionWithYear(f) {
@@ -652,8 +797,9 @@ window.METHOD_CONFIG = {
         value: f.value ?? f.factorValue ?? '',
         valueText: fmt.valueText,
         unit: fmt.unit,
+        industryLabel: fmt.industryLabel,
         displayLabel: fmt.displayLabel,
-        searchText: `${fmt.searchText} ${fmt.versionYear} ${fmt.versionLabel || ''}`.toLowerCase(),
+        searchText: `${fmt.searchText} ${fmt.industryLabel || ''} ${fmt.versionYear} ${fmt.versionLabel || ''}`.toLowerCase(),
         versionYear: fmt.versionYear
       };
     });
@@ -1173,10 +1319,21 @@ window.METHOD_CONFIG = {
     const scenes = Array.isArray(applyScene) ? applyScene : ['entity', 'project_loan'];
     if (!scenes.length) return { ok: false, message: '请至少选择一个适用场景' };
     const resolvedBiz = bizType || (scenes.includes('project_loan') && !scenes.includes('entity') ? 'project' : 'non_project');
+    const draftMeta = {
+      industries: resolvedIndustries,
+      subCategory: subCategory || '',
+      methodId,
+      bizType: resolvedBiz,
+      applyScene: scenes
+    };
+    this.syncMetaIndustries(draftMeta);
+    const unique = this.validateTemplateIndustryMethodUnique(draftMeta, null);
+    if (!unique.ok) return unique;
+
     const id = this.makeTemplateId(industryKey, resolvedBiz, methodId);
     const meta = this.templates.find(t => t.id === id);
     if (meta) {
-      return { ok: false, message: '该行业·核算方法·适用场景组合已有模板，请直接编辑', id };
+      return { ok: false, message: '该行业·核算方法已有模板，请直接编辑', id: meta.id };
     }
 
     let detail;
@@ -2517,6 +2674,9 @@ window.METHOD_CONFIG = {
     if (!id) return { ok: false, message: '模板 ID 缺失' };
     detail.templateId = id;
     detail.meta.id = id;
+    if (detail.meta) this.syncMetaIndustries(detail.meta);
+    const unique = this.validateTemplateIndustryMethodUnique(detail.meta, id);
+    if (!unique.ok) return unique;
     this.templateDetails[id] = detail;
 
     const tplIdx = this.templates.findIndex(t => t.id === id);
@@ -2590,6 +2750,8 @@ window.METHOD_CONFIG = {
     if (!this.normalizeTemplateIndustries(m).length) errors.push('基础信息：所属行业未选择');
     if (!m.methodId) errors.push('基础信息：核算方法未选择');
     if (!(m.applyScene || []).length) errors.push('基础信息：适用场景未选择');
+    const unique = this.validateTemplateIndustryMethodUnique(m, detail.meta?.id || detail.templateId);
+    if (!unique.ok) errors.push(unique.message);
     const isReport = m.methodId === 'report';
     if (!(detail.params || []).length) errors.push('表单结构：请至少配置一个区块并挂载参数');
     const layout = this.ensureDetailLayout(detail);
@@ -2699,6 +2861,8 @@ window.METHOD_CONFIG = {
     copy.meta.templateName = `${meta.templateName || src.meta.templateName || '模板'}（副本）`;
     copy.meta.status = 'draft';
     copy.meta.version = '—';
+    const unique = this.validateTemplateIndustryMethodUnique(copy.meta, newId);
+    if (!unique.ok) return unique;
     return this.saveTemplateDetail(copy);
   },
 

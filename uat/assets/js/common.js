@@ -1334,6 +1334,11 @@ function validateTaskForm(form) {
     toast('请选择余额口径', 'warning');
     return false;
   }
+  if (form.factorVersionRank && !form.factorVersionRank.disabled && !form.factorVersionRank.value) {
+    toast('请选择因子版本', 'warning');
+    form.factorVersionRank.focus();
+    return false;
+  }
   return true;
 }
 
@@ -1917,6 +1922,12 @@ function renderTaskFormFields(task, options = {}) {
       <input type="date" name="branchDeadline" ${readonly ? '' : 'required'} value="${t.branchDeadline || ''}" ${ro}>
       ${readonly ? '' : '<div class="field-hint">须晚于数据采集截止日期</div>'}
     </div>
+    <div class="form-item">${taskFormLabel('因子版本', required)}
+      ${typeof renderTaskFactorVersionField === 'function'
+    ? renderTaskFactorVersionField('factorVersionRank', t.factorVersionRank, { readonly, required: !readonly })
+    : `<input name="factorVersionRank" ${readonly ? 'readonly' : ''} value="${escapeHtml(String(t.factorVersionRank || '1'))}">`}
+      ${readonly ? '' : '<div class="field-hint">选项与排放因子库版本 Tab 一致</div>'}
+    </div>
     ${readonly ? '' : `
     <input type="hidden" name="goal" value="${t.goal || '监管报送'}">
     <input type="hidden" name="initiatorOrg" value="${t.initiatorOrg || 'hq'}">
@@ -1959,6 +1970,9 @@ function readTaskFormPayload(form) {
     goal: form.goal?.value || '监管报送',
     deadline: form.deadline.value,
     branchDeadline: form.branchDeadline?.value || '',
+    factorVersionRank: typeof resolveTaskFactorVersionRank === 'function'
+      ? resolveTaskFactorVersionRank(form.factorVersionRank?.value)
+      : Number(form.factorVersionRank?.value) || 1,
     initiatorOrg: form.initiatorOrg?.value || 'hq',
     initiatorBranch: form.initiatorBranch?.value || org.branches[0] || '北京分行'
   };
@@ -4783,6 +4797,70 @@ function approvalNextApproverLabel(approval, task) {
   return '—';
 }
 
+/** 同一采集单据在审核列表中只保留当前环节对应的一条记录 */
+function pickActiveSupplementApproval(approvals, supplement, task) {
+  const rows = (approvals || []).filter(a =>
+    a.docType === 'supplement' &&
+    a.docId === supplement.id &&
+    !['submit', 'branch_edit', 'hq_edit'].includes(a.reviewLevel) &&
+    a.status !== 'voided'
+  );
+  if (!rows.length) return null;
+
+  const stage = supplement.auditStage || '';
+  const branchTask = task?.initiatorOrg === 'branch';
+  const find = (match) => rows.find(match) || null;
+
+  if (stage === 'branch_review' && supplement.branchReviewStatus === 'pending') {
+    return find(a => a.reviewLevel === 'branch' && a.status === 'pending') || find(a => a.status === 'pending');
+  }
+  if (stage === 'branch_approved') {
+    return find(a => a.reviewLevel === 'branch' && a.status === 'approved');
+  }
+  if (stage === 'hq_review') {
+    return find(a => a.reviewLevel === 'hq' && a.status === 'pending')
+      || find(a => a.reviewLevel === 'branch' && a.status === 'approved');
+  }
+  if (stage === 'approved') {
+    if (branchTask) return find(a => a.reviewLevel === 'branch' && a.status === 'approved');
+    return find(a => a.reviewLevel === 'hq' && a.status === 'approved')
+      || find(a => a.reviewLevel === 'branch' && a.status === 'approved');
+  }
+  if (stage === 'pending_fill' && supplement.branchReviewStatus === 'rejected') {
+    return find(a => a.status === 'rejected') || rows[rows.length - 1];
+  }
+
+  const pending = rows.filter(a => a.status === 'pending');
+  if (pending.length) {
+    return pending.sort((x, y) => String(y.submitTime || '').localeCompare(String(x.submitTime || '')))[0];
+  }
+  return rows.sort((x, y) => String(y.submitTime || '').localeCompare(String(x.submitTime || '')))[0];
+}
+
+function collapseSupplementApprovalsForDisplay(approvals, data, taskId) {
+  const d = data || Store.get();
+  const task = taskId ? (d.tasks || []).find(t => t.id === taskId) : null;
+  const list = approvals || [];
+  const nonSupp = list.filter(a => a.docType !== 'supplement');
+  const suppByDoc = new Map();
+  list.filter(a => a.docType === 'supplement').forEach(a => {
+    if (!suppByDoc.has(a.docId)) suppByDoc.set(a.docId, []);
+    suppByDoc.get(a.docId).push(a);
+  });
+  const collapsed = [];
+  suppByDoc.forEach((group, docId) => {
+    const supplement = (d.supplements || []).find(s => s.id === docId);
+    const rowTask = task || (d.tasks || []).find(t => t.id === supplement?.taskId);
+    if (!supplement) {
+      collapsed.push(...group);
+      return;
+    }
+    const picked = pickActiveSupplementApproval(group, supplement, rowTask);
+    if (picked) collapsed.push(picked);
+  });
+  return [...nonSupp, ...collapsed];
+}
+
 /** 分行初审已通过、尚未提交总行终审的采集审核记录 */
 function isBranchApprovedReadyForHqSubmit(approval, data) {
   const d = data || Store.get();
@@ -4798,6 +4876,7 @@ function isBranchApprovedReadyForHqSubmit(approval, data) {
 function filterApprovalsForRole(approvals, roleKey, role, taskId) {
   let list = approvals.filter(a => !taskId || a.taskId === taskId);
   list = list.filter(a => !['submit', 'branch_edit', 'hq_edit'].includes(a.reviewLevel));
+  list = collapseSupplementApprovalsForDisplay(list, Store.get(), taskId);
   const d = Store.get();
   if (roleKey === 'manager') {
     return list.filter(a => {
