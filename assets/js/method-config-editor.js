@@ -401,19 +401,25 @@ window.MethodConfigEditor = {
     const selected = opts.find(f => f.id === selectedId);
     const display = selected?.displayLabel || '';
     const listItems = opts.length
-      ? opts.map(f => `
+      ? opts.map(f => {
+        const metaParts = [
+          f.industryLabel,
+          `${f.valueText} · ${f.unit || '—'}`
+        ].filter(Boolean);
+        return `
         <li class="inline-factor-option" role="option" data-factor-id="${escapeHtml(f.id)}"
           data-factor-label="${escapeHtml(f.displayLabel)}"
           data-factor-unit="${escapeHtml(f.unit || '')}"
           data-factor-text="${escapeHtml(f.searchText)}">
           <span class="inline-factor-option-name">${escapeHtml(f.detailLabel)}</span>
-          <span class="inline-factor-option-meta">${escapeHtml(f.valueText)} · ${escapeHtml(f.unit || '—')}</span>
-        </li>`).join('')
+          <span class="inline-factor-option-meta">${escapeHtml(metaParts.join(' · '))}</span>
+        </li>`;
+      }).join('')
       : '<li class="inline-factor-empty text-muted">暂无可用因子，请先在排放因子库维护</li>';
     return `
       <div class="inline-factor-picker" data-ref-key="${escapeHtml(refKey)}">
         <input type="hidden" name="inline_factor_lib_${escapeHtml(refKey)}" value="${escapeHtml(selectedId || '')}">
-        <input type="search" class="inline-factor-search" value="${escapeHtml(display)}" placeholder="搜索名称/细分项、因子值…" autocomplete="off">
+        <input type="search" class="inline-factor-search" value="${escapeHtml(display)}" placeholder="搜索名称/细分项、行业、因子值…" autocomplete="off">
         <div class="inline-factor-dropdown" hidden>
           <ul class="inline-factor-options">${listItems}</ul>
         </div>

@@ -3,6 +3,76 @@ const CHANGELOG_SCREENSHOT_BASE = 'assets/changelog/screenshots';
 
 const UPDATE_CHANGELOG = [
   {
+    version: 'v1.1',
+    date: '2026-07-21',
+    summary: '数据审核状态流转、企业碳账户去重、模板校验与因子版本等体验优化',
+    items: [
+      {
+        menu: '数据审核',
+        feature: '同条采集数据状态流转单行展示',
+        type: 'fix',
+        date: '2026-07-21 16:30',
+        text: '同一笔采集补录数据在分行初审、一键提交总行、总行终审等环节仅保留一条审批记录：列表按 supplementId 去重展示当前有效环节与状态，不再因提交或退回拆成两行；历史演示数据中 S001 双行样例已移除，迁移逻辑会将旧双行合并为单行。',
+        route: '#/approvals?taskId=T2025001',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/approvals-status-flow.png?v=20260721a`
+      },
+      {
+        menu: '数据审核',
+        feature: '分行一键提交沿用同条记录',
+        type: 'fix',
+        date: '2026-07-21 16:35',
+        text: '分行「一键提交总行」、截止日批量提交及总行退回分行时，均在原审批记录上更新 reviewLevel、status 与操作时间，不再新增平行记录；总行终审通过后仍进入排放计算，与单行展示规则一致。',
+        route: '#/approvals?taskId=T2025001',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/approvals-status-flow.png?v=20260721a`
+      },
+      {
+        menu: '企业碳账户',
+        feature: '按核算年度同名企业去重',
+        type: 'fix',
+        date: '2026-07-21 16:40',
+        text: '「按核算年度查看」下，同一核算年度、同一客户（名称/信用代码/客户号）仅展示一条账户行；多条并存时按数据质量等级优先，同等级取最新更新时间，避免「主体排放合计」重复累加。',
+        route: '#/carbon-accounts',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/carbon-accounts-year-dedupe.png?v=20260721b`
+      },
+      {
+        menu: '企业碳账户',
+        feature: '按企业汇总跨年度去重',
+        type: 'fix',
+        date: '2026-07-21 16:45',
+        text: '「按企业汇总查看」下，同一客户跨多个核算年度只保留一条汇总行（按年度分别择优后再合并），统计卡片「企业账户」按去重后企业数计算，不再因历史重复开户出现多条同名记录。',
+        route: '#/carbon-accounts',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/carbon-accounts-enterprise-dedupe.png?v=20260721c`
+      },
+      {
+        menu: '模板配置',
+        feature: '同行业同核算方法唯一校验',
+        type: 'feature',
+        date: '2026-07-21 16:50',
+        text: '新建、保存、复制模板时校验：同一行业（含多选行业交集）与同一核算方法不允许存在第二套模板（草稿/已发布均参与冲突检测）；冲突时 toast 提示已占用模板名称与状态，阻止保存。',
+        route: '#/method-config/templates/new',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/template-industry-method-unique.png?v=20260721i`
+      },
+      {
+        menu: '模板编辑',
+        feature: '匹配排放因子展示行业并可搜索',
+        type: 'feature',
+        date: '2026-07-21 16:55',
+        text: '模板编辑「匹配排放因子」下拉选项除因子名称、数值、单位外，增加行业名称展示（格式：行业 · 数值 · 单位）；搜索框支持按因子名称或行业关键字过滤，便于跨行业因子库中快速定位。',
+        route: '#/method-config/templates/edit?step=2',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/template-factor-industry-search.png?v=20260721e`
+      },
+      {
+        menu: '核算任务',
+        feature: '新建/编辑任务因子版本',
+        type: 'field',
+        date: '2026-07-21 17:00',
+        text: '新建、编辑、查看核算任务表单在「分行审批截止日期」下方新增「因子版本」下拉，选项与排放因子库版本 Tab（v1.0、v2.0…）一致。',
+        route: '#/task-create',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/task-factor-version-field.png?v=20260721h`
+      }
+    ]
+  },
+  {
     version: 'v1.0',
     date: '2026-07-15',
     summary: '投融资碳核算 UAT 首发版本',

@@ -279,7 +279,7 @@ const CarbonAccount = {
     return (accounts || []).filter(a => this.accountHasYearData(d, a, records, year));
   },
 
-  /** 企业汇总视图：跨所有核算年度展开列表行 */
+  /** 企业汇总视图：跨所有核算年度展开列表行，同一企业仅保留一条 */
   buildAccountListRowsAllYears(d, accounts, years, records) {
     const recs = records || d.carbonAccountRecords || [];
     const rows = [];
@@ -287,7 +287,8 @@ const CarbonAccount = {
       const yearAccounts = this.filterAccountsForYear(d, accounts, recs, year);
       rows.push(...this.buildAccountListRows(d, yearAccounts, year));
     });
-    return rows.sort((a, b) => {
+    const deduped = this.dedupeAccountListRowsByCompany(rows, null, { crossYear: true });
+    return deduped.sort((a, b) => {
       const nameCmp = (a.customerName || '').localeCompare(b.customerName || '', 'zh-CN');
       if (nameCmp !== 0) return nameCmp;
       if (a.isSubAccount !== b.isSubAccount) return a.isSubAccount ? 1 : -1;
@@ -563,8 +564,119 @@ const CarbonAccount = {
       formal,
       methodLabel,
       method: methodLabel,
-      entityEmission: this.normalizeEntityEmissionForAccount(account, metrics.entityEmission)
+      entityEmission: this.normalizeEntityEmissionForAccount(account, metrics.entityEmission),
+      qualityGrade: metrics.qualityGrade
+        ?? account.annualProfiles?.[yearStr]?.qualityGrade
+        ?? calc?.qualityGrade,
+      updatedAt: metrics.updatedAt
+        ?? account.annualProfiles?.[yearStr]?.updatedAt
+        ?? calc?.confirmedAt
+        ?? calc?.calculatedAt
     };
+  },
+
+  /** 列表去重键：同一年度同一企业名称视为同一公司 */
+  companyListDedupeKey(row) {
+    const name = this._sanitizeDemoCompanyName(String(row?.customerName || '').trim());
+    if (name) return name.toLowerCase();
+    const code = String(row?.creditCode || '').trim();
+    if (code && code !== '-') return code;
+    return row?.accountId || row?.rowId || '';
+  },
+
+  listRowQualityGrade(row) {
+    const m = row?.metrics || {};
+    const explicit = Number(m.qualityGrade);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    const profile = row?.account?.annualProfiles?.[String(row?.year || '')];
+    if (profile?.qualityGrade != null) return Number(profile.qualityGrade);
+    return this.trendRecordQualityGrade({
+      qualityGrade: m.calc?.qualityGrade,
+      methodId: m.methodId,
+      method: m.method
+    });
+  },
+
+  listRowTimestamp(row) {
+    const m = row?.metrics || {};
+    const profile = row?.account?.annualProfiles?.[String(row?.year || '')];
+    return this.trendRecordTimestamp({
+      updatedAt: profile?.updatedAt || m.updatedAt,
+      confirmedAt: m.calc?.confirmedAt,
+      mountedAt: m.calc?.calculatedAt,
+      calculatedAt: m.calc?.calculatedAt,
+      createdAt: row?.account?.createdAt,
+      submitTime: m.supplement?.submittedAt
+    });
+  },
+
+  listRowStatusRank(row) {
+    const status = row?.account?.status || 'active';
+    if (status === 'active') return 0;
+    if (status === 'disabled') return 1;
+    return 2;
+  },
+
+  selectPreferredAccountListRow(rows, options = {}) {
+    const preferLatestYear = options.preferLatestYear === true;
+    const withEmission = (rows || []).filter(r =>
+      r?.entityEmission != null && Number.isFinite(Number(r.entityEmission))
+    );
+    const pool = withEmission.length ? withEmission : (rows || []);
+    return pool.map((row, index) => ({
+      row,
+      index,
+      qualityGrade: this.listRowQualityGrade(row),
+      timestamp: this.listRowTimestamp(row),
+      statusRank: this.listRowStatusRank(row)
+    })).sort((a, b) =>
+      a.qualityGrade - b.qualityGrade
+      || b.timestamp - a.timestamp
+      || (preferLatestYear ? Number(b.row.year || 0) - Number(a.row.year || 0) : 0)
+      || a.statusRank - b.statusRank
+      || b.index - a.index
+    )[0]?.row || null;
+  },
+
+  /** 同一年度同一企业名称仅保留一条主行；优先数质量最高，同质量取最新 */
+  dedupeAccountListRowsByCompany(rows, year, options = {}) {
+    const crossYear = options.crossYear === true;
+    const mainRows = (rows || []).filter(r => !r.isSubAccount);
+    const subRows = (rows || []).filter(r => r.isSubAccount);
+    if (mainRows.length <= 1) return rows || [];
+
+    const groups = new Map();
+    mainRows.forEach(row => {
+      const key = crossYear
+        ? this.companyListDedupeKey(row)
+        : `${String(year || row.year || '')}|${this.companyListDedupeKey(row)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    });
+
+    const keptMain = [];
+    groups.forEach(group => {
+      const picked = group.length === 1
+        ? group[0]
+        : this.selectPreferredAccountListRow(group, { preferLatestYear: crossYear });
+      if (!picked) return;
+      keptMain.push(picked);
+    });
+
+    keptMain.sort((a, b) =>
+      (a.customerName || '').localeCompare(b.customerName || '', 'zh-CN')
+      || String(b.year || '').localeCompare(String(a.year || ''))
+      || String(a.accountId || '').localeCompare(String(b.accountId || ''))
+    );
+
+    const result = [];
+    keptMain.forEach(main => {
+      result.push(main);
+      subRows
+        .filter(s => s.parentExpandKey === main.expandKey)
+        .forEach(s => result.push(s));
+    });
+    return result;
   },
 
   /** 项目是否按「项目方式」核算（project_as_project），才在列表中作为可展开子行 */
@@ -577,7 +689,7 @@ const CarbonAccount = {
     return type === 'project_as_project';
   },
 
-  /** 企业碳账户列表行：同一年度同一信用代码仅一条企业行；按项目方式核算的项目可展开子行 */
+  /** 企业碳账户列表行：同一年度同一企业名称仅一条企业行；按项目方式核算的项目可展开子行 */
   buildAccountListRows(d, accounts, year) {
     const rows = [];
     (accounts || []).forEach(acc => {
@@ -640,7 +752,7 @@ const CarbonAccount = {
         });
       });
     });
-    return rows;
+    return this.dedupeAccountListRowsByCompany(rows, year);
   },
 
   _isInvalidDemoCustomerName(name) {

@@ -891,6 +891,47 @@ function collectFactorLibraryVersionRanks(allFactors) {
   return Array.from({ length: max }, (_, i) => i + 1);
 }
 
+/** 因子库版本下拉选项（与排放因子库版本 Tab 一致） */
+function getFactorLibraryVersionSelectOptions() {
+  const all = typeof Store !== 'undefined' ? (Store.get()?.factors || []) : [];
+  const ranks = collectFactorLibraryVersionRanks(all);
+  if (!ranks.length) return [{ rank: 1, label: formatFactorVersionNo(1) }];
+  return ranks.map(rank => ({ rank, label: formatFactorVersionNo(rank) }));
+}
+
+function resolveTaskFactorVersionRank(value) {
+  const opts = getFactorLibraryVersionSelectOptions();
+  const latest = opts[opts.length - 1]?.rank || 1;
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 1 && opts.some(o => o.rank === n)) return n;
+  return latest;
+}
+
+function formatTaskFactorVersionDisplay(rank) {
+  const opts = getFactorLibraryVersionSelectOptions();
+  const latest = opts[opts.length - 1]?.rank || 1;
+  const r = resolveTaskFactorVersionRank(rank);
+  let label = formatFactorVersionNo(r);
+  if (r === latest) label += '（最新版本）';
+  return label;
+}
+
+function renderTaskFactorVersionField(name, selectedRank, options = {}) {
+  const { readonly = false, required = true } = options;
+  const opts = getFactorLibraryVersionSelectOptions();
+  const latestRank = opts[opts.length - 1]?.rank || 1;
+  const selected = resolveTaskFactorVersionRank(selectedRank ?? latestRank);
+  if (readonly) {
+    return `<input readonly value="${escapeHtml(formatTaskFactorVersionDisplay(selected))}">`;
+  }
+  const optionsHtml = opts.map(o => {
+    let label = o.label;
+    if (o.rank === latestRank) label += '（最新版本）';
+    return `<option value="${o.rank}"${o.rank === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+  return `<select name="${escapeHtml(name)}" ${required ? 'required' : ''}>${optionsHtml}</select>`;
+}
+
 function pickFactorGroupVersionAtRank(versions, rank) {
   const asc = sortFactorVersionsAsc(versions);
   return asc[(Number(rank) || 1) - 1] || null;
