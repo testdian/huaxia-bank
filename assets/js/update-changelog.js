@@ -4,6 +4,31 @@ const CHANGELOG_SCREENSHOT_BASE = 'assets/changelog/screenshots';
 const UPDATE_CHANGELOG = [
   {
     version: 'v1.1',
+    date: '2026-07-22',
+    summary: '模板多版本管理与任务模板版本字段',
+    items: [
+      {
+        menu: '模板配置',
+        feature: '模板多版本管理',
+        type: 'feature',
+        date: '2026-07-22 17:30',
+        text: '模版配置列表页新增版本 Tab（v1.0、v2.0…），交互与排放因子库版本管理一致：切换 Tab 查看对应版本模板集；点击「+」可选择复制来源版本并全量复制所有模板生成新版本（草稿状态），同一行业·核算方法在不同模板版本间可并存，新建模板归属当前选中版本。',
+        route: '#/method-config/templates',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/template-version-tabs.png?v=20260722a`
+      },
+      {
+        menu: '核算任务',
+        feature: '新建/编辑/查看任务模板版本',
+        type: 'field',
+        date: '2026-07-22 17:50',
+        text: '新建、编辑、查看核算任务表单在「因子版本」下方新增「模板版本」下拉，选项与模版配置版本 Tab（v1.0、v2.0…）一致；任务保存后按所选模板版本匹配采集模板。',
+        route: '#/task-create',
+        screenshot: `${CHANGELOG_SCREENSHOT_BASE}/task-template-version-field.png?v=20260722b`
+      }
+    ]
+  },
+  {
+    version: 'v1.1',
     date: '2026-07-21',
     summary: '数据审核状态流转、企业碳账户去重、模板校验与因子版本等体验优化',
     items: [

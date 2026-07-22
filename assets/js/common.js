@@ -1339,6 +1339,11 @@ function validateTaskForm(form) {
     form.factorVersionRank.focus();
     return false;
   }
+  if (form.templateVersionRank && !form.templateVersionRank.disabled && !form.templateVersionRank.value) {
+    toast('请选择模板版本', 'warning');
+    form.templateVersionRank.focus();
+    return false;
+  }
   return true;
 }
 
@@ -1928,6 +1933,12 @@ function renderTaskFormFields(task, options = {}) {
     : `<input name="factorVersionRank" ${readonly ? 'readonly' : ''} value="${escapeHtml(String(t.factorVersionRank || '1'))}">`}
       ${readonly ? '' : '<div class="field-hint">选项与排放因子库版本 Tab 一致</div>'}
     </div>
+    <div class="form-item">${taskFormLabel('模板版本', required)}
+      ${typeof renderTaskTemplateVersionField === 'function'
+    ? renderTaskTemplateVersionField('templateVersionRank', t.templateVersionRank, { readonly, required: !readonly })
+    : `<input name="templateVersionRank" ${readonly ? 'readonly' : ''} value="${escapeHtml(String(t.templateVersionRank || '1'))}">`}
+      ${readonly ? '' : '<div class="field-hint">选项与模版配置版本 Tab 一致</div>'}
+    </div>
     ${readonly ? '' : `
     <input type="hidden" name="goal" value="${t.goal || '监管报送'}">
     <input type="hidden" name="initiatorOrg" value="${t.initiatorOrg || 'hq'}">
@@ -1973,6 +1984,9 @@ function readTaskFormPayload(form) {
     factorVersionRank: typeof resolveTaskFactorVersionRank === 'function'
       ? resolveTaskFactorVersionRank(form.factorVersionRank?.value)
       : Number(form.factorVersionRank?.value) || 1,
+    templateVersionRank: typeof resolveTaskTemplateVersionRank === 'function'
+      ? resolveTaskTemplateVersionRank(form.templateVersionRank?.value)
+      : Number(form.templateVersionRank?.value) || 1,
     initiatorOrg: form.initiatorOrg?.value || 'hq',
     initiatorBranch: form.initiatorBranch?.value || org.branches[0] || '北京分行'
   };

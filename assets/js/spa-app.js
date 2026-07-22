@@ -1893,6 +1893,28 @@ function bindPageEvents(base, ctx) {
   }
 
   if (base === '#/method-config/templates') {
+    qsa('[data-template-version-rank]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rank = Number(btn.dataset.templateVersionRank);
+        if (!rank) return;
+        setTemplateListVersionRank(rank);
+        route();
+      });
+    });
+    qs('#templateVersionTabAdd')?.addEventListener('click', async () => {
+      const dialog = await openTemplateVersionAddDialog(METHOD_CONFIG.templates);
+      if (!dialog?.ok) return;
+      const result = METHOD_CONFIG.createTemplateLibraryNextVersion({
+        sourceRank: dialog.sourceRank
+      });
+      if (!result.added) {
+        toast('未新增任何模板版本，所选来源版本模板可能均已存在下一版本', 'warning');
+        return;
+      }
+      setTemplateListVersionRank(result.nextRank);
+      toast(`已新增 ${result.added} 条模板版本${result.skipped ? `，跳过 ${result.skipped} 条` : ''}`, 'success');
+      route();
+    });
     const tplFilterForm = qs('#tplFilterForm');
     if (tplFilterForm && tplFilterForm.dataset.bound !== '1') {
       tplFilterForm.dataset.bound = '1';
@@ -1941,7 +1963,8 @@ function bindPageEvents(base, ctx) {
         priority: fd.get('priority'),
         applyScene,
         description: (fd.get('description') || '').toString().trim(),
-        factorVersionRank: fd.get('factorVersionRank')
+        factorVersionRank: fd.get('factorVersionRank'),
+        libraryVersionRank: typeof getTemplateListVersionRank === 'function' ? getTemplateListVersionRank() : METHOD_CONFIG.getDefaultTemplateLibraryVersionRank()
       });
       if (!result.ok) {
         toast(result.message, result.id ? 'warning' : 'error');

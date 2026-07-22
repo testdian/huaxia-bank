@@ -333,6 +333,7 @@ const DemoSeed = {
       deadline: '2025-09-30',
       branchDeadline: '2025-10-15',
       factorVersionRank: 1,
+      templateVersionRank: 1,
       syncedFromInterface: true,
       syncedAt: '2025-05-18 09:30:00',
       syncInterfaceId: 'IF001',

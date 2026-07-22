@@ -168,6 +168,34 @@ window.METHOD_CONFIG = {
       this.params = this.params.filter(p => !deleted.has(p.id));
     }
     this._deduplicateTemplatesByIndustryMethod();
+    this._migrateTemplateLibraryVersionRanks();
+  },
+
+  _migrateTemplateLibraryVersionRanks() {
+    const data = this._readStorage();
+    if (data._templateLibraryVersionMigrated) return;
+    let changed = false;
+    this.templates.forEach(t => {
+      if (t.libraryVersionRank == null) {
+        t.libraryVersionRank = 1;
+        changed = true;
+      }
+    });
+    Object.entries(this.templateDetails || {}).forEach(([id, detail]) => {
+      if (detail?.meta && detail.meta.libraryVersionRank == null) {
+        detail.meta.libraryVersionRank = 1;
+        changed = true;
+      }
+    });
+    if (changed) {
+      data.templates = this.templates.map(t => ({ ...t }));
+      data.templateDetails = data.templateDetails || {};
+      Object.entries(this.templateDetails).forEach(([id, detail]) => {
+        data.templateDetails[id] = detail;
+      });
+    }
+    data._templateLibraryVersionMigrated = true;
+    this._writeStorage(data);
   },
 
   getIndustryOptionGroups() {
@@ -374,6 +402,7 @@ window.METHOD_CONFIG = {
   findTemplateIndustryMethodConflicts(meta, excludeTemplateId = null) {
     const methodId = String(meta?.methodId || '').trim();
     if (!methodId) return [];
+    const libraryVersionRank = this.resolveTemplateLibraryVersionRank(meta?.libraryVersionRank);
     const keySet = new Set(this.resolveTemplateUniquenessIndustryKeys(meta));
     if (!keySet.size) return [];
     const conflicts = [];
@@ -382,6 +411,7 @@ window.METHOD_CONFIG = {
       if (t.enabled === false) return;
       if (String(t.methodId || '') !== methodId) return;
       const otherMeta = this.getTemplateMetaForUniqueness(t.id);
+      if (this.resolveTemplateLibraryVersionRank(otherMeta.libraryVersionRank ?? t.libraryVersionRank) !== libraryVersionRank) return;
       const overlap = this.resolveTemplateUniquenessIndustryKeys(otherMeta).filter(k => keySet.has(k));
       if (!overlap.length) return;
       conflicts.push({
@@ -437,6 +467,9 @@ window.METHOD_CONFIG = {
         const b = this.templates[j];
         if (removeIds.has(a.id) || removeIds.has(b.id)) continue;
         if (String(a.methodId || '') !== String(b.methodId || '')) continue;
+        const rankA = this.resolveTemplateLibraryVersionRank(a.libraryVersionRank ?? this.getTemplateMetaForUniqueness(a.id).libraryVersionRank);
+        const rankB = this.resolveTemplateLibraryVersionRank(b.libraryVersionRank ?? this.getTemplateMetaForUniqueness(b.id).libraryVersionRank);
+        if (rankA !== rankB) continue;
         const keysA = new Set(this.resolveTemplateUniquenessIndustryKeys(this.getTemplateMetaForUniqueness(a.id)));
         const overlap = this.resolveTemplateUniquenessIndustryKeys(this.getTemplateMetaForUniqueness(b.id))
           .some(k => keysA.has(k));
@@ -472,10 +505,14 @@ window.METHOD_CONFIG = {
     return !this.getTaggedIndustryCodeSet().has(code);
   },
 
-  resolveTemplateForSubject({ gbCode, bizType, methodId, applyScene } = {}) {
+  resolveTemplateForSubject({ gbCode, bizType, methodId, applyScene, templateVersionRank } = {}) {
     const code = String(gbCode || '').trim();
     const tagged = this.getTaggedIndustryCodeSet();
+    const libraryRank = templateVersionRank != null
+      ? this.resolveTemplateLibraryVersionRank(templateVersionRank)
+      : this.getDefaultTemplateLibraryVersionRank();
     const candidates = this.templates
+      .filter(t => this.resolveTemplateLibraryVersionRank(t.libraryVersionRank) === libraryRank)
       .filter(t => t.status === 'published')
       .filter(t => !bizType || t.bizType === bizType)
       .filter(t => !methodId || t.methodId === methodId)
@@ -1301,7 +1338,7 @@ window.METHOD_CONFIG = {
   },
 
   /** 新建核算模板（对齐需规 Tab1 基础信息） */
-  createTemplate({ templateName, industry, industries, subCategory, methodId, priority, applyScene, description, copyFromId, isNewIndustry, bizType, factorVersionRank }) {
+  createTemplate({ templateName, industry, industries, subCategory, methodId, priority, applyScene, description, copyFromId, isNewIndustry, bizType, factorVersionRank, libraryVersionRank }) {
     const resolvedIndustries = this.parseIndustriesCombined(
       Array.isArray(industries) ? JSON.stringify(industries) : industries
     );
@@ -1324,7 +1361,8 @@ window.METHOD_CONFIG = {
       subCategory: subCategory || '',
       methodId,
       bizType: resolvedBiz,
-      applyScene: scenes
+      applyScene: scenes,
+      libraryVersionRank: this.resolveTemplateLibraryVersionRank(libraryVersionRank)
     };
     this.syncMetaIndustries(draftMeta);
     const unique = this.validateTemplateIndustryMethodUnique(draftMeta, null);
@@ -1350,6 +1388,7 @@ window.METHOD_CONFIG = {
     detail.meta.description = (description || '').trim();
     detail.meta.industries = resolvedIndustries;
     detail.meta.factorVersionRank = this.resolveTemplateFactorVersionRank(factorVersionRank);
+    detail.meta.libraryVersionRank = this.resolveTemplateLibraryVersionRank(libraryVersionRank);
     this.syncMetaIndustries(detail.meta);
     return this.saveTemplateDetail(detail);
   },
@@ -2694,6 +2733,7 @@ window.METHOD_CONFIG = {
       status: detail.meta.status || 'draft',
       enabled: detail.meta.enabled !== false,
       version: detail.meta.version || '—',
+      libraryVersionRank: this.resolveTemplateLibraryVersionRank(detail.meta.libraryVersionRank),
       fieldCount: detail.params?.length || 0,
       formulaCount: detail.formulas?.length || 0,
       updatedAt: detail.meta.updatedAt || this._today(),
@@ -2961,6 +3001,153 @@ window.METHOD_CONFIG = {
 
   gapLevelClass(level) {
     return { ok: 'tag-success', warn: 'tag-warning', gap: 'tag-danger' }[level] || 'tag-info';
+  },
+
+  formatTemplateLibraryVersionNo(rank) {
+    const n = Math.max(1, Number(rank) || 1);
+    return typeof formatFactorVersionNo === 'function' ? formatFactorVersionNo(n) : `v${n}.0`;
+  },
+
+  resolveTemplateLibraryVersionRank(value) {
+    if (value == null || value === '') return 1;
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+    return 1;
+  },
+
+  getDefaultTemplateLibraryVersionRank() {
+    const ranks = this.collectTemplateLibraryVersionRanks(this.templates);
+    return ranks.length ? ranks[ranks.length - 1] : 1;
+  },
+
+  getTemplateLibraryVersionSelectOptions() {
+    const ranks = this.collectTemplateLibraryVersionRanks(this.templates);
+    if (!ranks.length) return [{ rank: 1, label: this.formatTemplateLibraryVersionNo(1) }];
+    const latest = ranks[ranks.length - 1];
+    return ranks.map(rank => ({
+      rank,
+      label: this.formatTemplateLibraryVersionNo(rank) + (rank === latest ? '（最新版本）' : '')
+    }));
+  },
+
+  resolveTaskTemplateVersionRank(value) {
+    const opts = this.getTemplateLibraryVersionSelectOptions();
+    const latest = opts[opts.length - 1]?.rank || 1;
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 1 && opts.some(o => o.rank === n)) return n;
+    return latest;
+  },
+
+  formatTaskTemplateVersionDisplay(rank) {
+    const opts = this.getTemplateLibraryVersionSelectOptions();
+    const latest = opts[opts.length - 1]?.rank || 1;
+    const r = this.resolveTaskTemplateVersionRank(rank);
+    let label = this.formatTemplateLibraryVersionNo(r);
+    if (r === latest) label += '（最新版本）';
+    return label;
+  },
+
+  collectTemplateLibraryVersionRanks(templates) {
+    const groups = this.groupTemplateRecords(templates || this.templates);
+    let max = 1;
+    groups.forEach(g => { max = Math.max(max, g.versionCount || 1); });
+    return Array.from({ length: max }, (_, i) => i + 1);
+  },
+
+  templateLibraryGroupKey(meta) {
+    const synced = this.syncMetaIndustries({ ...(meta || {}) });
+    const keys = this.resolveTemplateUniquenessIndustryKeys(synced).sort().join('\u001f');
+    return `${synced.bizType || 'non_project'}\u001f${synced.methodId || ''}\u001f${keys}`;
+  },
+
+  groupTemplateRecords(templates) {
+    const map = new Map();
+    (templates || []).forEach(t => {
+      const meta = this.getTemplateMetaForUniqueness(t.id);
+      const groupKey = this.templateLibraryGroupKey(meta);
+      if (!map.has(groupKey)) map.set(groupKey, []);
+      map.get(groupKey).push({ ...t, libraryVersionRank: this.resolveTemplateLibraryVersionRank(t.libraryVersionRank ?? meta.libraryVersionRank) });
+    });
+    const groups = [];
+    map.forEach((raw, groupKey) => {
+      const versions = [...raw].sort((a, b) => (a.libraryVersionRank || 1) - (b.libraryVersionRank || 1));
+      groups.push({
+        groupKey,
+        versions,
+        latest: versions[versions.length - 1] || null,
+        versionCount: versions.length
+      });
+    });
+    return groups;
+  },
+
+  pickTemplateGroupVersionAtRank(versions, rank) {
+    const r = Math.max(1, Number(rank) || 1);
+    return (versions || []).find(v => this.resolveTemplateLibraryVersionRank(v.libraryVersionRank) === r) || null;
+  },
+
+  applyTemplateListVersionRank(groups, rank) {
+    const r = Math.max(1, Number(rank) || 1);
+    return (groups || []).map(g => this.pickTemplateGroupVersionAtRank(g.versions, r)).filter(Boolean);
+  },
+
+  collectTemplateMethodsAtVersionRank(templates, rank) {
+    const groups = this.groupTemplateRecords(templates || this.templates);
+    const map = new Map();
+    this.applyTemplateListVersionRank(groups, rank).forEach(t => {
+      if (!t.methodId) return;
+      if (!map.has(t.methodId)) {
+        map.set(t.methodId, { id: t.methodId, label: this.methodLabel(t.methodId), count: 0 });
+      }
+      map.get(t.methodId).count += 1;
+    });
+    return [...map.values()].sort((a, b) => {
+      const pa = typeof factorMethodPriority === 'function' ? factorMethodPriority(a.id) : 0;
+      const pb = typeof factorMethodPriority === 'function' ? factorMethodPriority(b.id) : 0;
+      return pa - pb;
+    });
+  },
+
+  createTemplateLibraryNextVersion(options = {}) {
+    const { methodIds = null, sourceRank = null } = options || {};
+    const methodSet = methodIds?.length ? new Set(methodIds) : null;
+    const groups = this.groupTemplateRecords(this.templates);
+    const ranks = this.collectTemplateLibraryVersionRanks(this.templates);
+    const nextRank = ranks.length + 1;
+    const fromRank = sourceRank != null ? Number(sourceRank) : ranks.length;
+    let added = 0;
+    let skipped = 0;
+    groups.forEach(g => {
+      const srcTpl = this.pickTemplateGroupVersionAtRank(g.versions, fromRank) || g.versions[g.versions.length - 1];
+      if (!srcTpl) {
+        skipped++;
+        return;
+      }
+      if (methodSet && !methodSet.has(srcTpl.methodId)) return;
+      if (g.versions.some(v => this.resolveTemplateLibraryVersionRank(v.libraryVersionRank) === nextRank)) {
+        skipped++;
+        return;
+      }
+      const newId = `${srcTpl.id}__lv${nextRank}`;
+      const copy = this.copyTemplateDetail(srcTpl.id, newId, srcTpl.industry, srcTpl.bizType, srcTpl.methodId);
+      if (!copy) {
+        skipped++;
+        return;
+      }
+      copy.meta.libraryVersionRank = nextRank;
+      copy.meta.status = 'draft';
+      copy.meta.version = '—';
+      copy.meta.templateName = srcTpl.templateName || copy.meta.templateName;
+      copy.meta.updatedAt = this._today();
+      copy.meta.updatedBy = this._currentOperator();
+      const result = this.saveTemplateDetail(copy);
+      if (!result.ok) {
+        skipped++;
+        return;
+      }
+      added++;
+    });
+    return { added, skipped, nextRank, prevRank: fromRank };
   }
 };
 

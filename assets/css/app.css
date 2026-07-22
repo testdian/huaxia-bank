@@ -727,7 +727,16 @@ a.step-item.clickable:hover .step-icon { box-shadow: 0 0 0 2px var(--primary-lig
   display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px;
 }
 .factor-version-add-method-item input { margin: 0; flex-shrink: 0; }
-.factor-version-add-method-count { color: #909399; font-size: 12px; }
+.template-version-source-select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #303133;
+  background: #fff;
+}
 
 .drawer-overlay {
   display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 250;
