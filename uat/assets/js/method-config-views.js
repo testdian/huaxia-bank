@@ -44,6 +44,157 @@ function renderTemplateIndustryCombo(meta, options = {}) {
   });
 }
 
+/** 模板库版本 Tab 当前选中序号（sessionStorage） */
+const TEMPLATE_LIST_VERSION_RANK_KEY = 'huaxia_template_list_version_rank';
+
+function getTemplateListVersionRank() {
+  const n = parseInt(sessionStorage.getItem(TEMPLATE_LIST_VERSION_RANK_KEY) || '1', 10);
+  return Number.isNaN(n) || n < 1 ? 1 : n;
+}
+
+function setTemplateListVersionRank(rank) {
+  sessionStorage.setItem(TEMPLATE_LIST_VERSION_RANK_KEY, String(Math.max(1, Number(rank) || 1)));
+}
+
+function renderTemplateVersionTabBar(templates, activeRank) {
+  const ranks = METHOD_CONFIG.collectTemplateLibraryVersionRanks(templates);
+  const latestRank = ranks.length ? ranks[ranks.length - 1] : 1;
+  const active = Math.min(Math.max(1, activeRank || 1), ranks.length || 1);
+  const tabs = [...ranks].reverse().map(rank => {
+    let label = METHOD_CONFIG.formatTemplateLibraryVersionNo(rank);
+    if (rank === latestRank) label += '（最新版本）';
+    const cls = rank === active ? 'factor-version-tab active' : 'factor-version-tab';
+    return `<button type="button" class="${cls}" data-template-version-rank="${rank}" title="${rank === latestRank ? '最新版本' : ''}">${escapeHtml(label)}</button>`;
+  }).join('');
+  return `
+    <div class="factor-version-tabs" role="tablist" aria-label="模板版本">
+      ${tabs}
+      <button type="button" class="factor-version-tab-add" id="templateVersionTabAdd" title="新增版本">+</button>
+    </div>`;
+}
+
+function getTemplateVersionCopyCount(templates, sourceRank) {
+  const all = templates || METHOD_CONFIG.templates || [];
+  return METHOD_CONFIG.applyTemplateListVersionRank(
+    METHOD_CONFIG.groupTemplateRecords(all),
+    sourceRank
+  ).length;
+}
+
+function renderTemplateVersionCopyHint(sourceRank, nextRank, copyCount) {
+  const sourceLabel = METHOD_CONFIG.formatTemplateLibraryVersionNo(sourceRank);
+  const nextLabel = METHOD_CONFIG.formatTemplateLibraryVersionNo(nextRank);
+  if (!copyCount) {
+    return `<p class="candidate-filter-hint" style="margin:8px 0 0">所选${escapeHtml(sourceLabel)}暂无可复制的模板。</p>`;
+  }
+  return `<p class="candidate-filter-hint" style="margin:8px 0 0">将从${escapeHtml(sourceLabel)}全量复制 ${copyCount} 套模板至${escapeHtml(nextLabel)}（新建为草稿）。</p>`;
+}
+
+function openTemplateVersionAddDialog(templates) {
+  if (typeof ensureConfirmDialog !== 'function') return Promise.resolve({ ok: false });
+  ensureConfirmDialog();
+  const all = templates || METHOD_CONFIG.templates || [];
+  const ranks = METHOD_CONFIG.collectTemplateLibraryVersionRanks(all);
+  const nextRank = ranks.length + 1;
+  const latestRank = ranks[ranks.length - 1] || 1;
+  const defaultSourceRank = latestRank;
+  const nextLabel = METHOD_CONFIG.formatTemplateLibraryVersionNo(nextRank);
+  const initialCount = getTemplateVersionCopyCount(all, defaultSourceRank);
+  const sourceOptions = [...ranks].reverse().map(rank => {
+    let label = METHOD_CONFIG.formatTemplateLibraryVersionNo(rank);
+    if (rank === latestRank) label += '（最新版本）';
+    return `<option value="${rank}"${rank === defaultSourceRank ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+
+  const overlay = qs('#confirmDialog');
+  const titleEl = qs('#confirmDialogTitle');
+  const msgEl = qs('#confirmDialogMessage');
+  const detailEl = qs('#confirmDialogDetail');
+  const okBtn = qs('#confirmDialogOk');
+  const cancelBtn = qs('#confirmDialogCancel');
+  const closeBtn = qs('#confirmDialogClose');
+
+  titleEl.textContent = '提示';
+  msgEl.textContent = `是否确认新增模板版本${nextLabel}？`;
+  detailEl.innerHTML = `
+    <div class="factor-version-add-dialog">
+      <div class="factor-version-add-copy-panel" id="templateVersionCopyPanel">
+        <div class="factor-version-add-copy-label">选择复制来源版本</div>
+        <select class="template-version-source-select" id="templateVersionSourceSelect" name="templateVersionSourceRank">${sourceOptions}</select>
+        <div id="templateVersionCopyHint">${renderTemplateVersionCopyHint(defaultSourceRank, nextRank, initialCount)}</div>
+      </div>
+    </div>`;
+  detailEl.hidden = false;
+  okBtn.textContent = '确认';
+  cancelBtn.textContent = '取消';
+  okBtn.classList.remove('btn-confirm-danger');
+  okBtn.classList.add('btn-primary');
+  okBtn.disabled = !initialCount;
+
+  const sourceSelect = qs('#templateVersionSourceSelect', detailEl);
+  const hintEl = qs('#templateVersionCopyHint', detailEl);
+  const syncHint = () => {
+    const sourceRank = Number(sourceSelect?.value) || defaultSourceRank;
+    const count = getTemplateVersionCopyCount(all, sourceRank);
+    if (hintEl) hintEl.innerHTML = renderTemplateVersionCopyHint(sourceRank, nextRank, count);
+    okBtn.disabled = !count;
+  };
+
+  return new Promise(resolve => {
+    const finish = (result) => {
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlay);
+      document.removeEventListener('keydown', onKey);
+      sourceSelect?.removeEventListener('change', syncHint);
+      okBtn.disabled = false;
+      hideModal('confirmDialog');
+      resolve(result);
+    };
+    const onOk = () => {
+      const sourceRank = Number(sourceSelect?.value) || defaultSourceRank;
+      const count = getTemplateVersionCopyCount(all, sourceRank);
+      if (!count) {
+        if (typeof toast === 'function') toast('所选版本暂无可复制的模板', 'warning');
+        return;
+      }
+      finish({ ok: true, mode: 'copy', nextRank, sourceRank, nextLabel });
+    };
+    const onCancel = () => finish({ ok: false });
+    const onOverlay = (e) => { if (e.target === overlay) onCancel(); };
+    const onKey = (e) => { if (e.key === 'Escape') onCancel(); };
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlay);
+    document.addEventListener('keydown', onKey);
+    sourceSelect?.addEventListener('change', syncHint);
+    showModal('confirmDialog');
+    setTimeout(() => okBtn.focus(), 0);
+  });
+}
+
+function resolveTaskTemplateVersionRank(value) {
+  return typeof METHOD_CONFIG !== 'undefined'
+    ? METHOD_CONFIG.resolveTaskTemplateVersionRank(value)
+    : (Number(value) || 1);
+}
+
+function renderTaskTemplateVersionField(name, selectedRank, options = {}) {
+  const { readonly = false, required = true } = options;
+  const opts = METHOD_CONFIG.getTemplateLibraryVersionSelectOptions();
+  const latestRank = opts[opts.length - 1]?.rank || 1;
+  const selected = METHOD_CONFIG.resolveTaskTemplateVersionRank(selectedRank ?? latestRank);
+  if (readonly) {
+    return `<input readonly value="${escapeHtml(METHOD_CONFIG.formatTaskTemplateVersionDisplay(selected))}">`;
+  }
+  const optionsHtml = opts.map(o =>
+    `<option value="${o.rank}"${o.rank === selected ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('');
+  return `<select name="${escapeHtml(name)}" ${required ? 'required' : ''}>${optionsHtml}</select>`;
+}
+
 /** 模板因子版本下拉（选项与排放因子库版本 Tab 一致） */
 function renderTemplateFactorVersionSelect(name, selectedRank) {
   const opts = typeof METHOD_CONFIG !== 'undefined' && METHOD_CONFIG.getFactorLibraryVersionOptions
@@ -367,7 +518,12 @@ SPA_VIEWS['#/method-config/templates'] = function() {
     methodId: q.get('method') || '',
     status: q.get('status') || ''
   };
-  const templates = METHOD_CONFIG.listTemplates(filters);
+  const versionRanks = METHOD_CONFIG.collectTemplateLibraryVersionRanks(METHOD_CONFIG.templates);
+  let activeRank = Math.min(getTemplateListVersionRank(), versionRanks.length || 1);
+  if (activeRank !== getTemplateListVersionRank()) setTemplateListVersionRank(activeRank);
+  const filtered = METHOD_CONFIG.listTemplates(filters);
+  const versionGroups = METHOD_CONFIG.groupTemplateRecords(filtered);
+  const templates = METHOD_CONFIG.applyTemplateListVersionRank(versionGroups, activeRank);
   const renderTemplateActions = t => {
     const viewLink = `<a href="#/method-config/templates/edit?id=${encodeURIComponent(t.id)}&step=1&mode=view" class="btn-link">查看</a>`;
     return [
@@ -402,10 +558,15 @@ SPA_VIEWS['#/method-config/templates'] = function() {
 
   return `
     <h1 class="page-title">模版配置</h1>
-    <div class="toolbar">
-      <a href="#/method-config/templates/new" class="btn btn-primary">+ 新建模板</a>
-    </div>
-    <div class="card">
+    <div class="card factor-library-card">
+      ${renderTemplateVersionTabBar(METHOD_CONFIG.templates, activeRank)}
+      <div class="factor-library-main" style="padding:0 16px 16px">
+        <div class="factor-library-main-toolbar">
+          <div class="factor-library-version-ops">
+            <a href="#/method-config/templates/new" class="btn btn-primary">+ 新建模板</a>
+          </div>
+        </div>
+    <div class="card" style="margin-top:12px">
       <div class="card-header"><h3>查询筛选</h3></div>
       <div class="filter-panel method-config-filter-panel">
         <form class="filter-extra method-config-filter-grid method-config-filter-grid--5" id="tplFilterForm">
@@ -429,8 +590,10 @@ SPA_VIEWS['#/method-config/templates'] = function() {
           <thead><tr>
             <th>模板名称</th><th>所属行业</th><th>细分品类</th><th>核算方法</th><th>方法优先级</th><th>状态</th><th>更新人</th><th>更新时间</th><th>操作</th>
           </tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="9" class="text-muted">暂无模板</td></tr>'}</tbody>
+          <tbody>${tableRows || '<tr><td colspan="9" class="text-muted">当前版本暂无模板</td></tr>'}</tbody>
         </table>
+      </div>
+    </div>
       </div>
     </div>`;
 };

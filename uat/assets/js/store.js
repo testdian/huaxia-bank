@@ -229,6 +229,7 @@ const Store = {
     this._migrateFactorImportHistory();
     this._migrateTaskBranchDeadline();
     this._migrateTaskFactorVersionRank();
+    this._migrateTaskTemplateVersionRank();
     this._fixTaskBranchDeadlineOrder();
     this._ensureIndustryConfig();
     this._ensureMenuPermissions();
@@ -541,6 +542,28 @@ const Store = {
         }
       });
       d._taskFactorVersionRankMigrated = true;
+      if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
+    } catch { /* ignore */ }
+  },
+
+  /** 任务：补全模板版本（默认取模版库最新版本序号） */
+  _migrateTaskTemplateVersionRank() {
+    const raw = localStorage.getItem(this.KEY);
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      if (d._taskTemplateVersionRankMigrated) return;
+      let changed = false;
+      const defaultRank = typeof resolveTaskTemplateVersionRank === 'function'
+        ? resolveTaskTemplateVersionRank()
+        : 1;
+      (d.tasks || []).forEach(t => {
+        if (t.templateVersionRank == null || t.templateVersionRank === '') {
+          t.templateVersionRank = defaultRank;
+          changed = true;
+        }
+      });
+      d._taskTemplateVersionRankMigrated = true;
       if (changed) localStorage.setItem(this.KEY, JSON.stringify(d));
     } catch { /* ignore */ }
   },
