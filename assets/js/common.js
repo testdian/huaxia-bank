@@ -5748,6 +5748,8 @@ function openApprovalActionConfirm(type, onConfirm, options = {}) {
   hideApprovalRejectModalFields();
   const methodWrap = qs('#approvalConfirmMethodWrap');
   if (methodWrap) methodWrap.style.display = 'none';
+  const reasonWrap = qs('#approvalConfirmReasonWrap');
+  if (!isApprove && reasonWrap) reasonWrap.style.display = 'block';
   const reasonInput = qs('#approvalConfirmReason');
   if (reasonInput) reasonInput.value = '';
   const okBtn = qs('#approvalConfirmOkBtn');
