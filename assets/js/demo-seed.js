@@ -125,7 +125,7 @@ const DemoSeed = {
         operatingRevenue: avgMonthlyBalance * 7,
         projectTotalInvestmentWan: projectDetails[0]?.projectTotalInvestmentWan,
         projectDetails,
-        huaxiaTenureMonths: CandidateSync.tenureMonths(`${year}-06-${String(10 + i).padStart(2, '0')}`, year),
+        bankTenureMonths: CandidateSync.tenureMonths(`${year}-06-${String(10 + i).padStart(2, '0')}`, year),
         monthEndBalanceSum: avgMonthlyBalance * CandidateSync.tenureMonths(`${year}-06-${String(10 + i).padStart(2, '0')}`, year),
         avgMonthlyBalance,
         totalAssets: avgMonthlyBalance * 90,

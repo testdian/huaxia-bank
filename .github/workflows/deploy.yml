@@ -1,6 +1,6 @@
 # UAT / 生产 双环境 GitHub Pages（发布到 gh-pages 分支）
-# 生产：https://testdian.github.io/huaxia-bank/app.html
-# UAT：  https://testdian.github.io/huaxia-bank/uat/
+# 生产：https://testdian.github.io/investment-carbon-demo/app.html
+# UAT：  https://testdian.github.io/investment-carbon-demo/uat/
 #
 # 请在 Settings → Pages 选择：Deploy from branch → gh-pages → / (root)
 # 「github-pages」环境为 Pages 内置流程自动生成，可忽略；本 workflow 使用 uat / production 环境

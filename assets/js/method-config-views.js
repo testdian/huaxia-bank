@@ -45,7 +45,7 @@ function renderTemplateIndustryCombo(meta, options = {}) {
 }
 
 /** 模板库版本 Tab 当前选中序号（sessionStorage） */
-const TEMPLATE_LIST_VERSION_RANK_KEY = 'huaxia_template_list_version_rank';
+const TEMPLATE_LIST_VERSION_RANK_KEY = 'demo_template_list_version_rank';
 
 function getTemplateListVersionRank() {
   const n = parseInt(sessionStorage.getItem(TEMPLATE_LIST_VERSION_RANK_KEY) || '1', 10);

@@ -2,8 +2,8 @@
 
 | 环境 | 分支 | 公网地址 |
 |------|------|----------|
-| **UAT** | `uat` | https://testdian.github.io/huaxia-bank/uat/ （或 `/uat/index.html`） |
-| **生产** | `main` | https://testdian.github.io/huaxia-bank/ （或 `/app.html` 会跳转至同目录首页） |
+| **UAT** | `uat` | https://testdian.github.io/investment-carbon-demo/uat/ （或 `/uat/index.html`） |
+| **生产** | `main` | https://testdian.github.io/investment-carbon-demo/ （或 `/app.html` 会跳转至同目录首页） |
 
 ## 三种「环境」分别是什么？
 
@@ -25,9 +25,9 @@
 
 ### 2. 链接是否带项目子路径
 
-本仓库为 **Project Pages**，根路径是 `/huaxia-bank/`，UAT 在 `/huaxia-bank/uat/`。
+本仓库为 **Project Pages**，根路径是 `/investment-carbon-demo/`，UAT 在 `/investment-carbon-demo/uat/`。
 
-- 正确：https://testdian.github.io/huaxia-bank/uat/
+- 正确：https://testdian.github.io/investment-carbon-demo/uat/
 - 错误：https://testdian.github.io/uat/（会 404）
 
 ### 3. 旧版 app.html 跳转问题

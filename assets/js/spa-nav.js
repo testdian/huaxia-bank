@@ -263,12 +263,12 @@ function mountSpaShell(pageTitle) {
 
   document.body.innerHTML = `
     <header class="app-header">
-      <div class="logo">华夏银行 · 绿金系统</div>
+      <div class="logo">投融资碳核算系统</div>
       <div class="breadcrumb">投融资碳核算 <span>/</span> ${pageTitle}</div>
       <div class="header-actions">
         <button type="button" class="btn-changelog" id="changelogBtn" title="查看页面更新说明">更新说明</button>
         <select id="roleSwitch">
-          <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行绿金部</option>
+          <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行管理部门</option>
           <option value="branch" ${data.currentRole === 'branch' ? 'selected' : ''}>分行负责人</option>
           <option value="manager" ${data.currentRole === 'manager' ? 'selected' : ''}>客户经理</option>
         </select>

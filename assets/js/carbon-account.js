@@ -1941,7 +1941,7 @@ const CarbonAccount = {
     (() => {
       const creditCode = '91310100MA0000CROSS01';
       const loanAccount = '6221000888001';
-      const customerName = '华夏示范制造股份有限公司';
+      const customerName = '示范制造股份有限公司';
       const acc = ensureAccount({
         creditCode,
         loanAccount,
@@ -2142,12 +2142,12 @@ const CarbonAccount = {
     fewDisabled.forEach(a => {
       a.status = 'disabled';
       a.statusChangedAt = '2024-06-01 10:00:00';
-      a.statusHistory = [{ from: 'active', to: 'disabled', at: a.statusChangedAt, operator: '总行绿金部' }];
+      a.statusHistory = [{ from: 'active', to: 'disabled', at: a.statusChangedAt, operator: '总行管理部门' }];
     });
     accounts.filter((_, idx) => idx % 113 === 0).slice(0, 2).forEach(a => {
       a.status = 'cancelled';
       a.statusChangedAt = '2024-09-01 10:00:00';
-      a.statusHistory = [{ from: 'active', to: 'cancelled', at: a.statusChangedAt, operator: '总行绿金部' }];
+      a.statusHistory = [{ from: 'active', to: 'cancelled', at: a.statusChangedAt, operator: '总行管理部门' }];
       this._zeroAccountEmissions(a);
     });
 
