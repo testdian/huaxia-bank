@@ -1,10 +1,10 @@
-# 华夏银行投融资碳核算 - HTML 演示原型
+# 投融资碳核算 - HTML 演示原型
 
 ## 在线演示
 
-- **GitHub 仓库**：https://github.com/testdian/huaxia-bank
-- **生产环境**（`main` 分支）：https://testdian.github.io/huaxia-bank/
-- **UAT 环境**（`uat` 分支）：https://testdian.github.io/huaxia-bank/uat/
+- **GitHub 仓库**：https://github.com/testdian/investment-carbon-demo
+- **生产环境**（`main` 分支）：https://testdian.github.io/investment-carbon-demo/
+- **UAT 环境**（`uat` 分支）：https://testdian.github.io/investment-carbon-demo/uat/
 
 部署流程见仓库根目录 [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)。
 
@@ -45,7 +45,7 @@ python3 -m http.server 8765
 
 ## 角色切换
 
-- **总行绿金部**：全行视角，可发起任务、确认清单、计算、导出
+- **总行管理部门**：全行视角，可发起任务、确认清单、计算、导出
 - **分行负责人**：仅看北京分行补数任务（王丽）
 - **客户经理**：仅看王磊名下待办
 
@@ -63,5 +63,5 @@ python3 -m http.server 8765
 
 ## 说明
 
-- 审批模块沿用绿金系统，本原型仅提供「提交审核」及状态回写演示
+- 审批模块沿用主系统，本原型仅提供「提交审核」及状态回写演示
 - 点击顶部「重置数据」恢复初始假数据

@@ -82,7 +82,7 @@ window.METHOD_CONFIG = {
     { id: 'tpl_np_钢铁_energy', templateName: '钢铁-能源法', industry: '钢铁', subCategory: '', bizType: 'non_project', methodId: 'energy', priority: 1, applyScene: ['entity'], status: 'draft', enabled: true, version: '—', fieldCount: 8, formulaCount: 0, updatedAt: '2026-06-22', updatedBy: '陈静' }
   ],
 
-  STORAGE_KEY: 'huaxia_method_config_demo',
+  STORAGE_KEY: 'method_config_demo',
 
   init() {
     this._registerSeedTemplate(window.METHOD_CONFIG_FLAT_GLASS);

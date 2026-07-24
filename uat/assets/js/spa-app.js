@@ -120,7 +120,7 @@ function route() {
   if (typeof bindCalculationStepDevSpec === 'function') {
     bindCalculationStepDevSpec(root);
   }
-  document.title = title + ' - 华夏银行投融资碳核算';
+  document.title = title + ' - 投融资碳核算';
 }
 
 function bindParamFormFormatPanels() {
@@ -2183,7 +2183,7 @@ openApproval = function(docType, docId, docName) {
         <div class="modal-overlay" id="approvalModal">
           <div class="modal">
             <div class="modal-header"><h4>提交审核</h4><button class="modal-close" id="closeApproval">&times;</button></div>
-            <div class="modal-body"><p>确认将 <strong id="approvalDocName"></strong> 提交至<strong>绿金系统审批模块</strong>？</p>
+            <div class="modal-body"><p>确认将 <strong id="approvalDocName"></strong> 提交至<strong>主系统审批模块</strong>？</p>
             <p style="font-size:13px;color:#909399;margin-top:8px">审批流转由宿主系统处理，本模块仅回写状态。</p></div>
             <div class="modal-footer"><button class="btn" id="cancelApproval">取消</button><button class="btn btn-primary" id="approvalConfirmBtn">确认提交</button></div>
           </div>
@@ -2197,7 +2197,7 @@ openApproval = function(docType, docId, docName) {
     qs('#approvalDocName').textContent = docName;
     qs('#approvalConfirmBtn').onclick = () => {
       Store.submitApproval(docType, docId, docName);
-      toast('已提交审核！请在绿金系统待办中处理', 'success');
+      toast('已提交审核！请在主系统待办中处理', 'success');
       hideModal('approvalModal');
       route();
     };

@@ -33,8 +33,8 @@ const NAV = [
 ];
 
 const ROLES = {
-  hq: { label: '总行绿金部', user: '张明', branch: null },
-  branch: { label: '分行绿金负责人', user: '王丽', branch: '北京分行' },
+  hq: { label: '总行管理部门', user: '张明', branch: null },
+  branch: { label: '分行负责人', user: '王丽', branch: '北京分行' },
   manager: { label: '客户经理', user: '王磊', branch: '北京分行' }
 };
 
@@ -127,12 +127,12 @@ function renderLayout(pageTitle, activeHref) {
 
   document.body.insertAdjacentHTML('afterbegin', `
     <header class="app-header">
-      <div class="logo">华夏银行 · 绿金系统</div>
+      <div class="logo">投融资碳核算系统</div>
       <div class="breadcrumb">投融资碳核算 <span>/</span> ${pageTitle}</div>
       <div class="header-actions">
         <button type="button" class="btn-changelog" id="changelogBtn" title="查看页面更新说明">更新说明</button>
         <select id="roleSwitch" title="切换演示角色">
-          <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行绿金部</option>
+          <option value="hq" ${data.currentRole === 'hq' ? 'selected' : ''}>总行管理部门</option>
           <option value="branch" ${data.currentRole === 'branch' ? 'selected' : ''}>分行负责人</option>
           <option value="manager" ${data.currentRole === 'manager' ? 'selected' : ''}>客户经理</option>
         </select>
@@ -253,7 +253,7 @@ function downloadReportFile(report) {
     ? 'application/msword'
     : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const lines = [
-    '华夏银行 · 投融资碳排放核算报告（演示导出）',
+    '投融资碳排放核算报告（演示导出）',
     '',
     `报告名称：${report.name || '-'}`,
     `导出范围：${report.scope || '-'}`,
@@ -666,7 +666,7 @@ function hideSupplementFillDrawer() {
 
 function submitApprovalModal(docType, docId, docName) {
   Store.submitApproval(docType, docId, docName);
-  toast('已提交审核！请前往绿金系统「待办事项」处理（演示：状态已更新为待审核）', 'success');
+  toast('已提交审核！请前往主系统「待办事项」处理（演示：状态已更新为待审核）', 'success');
   hideModal('approvalModal');
   setTimeout(() => location.reload(), 600);
 }
@@ -677,7 +677,7 @@ function renderApprovalModal() {
       <div class="modal">
         <div class="modal-header"><h4>提交审核</h4><button class="modal-close" onclick="hideModal('approvalModal')">&times;</button></div>
         <div class="modal-body">
-          <p style="margin-bottom:12px">确认将 <strong id="approvalDocName"></strong> 提交至<strong>绿金系统既有审批模块</strong>？</p>
+          <p style="margin-bottom:12px">确认将 <strong id="approvalDocName"></strong> 提交至<strong>主系统审批模块</strong>？</p>
           <p style="font-size:13px;color:#909399">审批流转、待办提醒由宿主系统处理，碳核算模块仅提供提交入口与状态回写。</p>
         </div>
         <div class="modal-footer">
@@ -3675,7 +3675,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
       state: 'done',
       badge: '已派发',
       meta: [
-        { label: '派发人', value: s.dispatchedBy || (task?.initiatorOrg === 'branch' ? '分行绿金部' : '总行绿金部') },
+        { label: '派发人', value: s.dispatchedBy || (task?.initiatorOrg === 'branch' ? '分行管理部门' : '总行管理部门') },
         { label: '派发时间', value: s.dispatchedAt || '—' },
         { label: '截止日期', value: s.deadline || '—' }
       ]
@@ -3739,7 +3739,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
       return {
         state: 'pending',
         badge: '待审核',
-        meta: [{ label: '审批人', value: `分行绿金负责人（${s?.branch || '—'}）` }]
+        meta: [{ label: '审批人', value: `分行负责人（${s?.branch || '—'}）` }]
       };
     }
     const approval = branchApproval;
@@ -3811,7 +3811,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
         state: 'pending',
         badge: '未到达',
         meta: [
-          { label: '审批人', value: '总行绿金部' },
+          { label: '审批人', value: '总行管理部门' },
           { label: '说明', value: '分行初审未通过，待客户经理重新提交后再进入' }
         ]
       };
@@ -3822,7 +3822,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
         state: 'pending',
         badge: '待审核',
         meta: [
-          { label: '审批人', value: '总行绿金部' },
+          { label: '审批人', value: '总行管理部门' },
           { label: '说明', value: '待分行初审通过后进入' }
         ]
       };
@@ -3834,7 +3834,7 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
       meta: buildReviewStepMeta(approval, s, task, 'hq').length
         ? buildReviewStepMeta(approval, s, task, 'hq')
         : [
-          { label: '审批人', value: '总行绿金部' },
+          { label: '审批人', value: '总行管理部门' },
           { label: '说明', value: '分行初审已通过，待进入总行终审' }
         ]
     };
@@ -3846,8 +3846,8 @@ function resolveSupplementFlowStep(step, s, task, approvals) {
 function buildReviewStepMeta(approval, s, task, level, fallbackReason) {
   const approver = approval?.status === 'pending'
     ? (level === 'branch'
-      ? `分行绿金负责人（${s?.branch || task?.initiatorBranch || '所属分行'}）`
-      : '总行绿金部')
+      ? `分行负责人（${s?.branch || task?.initiatorBranch || '所属分行'}）`
+      : '总行管理部门')
     : (approval?.approver || '—');
   const rows = [
     { label: '提交人', value: `${approval?.submitter || s?.manager || '—'} · ${approval?.submitTime || s?.submittedAt || '—'}` },
@@ -4796,9 +4796,9 @@ function approvalCurrentApproverLabel(approval, task) {
   }
   if (approval.reviewLevel === 'branch') {
     const s = getSupplementForApproval(approval);
-    return `分行绿金负责人（${s?.branch || task?.initiatorBranch || '所属分行'}）`;
+    return `分行负责人（${s?.branch || task?.initiatorBranch || '所属分行'}）`;
   }
-  if (approval.reviewLevel === 'hq') return '总行绿金部';
+  if (approval.reviewLevel === 'hq') return '总行管理部门';
   return '—';
 }
 
@@ -4806,7 +4806,7 @@ function approvalNextApproverLabel(approval, task) {
   if (approval.status !== 'pending') return '—';
   if (approval.reviewLevel === 'branch') {
     if (task?.initiatorOrg === 'branch') return '—（分行终审）';
-    return '总行绿金部（终审）';
+    return '总行管理部门（终审）';
   }
   return '—';
 }
@@ -5658,7 +5658,7 @@ function listApprovalRejectRouteOptions(approval) {
 function resolveApprovalRejectRouteExtra(route, supplement, task, otherManagerName) {
   const mgr = supplement?.manager || ROLES.manager?.user || '王磊';
   const branchRole = ROLES.branch || {};
-  const branchLabel = `${branchRole.user || '王丽'} · ${branchRole.label || '分行绿金负责人'}${branchRole.branch ? `（${branchRole.branch}）` : ''}`;
+  const branchLabel = `${branchRole.user || '王丽'} · ${branchRole.label || '分行负责人'}${branchRole.branch ? `（${branchRole.branch}）` : ''}`;
   if (route === 'original_manager') {
     return { rejectTarget: 'manager', rejectAssignee: `manager:${mgr}`, rejectAssigneeLabel: mgr, rejectRoute: route, rejectRouteLabel: '退回' };
   }
@@ -6906,9 +6906,9 @@ function renderMonthEndBalanceCells(c, accountingYear, task) {
   ).join('');
 }
 
-/** 核算年度内该笔贷款在华夏银行的存续月份 */
-function computeHuaxiaTenureMonths(c, accountingYear) {
-  if (c?.huaxiaTenureMonths != null) return Math.max(1, Number(c.huaxiaTenureMonths));
+/** 核算年度内该笔贷款在本行的存续月份 */
+function computeBankTenureMonths(c, accountingYear) {
+  if (c?.bankTenureMonths != null) return Math.max(1, Number(c.bankTenureMonths));
   if (typeof CandidateSync !== 'undefined' && CandidateSync.tenureMonths) {
     return CandidateSync.tenureMonths(c?.disbursementDate, accountingYear || c?.accountingYear);
   }
@@ -6927,14 +6927,14 @@ function computeHuaxiaTenureMonths(c, accountingYear) {
 /** 月末余额合计（万元）= 各月月末余额之和 */
 function candidateMonthEndBalanceSum(c, accountingYear) {
   if (c?.monthEndBalanceSum != null) return Number(c.monthEndBalanceSum);
-  const months = computeHuaxiaTenureMonths(c, accountingYear);
+  const months = computeBankTenureMonths(c, accountingYear);
   const avg = Number(c?.avgMonthlyBalance) || 0;
   return avg * months;
 }
 
-/** 月均贷款余额（万元）= 月末余额合计 / 华夏存续月份 */
+/** 月均贷款余额（万元）= 月末余额合计 / 存续月份 */
 function computeCandidateAvgMonthlyBalance(c, accountingYear) {
-  const months = computeHuaxiaTenureMonths(c, accountingYear);
+  const months = computeBankTenureMonths(c, accountingYear);
   const sum = candidateMonthEndBalanceSum(c, accountingYear);
   if (!months) return Number(c?.avgMonthlyBalance) || 0;
   return sum / months;
@@ -7279,8 +7279,8 @@ function normalizeCandidateLedgerFields(c, accountingYear) {
   if (!c.creditRefNo) c.creditRefNo = candidateCreditReferenceNo(c);
   if (!c.creditNo) c.creditNo = candidateCreditNo(c);
   const year = accountingYear || c.accountingYear;
-  const months = computeHuaxiaTenureMonths(c, year);
-  c.huaxiaTenureMonths = months;
+  const months = computeBankTenureMonths(c, year);
+  c.bankTenureMonths = months;
   if (c.monthEndBalanceSum == null && c.avgMonthlyBalance != null) {
     c.monthEndBalanceSum = Number(c.avgMonthlyBalance) * months;
   }
@@ -7685,7 +7685,7 @@ function formalLedgerRow(f, taskId) {
     industryMajor: f.industryMajor,
     avgMonthlyBalance: f.avgMonthlyBalance,
     monthEndBalanceSum: f.monthEndBalanceSum,
-    huaxiaTenureMonths: f.huaxiaTenureMonths,
+    bankTenureMonths: f.bankTenureMonths,
     totalAssets: f.totalAssets,
     prevYearTotalAssets: f.prevYearTotalAssets,
     avgTotalAssets: f.avgTotalAssets,

@@ -1684,7 +1684,7 @@ const Store = {
           enterpriseScale: c.enterpriseScale || c.customerScale || candidateEnterpriseScale(c),
           avgMonthlyBalance: c.avgMonthlyBalance,
           monthEndBalanceSum: c.monthEndBalanceSum,
-          huaxiaTenureMonths: c.huaxiaTenureMonths,
+          bankTenureMonths: c.bankTenureMonths,
           totalAssets: c.totalAssets,
           prevYearTotalAssets: c.prevYearTotalAssets,
           avgTotalAssets: c.avgTotalAssets,

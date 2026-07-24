@@ -25,7 +25,7 @@ const CandidateSync = {
     民航: ['G5631', 'G5611', 'G5612']
   },
 
-  /** 该笔贷款在核算年度内于华夏银行的存续月份（非固定 12） */
+  /** 该笔贷款在核算年度内于本行的存续月份（非固定 12） */
   tenureMonths(disbursementDate, accountingYear) {
     const year = Number(accountingYear) || new Date().getFullYear();
     if (!disbursementDate) return 12;
@@ -108,9 +108,9 @@ const CandidateSync = {
       const disbursementAmount = Math.round(avgMonthlyBalance * 10000 * (8 + (idx % 5)));
       const accountingYear = year || 2024;
       const disbursementDate = `${accountingYear}-${String((idx % 12) + 1).padStart(2, '0')}-${String(10 + (idx % 18)).padStart(2, '0')}`;
-      const huaxiaTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
-      const monthEndBalanceSum = Math.round(avgMonthlyBalance * huaxiaTenureMonths);
-      avgMonthlyBalance = monthEndBalanceSum / huaxiaTenureMonths;
+      const bankTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
+      const monthEndBalanceSum = Math.round(avgMonthlyBalance * bankTenureMonths);
+      avgMonthlyBalance = monthEndBalanceSum / bankTenureMonths;
       const totalAssets = avgMonthlyBalance * 80 + idx * 1000;
       const prevYearTotalAssets = avgMonthlyBalance * 75 + idx * 900;
       const avgTotalAssets = (totalAssets + prevYearTotalAssets) / 2;
@@ -170,7 +170,7 @@ const CandidateSync = {
         projectTotalInvestmentWan,
         projectDetails,
         monthEndBalanceSum,
-        huaxiaTenureMonths,
+        bankTenureMonths,
         avgMonthlyBalance,
         totalAssets,
         prevYearTotalAssets,
@@ -258,9 +258,9 @@ const CandidateSync = {
       const tier1Branch = s.branch;
       const handlingBranch = tier1Branch.replace('分行', '') + '营业部';
       const disbursementDate = `${accountingYear}-0${i + 3}-15`;
-      const huaxiaTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
-      const monthEndBalanceSum = Math.round(s.balance * huaxiaTenureMonths);
-      const avgMonthlyBalance = monthEndBalanceSum / huaxiaTenureMonths;
+      const bankTenureMonths = this.tenureMonths(disbursementDate, accountingYear);
+      const monthEndBalanceSum = Math.round(s.balance * bankTenureMonths);
+      const avgMonthlyBalance = monthEndBalanceSum / bankTenureMonths;
       const operatingRevenue = Math.round(s.balance * 6 + idx * 10);
       const totalAssets = avgMonthlyBalance * 80 + idx * 100;
       const prevYearTotalAssets = avgMonthlyBalance * 75 + idx * 90;
@@ -295,7 +295,7 @@ const CandidateSync = {
         projectTotalInvestmentWan: s.projectDetails[0]?.projectTotalInvestmentWan || null,
         projectDetails: s.projectDetails,
         monthEndBalanceSum,
-        huaxiaTenureMonths,
+        bankTenureMonths,
         avgMonthlyBalance,
         totalAssets,
         prevYearTotalAssets,
@@ -319,7 +319,7 @@ const CandidateSync = {
 
   /** 与候选清单一致的演示企业名称 */
   formatCompanyName(major, idx) {
-    const names = this.NAMES[major] || ['华夏示范'];
+    const names = this.NAMES[major] || ['示范'];
     const brand = names[idx % names.length];
     const mid = major === '电力' ? '发电' : (major === '钢铁' ? '炼钢' : '');
     return `${brand}${mid}有限公司`;
